@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -12,7 +12,7 @@ function createWindow() {
     width: 1100, height: 700,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 13 },
-    backgroundColor: '#ffffff',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#111111' : '#ffffff',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

@@ -1,3 +1,36 @@
+const THEMES = {
+  light: {
+    background: '#ffffff', foreground: '#111111', cursor: '#111111', cursorAccent: '#ffffff',
+    selectionBackground: 'rgba(17,17,17,0.15)',
+    black: '#111111', red: '#d11d1d', green: '#2e7d4f', yellow: '#e35a1e',
+    blue: '#3a3a38', magenta: '#b08a4d', cyan: '#8c8c87', white: '#b9b8b3',
+    brightBlack: '#8a8a8a', brightRed: '#d11d1d', brightGreen: '#2e7d4f', brightYellow: '#e35a1e',
+    brightBlue: '#4a4a4a', brightMagenta: '#b08a4d', brightCyan: '#8c8c87', brightWhite: '#ececea',
+  },
+  dark: {
+    background: '#111111', foreground: '#ececea', cursor: '#ececea', cursorAccent: '#111111',
+    selectionBackground: 'rgba(236,236,234,0.18)',
+    black: '#1a1a18', red: '#e04a4a', green: '#4caf7a', yellow: '#f07a45',
+    blue: '#b9b8b3', magenta: '#c9a567', cyan: '#9c9c97', white: '#b9b8b3',
+    brightBlack: '#6a6a66', brightRed: '#e04a4a', brightGreen: '#4caf7a', brightYellow: '#f07a45',
+    brightBlue: '#d6d6d2', brightMagenta: '#c9a567', brightCyan: '#9c9c97', brightWhite: '#ffffff',
+  },
+};
+const mql = window.matchMedia('(prefers-color-scheme: dark)');
+let themeMode = localStorage.getItem('theme') || 'auto'; // auto | light | dark
+function resolvedTheme() { return themeMode === 'auto' ? (mql.matches ? 'dark' : 'light') : themeMode; }
+function termTheme() { return THEMES[resolvedTheme()]; }
+function applyTheme() {
+  document.documentElement.dataset.theme = resolvedTheme();
+  document.getElementById('theme').textContent = themeMode;
+  for (const t of tabs.values()) t.term.options.theme = termTheme();
+}
+mql.addEventListener('change', applyTheme);
+document.getElementById('theme').onclick = () => {
+  themeMode = { auto: 'light', light: 'dark', dark: 'auto' }[themeMode];
+  localStorage.setItem('theme', themeMode); applyTheme();
+};
+
 const tabs = new Map(); // id -> { term, fit, tabEl, termEl }
 let active = null;
 let nextId = 1;
@@ -18,15 +51,7 @@ function createTab(opts = {}) {
     lineHeight: 1.2,
     cursorBlink: false,
     cursorStyle: 'block',
-    theme: {
-      background: '#ffffff', foreground: '#111111',
-      cursor: '#111111', cursorAccent: '#ffffff',
-      selectionBackground: 'rgba(17,17,17,0.15)',
-      black: '#111111', red: '#d11d1d', green: '#2e7d4f', yellow: '#e35a1e',
-      blue: '#3a3a38', magenta: '#b08a4d', cyan: '#8c8c87', white: '#b9b8b3',
-      brightBlack: '#8a8a8a', brightRed: '#d11d1d', brightGreen: '#2e7d4f', brightYellow: '#e35a1e',
-      brightBlue: '#4a4a4a', brightMagenta: '#b08a4d', brightCyan: '#8c8c87', brightWhite: '#ececea',
-    },
+    theme: termTheme(),
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
@@ -96,13 +121,26 @@ async function loadProjects() {
     el.onclick = () => createTab({ cwd: p.path, cmd: 'claude', title: p.name });
     projectsEl.appendChild(el);
   }
+  filterProjects();
 }
 loadProjects();
 window.addEventListener('focus', loadProjects);
+
+const searchEl = document.getElementById('search');
+function filterProjects() {
+  const q = searchEl.value.trim().toLowerCase();
+  for (const el of projectsEl.children) el.classList.toggle('hidden', q && !el.textContent.toLowerCase().includes(q) && !el.title.toLowerCase().includes(q));
+}
+searchEl.addEventListener('input', filterProjects);
+searchEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { const first = [...projectsEl.children].find(el => !el.classList.contains('hidden')); if (first) { first.click(); searchEl.value = ''; filterProjects(); } }
+  else if (e.key === 'Escape') { searchEl.value = ''; filterProjects(); active && tabs.get(active)?.term.focus(); }
+});
 window.addEventListener('resize', () => active && tabs.get(active)?.fit.fit());
 window.addEventListener('keydown', (e) => {
   if (!e.metaKey) return;
   if (e.key === 't') { e.preventDefault(); createTab(); }
+  else if (e.key === 'k') { e.preventDefault(); searchEl.focus(); searchEl.select(); }
   else if (e.key === 'w') { e.preventDefault(); if (active) closeTab(active); }
   else if (e.key === '}' || (e.shiftKey && e.key === ']')) { e.preventDefault(); cycle(1); }
   else if (e.key === '{' || (e.shiftKey && e.key === '[')) { e.preventDefault(); cycle(-1); }
@@ -116,4 +154,5 @@ function cycle(dir) {
   activate(ids[(i + dir + ids.length) % ids.length]);
 }
 
+applyTheme();
 createTab();

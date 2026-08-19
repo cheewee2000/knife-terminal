@@ -8,6 +8,7 @@ CW&T's own terminal. Electron + xterm.js + node-pty. Basic for now — just tabs
 
 ## Features
 - Left sidebar: tabs, then recent Claude Code projects (from `~/.claude.json`) — click one to open a tab in that folder running `claude`.
+- ⌘K searches projects; Enter opens the first match. Theme toggle (auto/light/dark) in the sidebar footer.
 - Drag files/folders onto the terminal to paste their shell-quoted paths.
 
 ## Shortcuts
