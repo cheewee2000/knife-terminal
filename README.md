@@ -17,7 +17,7 @@ CW&T's own terminal. Electron + xterm.js + node-pty. Basic for now — just tabs
 - Drag files/folders onto the terminal to paste their shell-quoted paths.
 
 ## Shortcuts
-- ⌘T new tab · ⌘W close tab · ⌘1–9 jump to tab · ⌘⇧[ / ⌘⇧] prev/next tab · ⌘B hide/show sidebar
+- ⌘T new tab · ⌘W close tab · ⌘1–9 jump to tab · ⌘⇧[ / ⌘⇧] prev/next tab · ⌘B hide/show sidebar · ⌘N new window · ⌘⇧N move tab to new window · ⌘⇧M merge all windows · drag a tab onto another window to move it
 
 ## Build the macOS app
     npm run install-app    # packages to dist/ and copies to /Applications

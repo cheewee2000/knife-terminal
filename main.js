@@ -6,10 +6,15 @@ const os = require('os');
 const fs = require('fs');
 const pty = require('node-pty');
 
-const ptys = new Map();
-let win;
-let pendingOpens = []; // open-file / open-url requests that arrived before the renderer was ready
-let rendererReady = false;
+const ptys = new Map(); // id -> { p, wc }  (wc = webContents of the window that owns the tab)
+const wins = new Set();
+let nextTabId = 1;
+let pendingOpens = []; // open-file / open-url requests that arrived before any renderer was ready
+let pendingRestore = []; // per-window tab lists waiting for a renderer to come up
+// The window to talk to: focused, else most recently created
+function win() { const f = BrowserWindow.getFocusedWindow(); if (f && wins.has(f)) return f; return [...wins].pop() || null; }
+function send(w, ch, m) { if (w && !w.isDestroyed()) w.webContents.send(ch, m); }
+function wcById(id) { return [...wins].find(w => w.webContents.id === id)?.webContents || null; }
 
 function shq(p) { return /^[A-Za-z0-9_\/.\-]+$/.test(p) ? p : "'" + p.replace(/'/g, "'\\''") + "'"; }
 
@@ -32,32 +37,42 @@ function dispatchOpen(target, cmd) {
   const req = openRequest(target);
   if (!req) return;
   if (cmd) req.cmd = cmd;
-  if (rendererReady && win) win.webContents.send('open:request', req);
+  const w = win();
+  if (w && w.webContents.__ready) send(w, 'open:request', req);
   else pendingOpens.push(req);
 }
 app.on('open-file', (e, p) => { e.preventDefault(); dispatchOpen(p); });
 app.on('open-url', (e, u) => { e.preventDefault(); dispatchOpen(u); });
-ipcMain.on('renderer:ready', () => {
-  rendererReady = true;
-  win.webContents.send('session:restore', loadSession());
-  for (const r of pendingOpens) win.webContents.send('open:request', r); pendingOpens = [];
+ipcMain.on('renderer:ready', (e) => {
+  e.sender.__ready = true;
+  e.sender.send('session:restore', { tabs: pendingRestore.shift() || [] });
+  for (const r of pendingOpens) e.sender.send('open:request', r); pendingOpens = [];
 });
+ipcMain.on('tab:next-id', (e) => { e.returnValue = nextTabId++; });
+ipcMain.on('wc:id', (e) => { e.returnValue = e.sender.id; });
 
 // ─── Session persistence: tabs + their cwd, restored on next launch ───
 const SESSION_FILE = path.join(app.getPath('userData'), 'session.json');
-let tabMeta = []; // [{id, title, cmd, restoreCmd}] from renderer, in display order
+const tabMeta = new Map(); // webContents.id -> [{id, title, restoreCmd, active}] from that window's renderer, in display order
 function loadSession() { try { return JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8')); } catch { return null; } }
 function cwdOf(pid) {
   try { const out = execFileSync('/usr/sbin/lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { encoding: 'utf8', timeout: 1500 }); const m = out.match(/^n(.+)$/m); return m ? m[1] : null; } catch { return null; }
 }
+let lastSaved = null;
 function saveSession() {
   try {
-    const tabs = tabMeta.map(t => { const p = ptys.get(t.id); return { title: t.title, cwd: p ? cwdOf(p.pid) : null, cmd: t.restoreCmd || null, active: !!t.active }; });
+    const windows = [...wins].map(w => {
+      const b = w.getBounds();
+      const tabs = (tabMeta.get(w.webContents.id) || []).map(t => { const e = ptys.get(t.id); return { title: t.title, cwd: e ? cwdOf(e.p.pid) : null, cmd: t.restoreCmd || null, active: !!t.active }; });
+      return { bounds: b, tabs };
+    }).filter(w => w.tabs.length);
+    if (windows.length) lastSaved = { windows };
+    if (!lastSaved) return;
     fs.mkdirSync(path.dirname(SESSION_FILE), { recursive: true });
-    fs.writeFileSync(SESSION_FILE, JSON.stringify({ tabs }, null, 2));
+    fs.writeFileSync(SESSION_FILE, JSON.stringify(lastSaved, null, 2));
   } catch {}
 }
-ipcMain.on('session:tabs', (e, meta) => { tabMeta = meta; saveSession(); });
+ipcMain.on('session:tabs', (e, meta) => { tabMeta.set(e.sender.id, meta); saveSession(); });
 setInterval(saveSession, 15000);
 app.on('before-quit', saveSession);
 
@@ -66,7 +81,7 @@ ipcMain.handle('default:set', () => new Promise(resolve => {
   const helper = path.join(__dirname, 'bin', 'set-default');
   execFile(helper, [app.isPackaged ? 'com.cwandt.knifeterminal' : 'com.github.Electron'], (err, out, errOut) => {
     const ok = !err;
-    dialog.showMessageBox(win, { type: ok ? 'info' : 'warning', message: ok ? 'Knife Terminal is now the default terminal.' : 'Some handlers could not be set.',
+    dialog.showMessageBox(win(), { type: ok ? 'info' : 'warning', message: ok ? 'Knife Terminal is now the default terminal.' : 'Some handlers could not be set.',
       detail: (out || '') + (errOut || '') + '\n\nKnife now opens .command/.sh/.tool files, unix executables, and ssh:// / telnet:// links. Folders: right-click → Open With → Knife Terminal.' });
     resolve(ok);
   });
@@ -76,7 +91,7 @@ ipcMain.handle('default:set', () => new Promise(resolve => {
 const SOCK = path.join(os.homedir(), '.knife-terminal.sock');
 const CHIME = '/System/Library/Sounds/Glass.aiff';
 function chime() { try { spawnProc('afplay', [CHIME], { stdio: 'ignore', detached: true }).unref(); } catch {} }
-function attention(id, type) { if (win) win.webContents.send('attention', { id: Number(id), type }); chime(); }
+function attention(id, type) { const e = ptys.get(Number(id)); if (e) e.wc.send('attention', { id: Number(id), type }); chime(); }
 ipcMain.on('chime', chime);
 function startSocket() {
   try { fs.unlinkSync(SOCK); } catch {}
@@ -87,7 +102,7 @@ function startSocket() {
       const msg = buf.trim();
       // "open <dir>" → new tab in <dir> running claude (used by the Finder "Open with Claude" quick action)
       const o = msg.match(/^open\s+(.+)$/s);
-      if (o) { const dir = o[1].trim(); try { if (fs.statSync(dir).isDirectory()) { dispatchOpen(dir, 'claude'); if (win) { win.show(); app.focus({ steal: true }); } } } catch {} return; }
+      if (o) { const dir = o[1].trim(); try { if (fs.statSync(dir).isDirectory()) { dispatchOpen(dir, 'claude'); const w = win(); if (w) { w.show(); app.focus({ steal: true }); } } } catch {} return; }
       const m = msg.match(/^(\d+)\s*(.*)$/s);
       if (!m) return;
       let type = 'stop';
@@ -110,7 +125,7 @@ function hooksInstalled() {
 ipcMain.handle('hooks:status', () => hooksInstalled());
 ipcMain.handle('hooks:install', async () => {
   if (hooksInstalled()) return true;
-  const { response } = await dialog.showMessageBox(win, { type: 'question', buttons: ['Install', 'Cancel'], defaultId: 0, cancelId: 1,
+  const { response } = await dialog.showMessageBox(win(), { type: 'question', buttons: ['Install', 'Cancel'], defaultId: 0, cancelId: 1,
     message: 'Add Claude Code hooks for attention alerts?',
     detail: `Adds a Stop and a Notification hook to ${SETTINGS}. Each hook pings Knife (via ~/.knife-terminal.sock) so the tab gets an orange dot and a chime when Claude Code is waiting for you. Nothing else in the file is changed.` });
   if (response !== 0) return false;
@@ -129,24 +144,28 @@ function buildMenu() {
   const tpl = [
     { label: app.name, submenu: [
       { role: 'about' }, { type: 'separator' },
-      { label: 'Make Default Terminal…', click: () => win && win.webContents.send('menu:set-default') },
-      { label: 'Install Claude Code Alert Hooks…', click: () => win && win.webContents.send('menu:install-hooks') },
+      { label: 'Make Default Terminal…', click: () => send(win(), 'menu:set-default') },
+      { label: 'Install Claude Code Alert Hooks…', click: () => send(win(), 'menu:install-hooks') },
       { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' } ] },
     { label: 'Shell', submenu: [
-      { label: 'New Tab', accelerator: 'Cmd+T', click: () => win && win.webContents.send('menu:new-tab') },
-      { label: 'Close Tab', accelerator: 'Cmd+W', click: () => win && win.webContents.send('menu:close-tab') } ] },
+      { label: 'New Tab', accelerator: 'Cmd+T', click: () => send(win(), 'menu:new-tab') },
+      { label: 'New Window', accelerator: 'Cmd+N', click: () => createWindow() },
+      { label: 'Close Tab', accelerator: 'Cmd+W', click: () => send(win(), 'menu:close-tab') },
+      { type: 'separator' },
+      { label: 'Move Tab to New Window', accelerator: 'Cmd+Shift+N', click: () => send(win(), 'menu:tab-to-new-window') },
+      { label: 'Merge All Windows', accelerator: 'Cmd+Shift+M', click: () => mergeAll() } ] },
     { role: 'editMenu' },
     { label: 'View', submenu: [
-      { label: 'Toggle Sidebar', accelerator: 'Cmd+B', click: () => win && win.webContents.send('menu:toggle-sidebar') },
+      { label: 'Toggle Sidebar', accelerator: 'Cmd+B', click: () => send(win(), 'menu:toggle-sidebar') },
       { type: 'separator' }, { role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'togglefullscreen' } ] },
     { role: 'windowMenu' },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(tpl));
 }
 
-function createWindow() {
-  win = new BrowserWindow({
-    width: 1100, height: 700,
+function createWindow(bounds) {
+  const w = new BrowserWindow({
+    width: 1100, height: 700, ...(bounds || {}),
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 13 },
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#111111' : '#ffffff',
@@ -156,9 +175,28 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
-  win.loadFile('index.html');
-  win.on('closed', () => { win = null; });
+  wins.add(w);
+  w.loadFile('index.html');
+  w.on('closed', () => { wins.delete(w); tabMeta.delete(w.webContents.id); for (const [id, e] of ptys) if (e.wc.isDestroyed()) { e.p.kill(); ptys.delete(id); } });
+  return w;
 }
+
+// ─── Moving tabs between windows ───
+// A tab is a pty (lives here) + an xterm (lives in a renderer). To move it, the source renderer serializes its
+// screen, sends it with the tab's metadata, and the target renderer recreates the xterm and adopts the pty.
+ipcMain.on('tab:move', (e, { id, targetWc, title, opts, buffer }) => {
+  const entry = ptys.get(id); const wc = targetWc ? wcById(targetWc) : null;
+  if (!entry || !wc) return;
+  entry.wc = wc;
+  wc.send('tab:adopt', { id, title, opts, buffer });
+});
+ipcMain.on('tab:pull', (e, { id, srcWc }) => { const wc = wcById(srcWc); if (wc) wc.send('tab:send', { id, targetWc: e.sender.id }); }); // drop target asks source to hand it over
+ipcMain.on('tab:to-new-window', (e, { id }) => { const w = createWindow(); w.webContents.once('did-finish-load', () => e.sender.send('tab:send', { id, targetWc: w.webContents.id })); });
+function mergeAll() {
+  const target = win(); if (!target) return;
+  for (const w of wins) if (w !== target) send(w, 'tabs:send-all', { targetWc: target.webContents.id });
+}
+ipcMain.on('window:close', (e) => { const w = BrowserWindow.fromWebContents(e.sender); if (w && wins.size > 1) w.close(); });
 
 ipcMain.handle('pty:spawn', (event, { id, cols, rows, cwd, cmd }) => {
   const shell = os.userInfo().shell || process.env.SHELL || '/bin/zsh';
@@ -169,15 +207,16 @@ ipcMain.handle('pty:spawn', (event, { id, cols, rows, cwd, cmd }) => {
     env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('CLAUDE_CODE_'))), KNIFE_TAB: String(id) },
   });
   if (cmd) setTimeout(() => p.write(cmd + '\r'), 400);
-  ptys.set(id, p);
-  p.onData(data => { if (win) win.webContents.send('pty:data', { id, data }); });
-  p.onExit(() => { ptys.delete(id); if (win) win.webContents.send('pty:exit', { id }); });
+  const entry = { p, wc: event.sender };
+  ptys.set(id, entry);
+  p.onData(data => { if (!entry.wc.isDestroyed()) entry.wc.send('pty:data', { id, data }); });
+  p.onExit(() => { ptys.delete(id); if (!entry.wc.isDestroyed()) entry.wc.send('pty:exit', { id }); });
   return true;
 });
 
-ipcMain.on('pty:write', (e, { id, data }) => ptys.get(id)?.write(data));
-ipcMain.on('pty:resize', (e, { id, cols, rows }) => { try { ptys.get(id)?.resize(cols, rows); } catch {} });
-ipcMain.on('pty:kill', (e, { id }) => { ptys.get(id)?.kill(); ptys.delete(id); });
+ipcMain.on('pty:write', (e, { id, data }) => ptys.get(id)?.p.write(data));
+ipcMain.on('pty:resize', (e, { id, cols, rows }) => { try { ptys.get(id)?.p.resize(cols, rows); } catch {} });
+ipcMain.on('pty:kill', (e, { id }) => { ptys.get(id)?.p.kill(); ptys.delete(id); });
 
 // Previously opened Claude Code projects, most recent first
 ipcMain.handle('projects:list', () => {
@@ -194,5 +233,10 @@ ipcMain.handle('projects:list', () => {
   } catch { return []; }
 });
 
-app.whenReady().then(() => { buildMenu(); startSocket(); createWindow(); });
-app.on('window-all-closed', () => { saveSession(); for (const p of ptys.values()) p.kill(); app.quit(); });
+app.whenReady().then(() => {
+  buildMenu(); startSocket();
+  const s = loadSession();
+  const windows = s?.windows?.length ? s.windows : [{ tabs: s?.tabs || [] }];
+  for (const w of windows) { pendingRestore.push(w.tabs || []); createWindow(w.bounds); }
+});
+app.on('window-all-closed', () => { saveSession(); for (const e of ptys.values()) e.p.kill(); app.quit(); });

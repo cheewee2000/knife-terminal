@@ -8,8 +8,8 @@
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; }
     /* dark theme: inverted ink/paper on warm neutrals (cerakote black) */
-    :root { --accent: #B1A57E; --sidew: 220px; }
-    :root[data-theme="dark"] { --ink: #ececea; --ink-soft: #b9b8b3; --ink-faint: #8a8a8a; --rule: #2e2e2c; --paper: #111111; --paper-2: #1a1a18; --paper-3: #222220; }
+    :root { --accent: #B1A57E; --sidew: 220px; --attn: #18e038; }
+    :root[data-theme="dark"] { --attn: #39ff14; --ink: #ececea; --ink-soft: #b9b8b3; --ink-faint: #8a8a8a; --rule: #2e2e2c; --paper: #111111; --paper-2: #1a1a18; --paper-3: #222220; }
     body { background: var(--paper); color: var(--ink); transition: background var(--dur) var(--ease); }
     #side { position: absolute; top: 0; bottom: 25px; left: 0; width: var(--sidew); background: var(--paper-2); border-right: 1px solid var(--rule); display: flex; flex-direction: column; user-select: none; font-size: 12px; }
     #drag { height: 36px; -webkit-app-region: drag; flex: none; }
@@ -30,11 +30,12 @@
     #tabs { flex: none; max-height: 40%; overflow-y: auto; }
     .tab { padding: 6px 12px; color: var(--ink-soft); cursor: default; display: flex; align-items: center; gap: 8px; transition: opacity var(--dur-fast) var(--ease); }
     .tab:hover { opacity: 0.55; }
+    .tab.dragging { opacity: 0.3; }
     .tab.active { background: var(--paper); color: var(--ink); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin-right: -1px; box-shadow: inset 2px 0 0 var(--accent); }
     .tab .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tab .dot { display: none; }
-    .tab.attn, .tab.attn .close { color: var(--signal-green); }
-    @keyframes glow { 0%, 100% { filter: drop-shadow(0 0 2px var(--signal-green)); } 50% { filter: drop-shadow(0 0 7px var(--signal-green)); } }
+    .tab.attn, .tab.attn .close { color: var(--attn); text-shadow: 0 0 6px var(--attn); }
+    @keyframes glow { 0%, 100% { filter: drop-shadow(0 0 3px var(--attn)) brightness(1.1); } 50% { filter: drop-shadow(0 0 10px var(--attn)) drop-shadow(0 0 18px var(--attn)) brightness(1.4); } }
     body.collapsed .tab.attn .emoji { animation: glow 1.4s ease-in-out infinite; }
     .tab .close { color: var(--ink-faint); font-size: 13px; }
     .tab.active .close { color: var(--ink); }
@@ -80,9 +81,10 @@
   </div>
   <div id="terms"><div id="dragbar"></div></div>
   <div id="resizer"></div>
-  <div id="foot"><span id="collapse" title="Hide/show sidebar (⌘B)">‹</span><span class="id">CWT_STE3XM1_2607<span>KNIFE TERM</span></span><span class="sp"></span><span id="version">v0.7.4</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
+  <div id="foot"><span id="collapse" title="Hide/show sidebar (⌘B)">‹</span><span class="id">CWT_STE3XM1_2607<span>KNIFE TERM</span></span><span class="sp"></span><span id="version">v0.8.0</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
   <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="node_modules/@xterm/addon-serialize/lib/addon-serialize.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

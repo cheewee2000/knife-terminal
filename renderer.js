@@ -79,14 +79,14 @@ function emojiFor(path) {
 }
 const tabs = new Map(); // id -> { term, fit, tabEl, termEl }
 let active = null;
-let nextId = 1;
+const MY_WC = window.pty.wcId();
 const tabsEl = document.getElementById('tabs');
 const projectsEl = document.getElementById('projects');
 const newtabBtn = document.getElementById('newtab');
 const termsEl = document.getElementById('terms');
 
 function createTab(opts = {}) {
-  const id = nextId++;
+  const id = opts.id || window.pty.nextId();
   const termEl = document.createElement('div');
   termEl.className = 'term';
   termsEl.appendChild(termEl);
@@ -101,6 +101,8 @@ function createTab(opts = {}) {
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
+  const ser = new SerializeAddon.SerializeAddon();
+  term.loadAddon(ser);
   term.open(termEl);
 
   const tabEl = document.createElement('div');
@@ -109,18 +111,25 @@ function createTab(opts = {}) {
   tabEl.onclick = (e) => { if (e.target.classList.contains('close')) closeTab(id); else activate(id); };
   tabsEl.appendChild(tabEl);
 
-  tabs.set(id, { term, fit, tabEl, termEl, opts });
+  tabs.set(id, { term, fit, ser, tabEl, termEl, opts });
   activate(id);
   fit.fit();
   syncSession();
-  window.pty.spawn(id, term.cols, term.rows, opts.cwd, opts.cmd);
-  if (opts.title) tabEl.querySelector('.title').textContent = opts.title;
+  if (opts.adopt) { if (opts.buffer) term.write(opts.buffer, () => { window.pty.resize(id, term.cols, term.rows); term.scrollToBottom(); }); }
+  else window.pty.spawn(id, term.cols, term.rows, opts.cwd, opts.cmd);
+  if (opts.shownTitle || opts.title) tabEl.querySelector('.title').textContent = opts.shownTitle || opts.title;
+
+  // tabs are draggable: reorder within a window, or drop on another window to move the tab there
+  tabEl.draggable = true;
+  tabEl.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-knife-tab', JSON.stringify({ id, wc: MY_WC })); e.dataTransfer.effectAllowed = 'move'; tabEl.classList.add('dragging'); });
+  tabEl.addEventListener('dragend', () => tabEl.classList.remove('dragging'));
 
   // drag & drop files/folders → paste shell-quoted path
   termEl.addEventListener('dragover', e => { e.preventDefault(); termEl.classList.add('over'); });
   termEl.addEventListener('dragleave', () => termEl.classList.remove('over'));
   termEl.addEventListener('drop', e => {
     e.preventDefault(); termEl.classList.remove('over');
+    if (dropTab(e)) return;
     const paths = [...e.dataTransfer.files].map(f => window.pty.pathFor(f)).filter(Boolean);
     if (paths.length) { window.pty.write(id, paths.map(shellQuote).join(' ') + ' '); term.focus(); }
   });
@@ -143,10 +152,10 @@ function activate(id) {
   requestAnimationFrame(() => { t.fit.fit(); t.term.focus(); });
 }
 
-function closeTab(id) {
+function closeTab(id, keepPty) {
   const t = tabs.get(id);
   if (!t) return;
-  window.pty.kill(id);
+  if (!keepPty) window.pty.kill(id);
   t.term.dispose();
   t.tabEl.remove();
   t.termEl.remove();
@@ -157,6 +166,37 @@ function closeTab(id) {
 }
 
 window.pty.onData((id, data) => tabs.get(id)?.term.write(data));
+
+// ─── Moving tabs between windows ───
+function sendTab(id, targetWc) {
+  const t = tabs.get(id); if (!t || targetWc === MY_WC) return;
+  window.pty.moveTab({ id, targetWc, title: t.tabEl.querySelector('.title').textContent, opts: { cwd: t.opts.cwd, restoreCmd: t.opts.restoreCmd, title: t.opts.title }, buffer: t.ser.serialize() });
+  closeTab(id, true);
+}
+window.pty.onSendTab((id, targetWc) => sendTab(id, targetWc));
+window.pty.onSendAll((targetWc) => { for (const id of [...tabs.keys()]) sendTab(id, targetWc); window.pty.closeWindow(); });
+let defaultTabId = null; // the untouched shell a fresh window opens with; replaced by the first tab dropped in
+window.pty.onAdopt(({ id, title, opts, buffer }) => {
+  const stray = tabs.size === 1 && defaultTabId && tabs.has(defaultTabId) ? defaultTabId : null;
+  createTab({ ...opts, id, adopt: true, buffer, title: opts.title || undefined, shownTitle: title });
+  if (stray) closeTab(stray);
+});
+// A dragged tab dropped on this window: reorder if it's ours, otherwise ask its window to send it over
+function dropTab(e, beforeEl) {
+  const raw = e.dataTransfer.getData('application/x-knife-tab'); if (!raw) return false;
+  const { id, wc } = JSON.parse(raw);
+  if (wc === MY_WC) { const t = tabs.get(id); if (t) { tabsEl.insertBefore(t.tabEl, beforeEl || null); reorderTabs(); } }
+  else window.pty.pullTab(id, wc);
+  return true;
+}
+function reorderTabs() { // keep the Map in DOM order so ⌘1-9 / cycling / session follow the visual order
+  const order = [...tabsEl.children].map(el => [...tabs].find(([, t]) => t.tabEl === el)).filter(Boolean);
+  tabs.clear(); for (const [id, t] of order) tabs.set(id, t); syncSession();
+}
+tabsEl.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('application/x-knife-tab')) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } });
+tabsEl.addEventListener('drop', e => { e.preventDefault(); const over = e.target.closest('.tab'); const before = over && e.clientY < over.getBoundingClientRect().top + over.offsetHeight / 2 ? over : over?.nextSibling; dropTab(e, before); });
+document.getElementById('side').addEventListener('dragover', e => { if (e.dataTransfer.types.includes('application/x-knife-tab')) e.preventDefault(); });
+document.getElementById('side').addEventListener('drop', e => { if (e.target.closest('#tabs')) return; e.preventDefault(); dropTab(e); });
 window.pty.onExit((id) => closeTab(id));
 
 newtabBtn.onclick = () => createTab();
@@ -225,6 +265,7 @@ window.pty.onMenu(what => {
   else if (what === 'close-tab') { if (document.activeElement === searchEl) return; active && closeTab(active); }
   else if (what === 'set-default') window.pty.setDefault();
   else if (what === 'toggle-sidebar') toggleSidebar();
+  else if (what === 'tab-to-new-window') { if (active && tabs.size > 1) window.pty.tabToNewWindow(active); }
   else if (what === 'install-hooks') { window.pty.installHooks().then(refreshHooks); }
 });
 document.getElementById('setdefault').onclick = () => window.pty.setDefault();
@@ -254,7 +295,7 @@ function syncSession() {
 applyTheme();
 window.pty.onRestore(s => {
   const saved = (s?.tabs || []).filter(t => t.cwd);
-  if (!saved.length) { createTab(); return; }
+  if (!saved.length) { createTab(); defaultTabId = active; tabs.get(active).term.onData(() => { defaultTabId = null; }); return; }
   let act = null;
   for (const t of saved) { createTab({ cwd: t.cwd, cmd: t.cmd, restoreCmd: t.cmd, title: t.cmd ? t.title : undefined }); if (t.active) act = active; }
   if (act) activate(act);
