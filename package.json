@@ -1,0 +1,20 @@
+{
+  "name": "knife-terminal",
+  "version": "0.1.0",
+  "description": "CW&T's own terminal. Basic, with tabs.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "postinstall": "electron-rebuild -f -w node-pty"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "@electron/rebuild": "^3.7.0"
+  },
+  "dependencies": {
+    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "node-pty": "^1.0.0"
+  }
+}

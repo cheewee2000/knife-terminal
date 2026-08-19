@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Knife Terminal</title>
+  <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css">
+  <style>
+    html, body { margin: 0; height: 100%; background: #1e1e1e; color: #ccc; font-family: -apple-system, sans-serif; overflow: hidden; }
+    #tabbar { height: 38px; display: flex; align-items: flex-end; padding-left: 78px; background: #2a2a2a; -webkit-app-region: drag; user-select: none; }
+    .tab { -webkit-app-region: no-drag; padding: 6px 12px; font-size: 12px; background: #2a2a2a; color: #999; border-right: 1px solid #1e1e1e; cursor: default; display: flex; align-items: center; gap: 8px; max-width: 180px; }
+    .tab.active { background: #1e1e1e; color: #eee; }
+    .tab .close { opacity: 0.5; font-size: 11px; }
+    .tab .close:hover { opacity: 1; }
+    #newtab { -webkit-app-region: no-drag; padding: 6px 10px; font-size: 14px; color: #999; cursor: default; }
+    #newtab:hover { color: #eee; }
+    #terms { position: absolute; top: 38px; bottom: 0; left: 0; right: 0; }
+    .term { position: absolute; inset: 0; padding: 4px; display: none; }
+    .term.active { display: block; }
+    #version { position: fixed; right: 8px; top: 12px; font-size: 10px; color: #666; -webkit-app-region: no-drag; }
+  </style>
+</head>
+<body>
+  <div id="tabbar"><div id="newtab" title="New tab (⌘T)">+</div></div>
+  <div id="terms"></div>
+  <div id="version">v0.1.0</div>
+  <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
