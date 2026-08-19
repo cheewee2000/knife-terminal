@@ -8,6 +8,7 @@
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; }
     /* dark theme: inverted ink/paper on warm neutrals (cerakote black) */
+    :root { --accent: #B1A57E; }
     :root[data-theme="dark"] { --ink: #ececea; --ink-soft: #b9b8b3; --ink-faint: #8a8a8a; --rule: #2e2e2c; --paper: #111111; --paper-2: #1a1a18; --paper-3: #222220; }
     body { background: var(--paper); color: var(--ink); transition: background var(--dur) var(--ease); }
     #side { position: absolute; top: 0; bottom: 0; left: 0; width: 220px; background: var(--paper-2); border-right: 1px solid var(--rule); display: flex; flex-direction: column; user-select: none; font-size: 12px; }
@@ -19,16 +20,16 @@
     #tabs { flex: none; max-height: 40%; overflow-y: auto; }
     .tab { padding: 6px 12px; color: var(--ink-soft); cursor: default; display: flex; align-items: center; gap: 8px; transition: opacity var(--dur-fast) var(--ease); }
     .tab:hover { opacity: 0.55; }
-    .tab.active { background: var(--paper); color: var(--ink); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin-right: -1px; }
+    .tab.active { background: var(--paper); color: var(--ink); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin-right: -1px; box-shadow: inset 2px 0 0 var(--accent); }
     .tab .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .tab .dot { width: 7px; height: 7px; border-radius: var(--radius-pill); background: var(--signal-orange); display: none; flex: none; }
+    .tab .dot { width: 7px; height: 7px; border-radius: var(--radius-pill); background: var(--accent); display: none; flex: none; }
     .tab.attn .dot { display: block; }
     .tab .close { color: var(--ink-faint); font-size: 13px; }
     .tab.active .close { color: var(--ink); }
     #newtab { cursor: default; color: var(--ink); font-size: 14px; line-height: 1; transition: opacity var(--dur-fast) var(--ease); }
     #newtab:hover { opacity: 0.55; }
     #search { flex: none; margin: 0 12px 8px; width: calc(100% - 24px); box-sizing: border-box; padding: 5px 8px; font: inherit; font-size: 12px; color: var(--ink); background: var(--paper); border: 1px solid var(--rule); border-radius: 0; outline: none; }
-    #search:focus { border-color: var(--ink); }
+    #search:focus { border-color: var(--accent); }
     #search::placeholder { color: var(--ink-faint); }
     .proj.hidden { display: none; }
     #projects { flex: 1; overflow-y: auto; border-top: 1px solid var(--rule); }
@@ -46,13 +47,13 @@
     #dragbar { position: absolute; top: 0; left: 0; right: 0; height: 14px; -webkit-app-region: drag; }
     .term { position: absolute; inset: 0; padding: 14px 0 4px 12px; display: none; }
     .term.active { display: block; }
-    .term.over { outline: 2px solid var(--ink); outline-offset: -2px; }
+    .term.over { outline: 2px solid var(--accent); outline-offset: -2px; }
   </style>
 </head>
 <body>
   <div id="side">
     <div id="drag"></div>
-    <div id="mark"><b>KNIFE TERM</b></div>
+    <div id="mark"><b>CWT_STE3XM1_2607</b><span>KNIFE TERM</span></div>
     <div class="label">Tabs <span id="newtab" title="New tab (⌘T)">+</span></div>
     <div id="tabs"></div>
     <div class="label">Claude Code projects</div>

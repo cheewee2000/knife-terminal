@@ -1,5 +1,7 @@
 # Knife Terminal
 
+`CWT_STE3XM1_2607` · accent `#B1A57E`
+
 CW&T's own terminal. Electron + xterm.js + node-pty. Basic for now — just tabs.
 
 ## Run
