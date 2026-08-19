@@ -28,9 +28,10 @@ function openRequest(target) {
     return { cwd: path.dirname(target), cmd: shq(target), title: path.basename(target) };
   } catch { return null; }
 }
-function dispatchOpen(target) {
+function dispatchOpen(target, cmd) {
   const req = openRequest(target);
   if (!req) return;
+  if (cmd) req.cmd = cmd;
   if (rendererReady && win) win.webContents.send('open:request', req);
   else pendingOpens.push(req);
 }
@@ -83,7 +84,11 @@ function startSocket() {
     let buf = '';
     c.on('data', d => { buf += d; });
     c.on('end', () => {
-      const m = buf.trim().match(/^(\d+)\s*(.*)$/s);
+      const msg = buf.trim();
+      // "open <dir>" → new tab in <dir> running claude (used by the Finder "Open with Claude" quick action)
+      const o = msg.match(/^open\s+(.+)$/s);
+      if (o) { const dir = o[1].trim(); try { if (fs.statSync(dir).isDirectory()) { dispatchOpen(dir, 'claude'); if (win) { win.show(); app.focus({ steal: true }); } } } catch {} return; }
+      const m = msg.match(/^(\d+)\s*(.*)$/s);
       if (!m) return;
       let type = 'stop';
       try { const j = JSON.parse(m[2] || '{}'); type = j.notification_type || j.hook_event_name || type; } catch {}
