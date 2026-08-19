@@ -11,22 +11,16 @@
     :root { --accent: #B1A57E; }
     :root[data-theme="dark"] { --ink: #ececea; --ink-soft: #b9b8b3; --ink-faint: #8a8a8a; --rule: #2e2e2c; --paper: #111111; --paper-2: #1a1a18; --paper-3: #222220; }
     body { background: var(--paper); color: var(--ink); transition: background var(--dur) var(--ease); }
-    #side { position: absolute; top: 0; bottom: 0; left: 0; width: 220px; background: var(--paper-2); border-right: 1px solid var(--rule); display: flex; flex-direction: column; user-select: none; font-size: 12px; }
-    #drag { height: 40px; -webkit-app-region: drag; flex: none; }
-    #mark { display: flex; align-items: baseline; gap: 6px; padding: 0 12px 12px; border-bottom: 1px solid var(--rule); flex: none; flex-wrap: wrap; }
-    #mark b { font-weight: 700; letter-spacing: 0.06em; color: var(--ink); }
-    #mark span { color: var(--ink-soft); letter-spacing: 0.02em; font-size: 11px; }
-    #collapse { margin-left: auto; color: var(--ink-faint); font-size: 14px; cursor: default; transition: opacity var(--dur-fast) var(--ease); }
+    #side { position: absolute; top: 0; bottom: 25px; left: 0; width: 220px; background: var(--paper-2); border-right: 1px solid var(--rule); display: flex; flex-direction: column; user-select: none; font-size: 12px; }
+    #drag { height: 36px; -webkit-app-region: drag; flex: none; }
+    #collapse { color: var(--ink-soft); font-size: 13px; line-height: 1; cursor: default; transition: opacity var(--dur-fast) var(--ease); }
     #collapse:hover { opacity: 0.55; }
     .tab .emoji, .proj .emoji { flex: none; width: 16px; text-align: center; font-size: 12px; }
     .proj { display: flex; align-items: center; gap: 6px; }
     /* collapsed: 40px rail showing only the emoji of open tabs */
     body.collapsed #side { width: 40px; }
     body.collapsed #terms { left: 41px; }
-    body.collapsed #mark { padding: 0 0 10px; justify-content: center; border-bottom: none; }
-    body.collapsed #mark b, body.collapsed #mark span:not(#collapse) { display: none; }
-    body.collapsed #collapse { margin: 0; }
-    body.collapsed .label, body.collapsed #search, body.collapsed #projects, body.collapsed #foot { display: none; }
+    body.collapsed .label, body.collapsed #search, body.collapsed #projects { display: none; }
     body.collapsed #tabs { max-height: none; flex: 1; }
     body.collapsed .tab { padding: 7px 0; justify-content: center; gap: 0; position: relative; }
     body.collapsed .tab .emoji { width: auto; font-size: 16px; }
@@ -52,14 +46,17 @@
     #projects { flex: 1; overflow-y: auto; border-top: 1px solid var(--rule); }
     .proj { padding: 5px 12px; color: var(--ink-soft); cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity var(--dur-fast) var(--ease); }
     .proj:hover { opacity: 0.55; }
-        #foot { flex: none; display: flex; justify-content: space-between; padding: 8px 12px; font-size: 10px; letter-spacing: 0.04em; color: var(--ink-faint); text-transform: uppercase; border-top: 1px solid var(--rule); }
+    #foot { position: absolute; left: 0; right: 0; bottom: 0; height: 24px; box-sizing: border-box; display: flex; align-items: center; gap: 14px; padding: 0 12px; font-size: 10px; letter-spacing: 0.04em; color: var(--ink-faint); text-transform: uppercase; border-top: 1px solid var(--rule); background: var(--paper-2); user-select: none; }
+    #foot .id { font-weight: 700; letter-spacing: 0.06em; color: var(--ink); text-transform: none; }
+    #foot .id span { font-weight: 400; color: var(--ink-soft); margin-left: 8px; }
+    #foot .sp { flex: 1; }
     #hooks { cursor: default; color: var(--ink-soft); transition: opacity var(--dur-fast) var(--ease); }
     #hooks:hover { opacity: 0.55; }
     #setdefault { cursor: default; color: var(--ink-soft); transition: opacity var(--dur-fast) var(--ease); }
     #setdefault:hover { opacity: 0.55; }
     #theme { cursor: default; color: var(--ink-soft); transition: opacity var(--dur-fast) var(--ease); }
     #theme:hover { opacity: 0.55; }
-    #terms { position: absolute; top: 0; bottom: 0; left: 221px; right: 0; }
+    #terms { position: absolute; top: 0; bottom: 25px; left: 221px; right: 0; }
     #dragbar { position: absolute; top: 0; left: 0; right: 0; height: 14px; -webkit-app-region: drag; }
     .term { position: absolute; inset: 0; padding: 14px 0 4px 12px; display: none; }
     .term.active { display: block; }
@@ -69,15 +66,14 @@
 <body>
   <div id="side">
     <div id="drag"></div>
-    <div id="mark"><b>CWT_STE3XM1_2607</b><span>KNIFE TERM</span><span id="collapse" title="Hide sidebar (⌘B)">‹</span></div>
     <div class="label">Tabs <span id="newtab" title="New tab (⌘T)">+</span></div>
     <div id="tabs"></div>
     <div class="label">Claude Code projects</div>
     <input id="search" type="text" placeholder="search  ⌘K" spellcheck="false" autocomplete="off">
     <div id="projects"></div>
-    <div id="foot"><span id="version">v0.7.0</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
   </div>
   <div id="terms"><div id="dragbar"></div></div>
+  <div id="foot"><span id="collapse" title="Hide/show sidebar (⌘B)">‹</span><span class="id">CWT_STE3XM1_2607<span>KNIFE TERM</span></span><span class="sp"></span><span id="version">v0.7.1</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
   <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="renderer.js"></script>
