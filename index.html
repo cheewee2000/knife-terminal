@@ -6,29 +6,45 @@
   <link rel="stylesheet" href="colors_and_type.css">
   <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css">
   <style>
-    :root { --hair: var(--rule); --panel: var(--paper-2); --ink2: var(--ink-soft); --hint: var(--ink-faint); }
     html, body { margin: 0; height: 100%; overflow: hidden; }
-    #tabbar { height: 40px; display: flex; align-items: stretch; padding-left: 80px; background: var(--panel); border-bottom: 1px solid var(--hair); -webkit-app-region: drag; user-select: none; }
-    #mark { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 8px; padding: 0 16px 0 0; font-size: 12px; }
+    #side { position: absolute; top: 0; bottom: 0; left: 0; width: 220px; background: var(--paper-2); border-right: 1px solid var(--rule); display: flex; flex-direction: column; user-select: none; font-size: 12px; }
+    #drag { height: 40px; -webkit-app-region: drag; flex: none; }
+    #mark { display: flex; align-items: baseline; gap: 6px; padding: 0 12px 12px; border-bottom: 1px solid var(--rule); flex: none; flex-wrap: wrap; }
     #mark b { font-weight: 700; letter-spacing: 0.06em; color: var(--ink); }
-    #mark span { color: var(--ink2); letter-spacing: 0.02em; }
-    .tab { -webkit-app-region: no-drag; padding: 0 12px; font-size: 12px; color: var(--ink2); border-left: 1px solid var(--hair); cursor: default; display: flex; align-items: center; gap: 12px; max-width: 200px; transition: opacity 120ms var(--ease); }
+    #mark span { color: var(--ink-soft); letter-spacing: 0.02em; font-size: 11px; }
+    .label { padding: 12px 12px 6px; font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-faint); display: flex; justify-content: space-between; align-items: center; flex: none; }
+    #tabs { flex: none; max-height: 40%; overflow-y: auto; }
+    .tab { padding: 6px 12px; color: var(--ink-soft); cursor: default; display: flex; align-items: center; gap: 8px; transition: opacity var(--dur-fast) var(--ease); }
     .tab:hover { opacity: 0.55; }
-    .tab.active { background: var(--paper); color: var(--ink); margin-bottom: -1px; }
-    .tab .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .tab .close { color: var(--hint); font-size: 13px; }
+    .tab.active { background: var(--paper); color: var(--ink); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin-right: -1px; }
+    .tab .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tab .close { color: var(--ink-faint); font-size: 13px; }
     .tab.active .close { color: var(--ink); }
-    #newtab { -webkit-app-region: no-drag; padding: 0 12px; font-size: 14px; color: var(--ink); border-left: 1px solid var(--hair); border-right: 1px solid var(--hair); display: flex; align-items: center; cursor: default; transition: opacity 120ms var(--ease); }
+    #newtab { cursor: default; color: var(--ink); font-size: 14px; line-height: 1; transition: opacity var(--dur-fast) var(--ease); }
     #newtab:hover { opacity: 0.55; }
-    #version { -webkit-app-region: no-drag; margin-left: auto; display: flex; align-items: center; padding: 0 12px; font-size: 10px; letter-spacing: 0.04em; color: var(--hint); text-transform: uppercase; }
-    #terms { position: absolute; top: 41px; bottom: 0; left: 0; right: 0; }
-    .term { position: absolute; inset: 0; padding: 8px 0 4px 12px; display: none; }
+    #projects { flex: 1; overflow-y: auto; border-top: 1px solid var(--rule); }
+    .proj { padding: 5px 12px; color: var(--ink-soft); cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: opacity var(--dur-fast) var(--ease); }
+    .proj:hover { opacity: 0.55; }
+    .proj:before { content: '→ '; color: var(--ink-faint); }
+    #version { flex: none; padding: 8px 12px; font-size: 10px; letter-spacing: 0.04em; color: var(--ink-faint); text-transform: uppercase; border-top: 1px solid var(--rule); }
+    #terms { position: absolute; top: 0; bottom: 0; left: 221px; right: 0; }
+    #dragbar { position: absolute; top: 0; left: 0; right: 0; height: 14px; -webkit-app-region: drag; }
+    .term { position: absolute; inset: 0; padding: 14px 0 4px 12px; display: none; }
     .term.active { display: block; }
+    .term.over { outline: 2px solid var(--ink); outline-offset: -2px; }
   </style>
 </head>
 <body>
-  <div id="tabbar"><div id="mark"><b>CWT_TERM</b><span>(knife terminal)</span></div><div id="newtab" title="New tab (⌘T)">+</div><div id="version">v0.2.0</div></div>
-  <div id="terms"></div>
+  <div id="side">
+    <div id="drag"></div>
+    <div id="mark"><b>CWT_TERM</b><span>(knife terminal)</span></div>
+    <div class="label">Tabs <span id="newtab" title="New tab (⌘T)">+</span></div>
+    <div id="tabs"></div>
+    <div class="label">Claude Code projects</div>
+    <div id="projects"></div>
+    <div id="version">v0.3.0</div>
+  </div>
+  <div id="terms"><div id="dragbar"></div></div>
   <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="renderer.js"></script>

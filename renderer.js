@@ -1,11 +1,12 @@
 const tabs = new Map(); // id -> { term, fit, tabEl, termEl }
 let active = null;
 let nextId = 1;
-const tabbar = document.getElementById('tabbar');
+const tabsEl = document.getElementById('tabs');
+const projectsEl = document.getElementById('projects');
 const newtabBtn = document.getElementById('newtab');
 const termsEl = document.getElementById('terms');
 
-function createTab() {
+function createTab(opts = {}) {
   const id = nextId++;
   const termEl = document.createElement('div');
   termEl.className = 'term';
@@ -35,16 +36,26 @@ function createTab() {
   tabEl.className = 'tab';
   tabEl.innerHTML = `<span class="title">shell ${id}</span><span class="close">×</span>`;
   tabEl.onclick = (e) => { if (e.target.classList.contains('close')) closeTab(id); else activate(id); };
-  tabbar.insertBefore(tabEl, newtabBtn);
+  tabsEl.appendChild(tabEl);
 
   tabs.set(id, { term, fit, tabEl, termEl });
   activate(id);
   fit.fit();
-  window.pty.spawn(id, term.cols, term.rows);
+  window.pty.spawn(id, term.cols, term.rows, opts.cwd, opts.cmd);
+  if (opts.title) tabEl.querySelector('.title').textContent = opts.title;
+
+  // drag & drop files/folders → paste shell-quoted path
+  termEl.addEventListener('dragover', e => { e.preventDefault(); termEl.classList.add('over'); });
+  termEl.addEventListener('dragleave', () => termEl.classList.remove('over'));
+  termEl.addEventListener('drop', e => {
+    e.preventDefault(); termEl.classList.remove('over');
+    const paths = [...e.dataTransfer.files].map(f => window.pty.pathFor(f)).filter(Boolean);
+    if (paths.length) { window.pty.write(id, paths.map(shellQuote).join(' ') + ' '); term.focus(); }
+  });
 
   term.onData(data => window.pty.write(id, data));
   term.onResize(({ cols, rows }) => window.pty.resize(id, cols, rows));
-  term.onTitleChange(title => { tabEl.querySelector('.title').textContent = title || `shell ${id}`; });
+  term.onTitleChange(title => { if (!opts.title) tabEl.querySelector('.title').textContent = title || `shell ${id}`; });
 }
 
 function activate(id) {
@@ -72,7 +83,22 @@ function closeTab(id) {
 window.pty.onData((id, data) => tabs.get(id)?.term.write(data));
 window.pty.onExit((id) => closeTab(id));
 
-newtabBtn.onclick = createTab;
+newtabBtn.onclick = () => createTab();
+
+function shellQuote(p) { return /^[A-Za-z0-9_\/.\-]+$/.test(p) ? p : "'" + p.replace(/'/g, "'\\''") + "'"; }
+
+async function loadProjects() {
+  const list = await window.pty.projects();
+  projectsEl.innerHTML = '';
+  for (const p of list) {
+    const el = document.createElement('div');
+    el.className = 'proj'; el.textContent = p.name; el.title = p.path;
+    el.onclick = () => createTab({ cwd: p.path, cmd: 'claude', title: p.name });
+    projectsEl.appendChild(el);
+  }
+}
+loadProjects();
+window.addEventListener('focus', loadProjects);
 window.addEventListener('resize', () => active && tabs.get(active)?.fit.fit());
 window.addEventListener('keydown', (e) => {
   if (!e.metaKey) return;
