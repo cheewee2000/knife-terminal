@@ -136,7 +136,9 @@ function buildMenu() {
       { label: 'New Tab', accelerator: 'Cmd+T', click: () => win && win.webContents.send('menu:new-tab') },
       { label: 'Close Tab', accelerator: 'Cmd+W', click: () => win && win.webContents.send('menu:close-tab') } ] },
     { role: 'editMenu' },
-    { role: 'viewMenu' },
+    { label: 'View', submenu: [
+      { label: 'Toggle Sidebar', accelerator: 'Cmd+B', click: () => win && win.webContents.send('menu:toggle-sidebar') },
+      { type: 'separator' }, { role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }, { role: 'togglefullscreen' } ] },
     { role: 'windowMenu' },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(tpl));

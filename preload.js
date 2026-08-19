@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('pty', {
   onRestore: (cb) => ipcRenderer.once('session:restore', (e, s) => cb(s)),
   saveTabs: (meta) => ipcRenderer.send('session:tabs', meta),
   onOpen: (cb) => ipcRenderer.on('open:request', (e, req) => cb(req)),
-  onMenu: (cb) => { for (const k of ['new-tab', 'close-tab', 'set-default', 'install-hooks']) ipcRenderer.on('menu:' + k, () => cb(k)); },
+  onMenu: (cb) => { for (const k of ['new-tab', 'close-tab', 'set-default', 'install-hooks', 'toggle-sidebar']) ipcRenderer.on('menu:' + k, () => cb(k)); },
   setDefault: () => ipcRenderer.invoke('default:set'),
   hooksStatus: () => ipcRenderer.invoke('hooks:status'),
   installHooks: () => ipcRenderer.invoke('hooks:install'),

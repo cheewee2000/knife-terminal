@@ -145,6 +145,7 @@ window.addEventListener('resize', () => active && tabs.get(active)?.fit.fit());
 window.addEventListener('keydown', (e) => {
   if (!e.metaKey) return;
   if (e.key === 'k') { e.preventDefault(); searchEl.focus(); searchEl.select(); }
+  else if (e.key === 'b') { e.preventDefault(); toggleSidebar(); }
   else if (e.key === '}' || (e.shiftKey && e.key === ']')) { e.preventDefault(); cycle(1); }
   else if (e.key === '{' || (e.shiftKey && e.key === '[')) { e.preventDefault(); cycle(-1); }
   else if (e.key >= '1' && e.key <= '9') {
@@ -177,9 +178,18 @@ window.pty.onMenu(what => {
   if (what === 'new-tab') createTab();
   else if (what === 'close-tab') { if (document.activeElement === searchEl) return; active && closeTab(active); }
   else if (what === 'set-default') window.pty.setDefault();
+  else if (what === 'toggle-sidebar') toggleSidebar();
   else if (what === 'install-hooks') { window.pty.installHooks().then(refreshHooks); }
 });
 document.getElementById('setdefault').onclick = () => window.pty.setDefault();
+function toggleSidebar() {
+  const on = document.body.classList.toggle('collapsed');
+  localStorage.setItem('sidebar', on ? 'collapsed' : 'open');
+  requestAnimationFrame(() => active && tabs.get(active)?.fit.fit());
+}
+if (localStorage.getItem('sidebar') === 'collapsed') document.body.classList.add('collapsed');
+document.getElementById('collapse').onclick = toggleSidebar;
+document.getElementById('expand').onclick = toggleSidebar;
 
 function syncSession() {
   window.pty.saveTabs([...tabs].map(([id, t]) => ({ id, title: t.tabEl.querySelector('.title').textContent, restoreCmd: t.opts.restoreCmd || null, active: id === active })));

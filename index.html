@@ -16,6 +16,14 @@
     #mark { display: flex; align-items: baseline; gap: 6px; padding: 0 12px 12px; border-bottom: 1px solid var(--rule); flex: none; flex-wrap: wrap; }
     #mark b { font-weight: 700; letter-spacing: 0.06em; color: var(--ink); }
     #mark span { color: var(--ink-soft); letter-spacing: 0.02em; font-size: 11px; }
+    #collapse { margin-left: auto; color: var(--ink-faint); font-size: 14px; cursor: default; transition: opacity var(--dur-fast) var(--ease); }
+    #collapse:hover { opacity: 0.55; }
+    #expand { display: none; position: absolute; left: 8px; bottom: 6px; color: var(--ink-faint); font-size: 14px; line-height: 1; cursor: default; z-index: 2; transition: opacity var(--dur-fast) var(--ease); }
+    #expand:hover { opacity: 0.55; }
+    body.collapsed #side { display: none; }
+    body.collapsed #terms { left: 0; }
+    body.collapsed .term { padding-left: 24px; }
+    body.collapsed #expand { display: block; }
     .label { padding: 12px 12px 6px; font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-faint); display: flex; justify-content: space-between; align-items: center; flex: none; }
     #tabs { flex: none; max-height: 40%; overflow-y: auto; }
     .tab { padding: 6px 12px; color: var(--ink-soft); cursor: default; display: flex; align-items: center; gap: 8px; transition: opacity var(--dur-fast) var(--ease); }
@@ -53,15 +61,15 @@
 <body>
   <div id="side">
     <div id="drag"></div>
-    <div id="mark"><b>CWT_STE3XM1_2607</b><span>KNIFE TERM</span></div>
+    <div id="mark"><b>CWT_STE3XM1_2607</b><span>KNIFE TERM</span><span id="collapse" title="Hide sidebar (⌘B)">‹</span></div>
     <div class="label">Tabs <span id="newtab" title="New tab (⌘T)">+</span></div>
     <div id="tabs"></div>
     <div class="label">Claude Code projects</div>
     <input id="search" type="text" placeholder="search  ⌘K" spellcheck="false" autocomplete="off">
     <div id="projects"></div>
-    <div id="foot"><span id="version">v0.6.1</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
+    <div id="foot"><span id="version">v0.6.3</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
   </div>
-  <div id="terms"><div id="dragbar"></div></div>
+  <div id="terms"><div id="dragbar"></div><span id="expand" title="Show sidebar (⌘B)">›</span></div>
   <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="renderer.js"></script>
