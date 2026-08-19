@@ -1,13 +1,14 @@
 {
   "name": "knife-terminal",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "description": "CW&T's own terminal. Basic, with tabs.",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "postinstall": "electron-rebuild -f -w node-pty",
-    "build": "electron-packager . \"Knife Terminal\" --platform=darwin --arch=arm64 --icon=build/icon.icns --out=dist --overwrite --asar=false --app-bundle-id=com.cwandt.knifeterminal --ignore=\"^/(dist|build/icon.iconset|build/icon-1024.png|\\.git)\"",
-    "install-app": "npm run build && rm -rf \"/Applications/Knife Terminal.app\" && cp -R \"dist/Knife Terminal-darwin-arm64/Knife Terminal.app\" /Applications/ && echo installed"
+    "build": "npm run build-helper && electron-packager . \"Knife Terminal\" --platform=darwin --arch=arm64 --icon=build/icon.icns --out=dist --overwrite --asar=false --app-bundle-id=com.cwandt.knifeterminal --extend-info=build/info.plist --ignore=\"^/(dist|build/icon.iconset|build/icon-1024.png|\\.git)\"",
+    "install-app": "npm run build && rm -rf \"/Applications/Knife Terminal.app\" && cp -R \"dist/Knife Terminal-darwin-arm64/Knife Terminal.app\" /Applications/ && echo installed",
+    "build-helper": "swiftc -O -o bin/set-default build/set-default.swift"
   },
   "license": "MIT",
   "devDependencies": {

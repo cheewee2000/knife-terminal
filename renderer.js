@@ -59,13 +59,14 @@ function createTab(opts = {}) {
 
   const tabEl = document.createElement('div');
   tabEl.className = 'tab';
-  tabEl.innerHTML = `<span class="title">shell ${id}</span><span class="close">×</span>`;
+  tabEl.innerHTML = `<span class="dot"></span><span class="title">shell ${id}</span><span class="close">×</span>`;
   tabEl.onclick = (e) => { if (e.target.classList.contains('close')) closeTab(id); else activate(id); };
   tabsEl.appendChild(tabEl);
 
-  tabs.set(id, { term, fit, tabEl, termEl });
+  tabs.set(id, { term, fit, tabEl, termEl, opts });
   activate(id);
   fit.fit();
+  syncSession();
   window.pty.spawn(id, term.cols, term.rows, opts.cwd, opts.cmd);
   if (opts.title) tabEl.querySelector('.title').textContent = opts.title;
 
@@ -78,13 +79,16 @@ function createTab(opts = {}) {
     if (paths.length) { window.pty.write(id, paths.map(shellQuote).join(' ') + ' '); term.focus(); }
   });
 
-  term.onData(data => window.pty.write(id, data));
+  term.onData(data => { window.pty.write(id, data); tabEl.classList.remove('attn'); });
+  term.onBell(() => markAttention(id, true));
   term.onResize(({ cols, rows }) => window.pty.resize(id, cols, rows));
   term.onTitleChange(title => { if (!opts.title) tabEl.querySelector('.title').textContent = title || `shell ${id}`; });
 }
 
 function activate(id) {
   active = id;
+  if (document.hasFocus()) tabs.get(id)?.tabEl.classList.remove('attn');
+  syncSession();
   for (const [tid, t] of tabs) {
     t.tabEl.classList.toggle('active', tid === id);
     t.termEl.classList.toggle('active', tid === id);
@@ -101,6 +105,7 @@ function closeTab(id) {
   t.tabEl.remove();
   t.termEl.remove();
   tabs.delete(id);
+  syncSession();
   if (tabs.size === 0) { createTab(); return; }
   if (active === id) activate([...tabs.keys()].pop());
 }
@@ -118,7 +123,7 @@ async function loadProjects() {
   for (const p of list) {
     const el = document.createElement('div');
     el.className = 'proj'; el.textContent = p.name; el.title = p.path;
-    el.onclick = () => createTab({ cwd: p.path, cmd: 'claude', title: p.name });
+    el.onclick = () => createTab({ cwd: p.path, cmd: 'claude', restoreCmd: 'claude -c', title: p.name });
     projectsEl.appendChild(el);
   }
   filterProjects();
@@ -139,9 +144,7 @@ searchEl.addEventListener('keydown', e => {
 window.addEventListener('resize', () => active && tabs.get(active)?.fit.fit());
 window.addEventListener('keydown', (e) => {
   if (!e.metaKey) return;
-  if (e.key === 't') { e.preventDefault(); createTab(); }
-  else if (e.key === 'k') { e.preventDefault(); searchEl.focus(); searchEl.select(); }
-  else if (e.key === 'w') { e.preventDefault(); if (active) closeTab(active); }
+  if (e.key === 'k') { e.preventDefault(); searchEl.focus(); searchEl.select(); }
   else if (e.key === '}' || (e.shiftKey && e.key === ']')) { e.preventDefault(); cycle(1); }
   else if (e.key === '{' || (e.shiftKey && e.key === '[')) { e.preventDefault(); cycle(-1); }
   else if (e.key >= '1' && e.key <= '9') {
@@ -154,5 +157,40 @@ function cycle(dir) {
   activate(ids[(i + dir + ids.length) % ids.length]);
 }
 
+// Orange dot + chime when a Claude Code session (or any bell) wants attention
+function markAttention(id, fromBell) {
+  const t = tabs.get(id); if (!t) return;
+  if (fromBell && id === active && document.hasFocus()) return; // a bell in the tab you're looking at is just a bell
+  t.tabEl.classList.add('attn');
+  if (fromBell) window.pty.chime();
+}
+window.pty.onAttention((id) => markAttention(id, false));
+window.addEventListener('focus', () => { if (active) tabs.get(active)?.tabEl.classList.remove('attn'); });
+
+const hooksEl = document.getElementById('hooks');
+async function refreshHooks() { hooksEl.textContent = (await window.pty.hooksStatus()) ? 'alerts on' : 'alerts off'; }
+hooksEl.onclick = async () => { await window.pty.installHooks(); refreshHooks(); };
+refreshHooks();
+
+window.pty.onOpen(req => createTab(req));
+window.pty.onMenu(what => {
+  if (what === 'new-tab') createTab();
+  else if (what === 'close-tab') { if (document.activeElement === searchEl) return; active && closeTab(active); }
+  else if (what === 'set-default') window.pty.setDefault();
+  else if (what === 'install-hooks') { window.pty.installHooks().then(refreshHooks); }
+});
+document.getElementById('setdefault').onclick = () => window.pty.setDefault();
+
+function syncSession() {
+  window.pty.saveTabs([...tabs].map(([id, t]) => ({ id, title: t.tabEl.querySelector('.title').textContent, restoreCmd: t.opts.restoreCmd || null, active: id === active })));
+}
+
 applyTheme();
-createTab();
+window.pty.onRestore(s => {
+  const saved = (s?.tabs || []).filter(t => t.cwd);
+  if (!saved.length) { createTab(); return; }
+  let act = null;
+  for (const t of saved) { createTab({ cwd: t.cwd, cmd: t.cmd, restoreCmd: t.cmd, title: t.cmd ? t.title : undefined }); if (t.active) act = active; }
+  if (act) activate(act);
+});
+window.pty.ready();

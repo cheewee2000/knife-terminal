@@ -21,6 +21,8 @@
     .tab:hover { opacity: 0.55; }
     .tab.active { background: var(--paper); color: var(--ink); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin-right: -1px; }
     .tab .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tab .dot { width: 7px; height: 7px; border-radius: var(--radius-pill); background: var(--signal-orange); display: none; flex: none; }
+    .tab.attn .dot { display: block; }
     .tab .close { color: var(--ink-faint); font-size: 13px; }
     .tab.active .close { color: var(--ink); }
     #newtab { cursor: default; color: var(--ink); font-size: 14px; line-height: 1; transition: opacity var(--dur-fast) var(--ease); }
@@ -34,6 +36,10 @@
     .proj:hover { opacity: 0.55; }
     .proj:before { content: '→ '; color: var(--ink-faint); }
     #foot { flex: none; display: flex; justify-content: space-between; padding: 8px 12px; font-size: 10px; letter-spacing: 0.04em; color: var(--ink-faint); text-transform: uppercase; border-top: 1px solid var(--rule); }
+    #hooks { cursor: default; color: var(--ink-soft); transition: opacity var(--dur-fast) var(--ease); }
+    #hooks:hover { opacity: 0.55; }
+    #setdefault { cursor: default; color: var(--ink-soft); transition: opacity var(--dur-fast) var(--ease); }
+    #setdefault:hover { opacity: 0.55; }
     #theme { cursor: default; color: var(--ink-soft); transition: opacity var(--dur-fast) var(--ease); }
     #theme:hover { opacity: 0.55; }
     #terms { position: absolute; top: 0; bottom: 0; left: 221px; right: 0; }
@@ -52,7 +58,7 @@
     <div class="label">Claude Code projects</div>
     <input id="search" type="text" placeholder="search  ⌘K" spellcheck="false" autocomplete="off">
     <div id="projects"></div>
-    <div id="foot"><span id="version">v0.4.0</span><span id="theme" title="Theme">auto</span></div>
+    <div id="foot"><span id="version">v0.6.0</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
   </div>
   <div id="terms"><div id="dragbar"></div></div>
   <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
