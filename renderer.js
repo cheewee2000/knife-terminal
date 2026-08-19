@@ -31,8 +31,52 @@ document.getElementById('theme').onclick = () => {
   localStorage.setItem('theme', themeMode); applyTheme();
 };
 
-const EMOJI = ['🔪','🪚','🔧','🔩','⚙️','🧲','🧪','🔬','🔭','📐','📏','✏️','🖊️','📎','🧷','🧵','🪡','🧶','🪵','🪨','🧱','🪞','🔦','🕯️','💡','🔋','🔌','📡','🛰️','🚀','🛠️','⚗️','🧭','⏱️','⌛','🪙','🎛️','🎚️','📻','🔑','🗝️','🔒','🪛','🧰','📦','🗂️','📁','📓','📒','🗒️','🌲','🌵','🍄','🪴','🌊','🔥','❄️','⚡','🌑','🌕','☀️','🌈','🐙','🦑','🦀','🐢','🦎','🐝','🦉','🐋','🦔','🐈','🐕','🦊','🐻','🦫','🐚','🪶','🥚','🍋','🍎','🫐','🍇','🥝','🫒','🥨','🧊','🏔️','🏕️','⛺','🛶','⛵','🚲','🛹','🏀','⚽','🎲','♟️','🎯','🎹','🥁','🎸','🎺'];
-function emojiFor(path) { if (!path) return '🔪'; let h = 0; for (const c of path) h = (h * 31 + c.charCodeAt(0)) >>> 0; return EMOJI[h % EMOJI.length]; }
+// Emoji picker: keyword match on the folder name (quick, no network), hash fallback.
+const EMOJI_KEYS = [
+  ['knife|blade|cut|slice','🔪'], ['terminal|shell|cli|console','⌨️'], ['clock|time|watch|timer|hour|minute','⏱️'],
+  ['earth|globe|planet|world|geo|map','🌍'], ['sea|ocean|wave|tide|level|marine','🌊'], ['sun|solar|light|lamp','☀️'],
+  ['moon|lunar|night|dark','🌙'], ['star|space|astro|orbit|satellite','🛰️'], ['rocket|launch','🚀'],
+  ['email|mail|inbox|newsletter','✉️'], ['invoice|bill|receipt|payment|pay|money|cash|price','🧾'],
+  ['todo|task|list|checklist|reminder','☑️'], ['calendar|schedule|date|event|fork','📅'], ['news|press|paper|journal|blog','📰'],
+  ['cms|content|site|web|www|html|page','🗂️'], ['engrav|laser|etch','🔆'], ['camera|photo|wink|lens|image|pic','📷'],
+  ['video|film|movie|clip','🎬'], ['music|song|audio|sound|wav|mp3|spotify|spoon','🎵'], ['speaker|radio|pager|ring|bell|alert','🔔'],
+  ['game|play|arcade|puzzle|squirrel','🎮'], ['bot|robot|agent|ai|gpt|llm|claude','🤖'], ['arb|arbitrage|trade|trading|stock|crypto|market','📈'],
+  ['bunny|rabbit','🐰'], ['flamingo','🦩'], ['crow|bird|flight|wing|feather','🐦‍⬛'], ['mosquito|bug|insect|fly|pest','🦟'], ['pebble|stone|rock|haptic','🪨'],
+  ['incense|smoke|scent|candle','🕯️'], ['glasses|eyewear|spec|vision|eye','👓'], ['titanium|metal|steel|alu|brass|machin|cnc|mill|lathe','⚙️'],
+  ['pcb|schematic|circuit|electronic|board|kicad|easyeda','🔌'], ['mcp|server|api|proxy|socket|daemon','🔧'], ['design|figma|ui|ux|system|style|theme|font|type','🎨'],
+  ['art|artwork|archive|gallery|museum|paint|draw|sketch','🖼️'], ['cad|fusion|3d|model|mesh|print|stl|cadgang','📐'], ['parts|fast|mcmaster|hardware|tool|supply|stock','🔩'],
+  ['standard|industry|spec|norm','📏'], ['meditat|zen|calm|breath|mind','🧘'], ['box|crate|package|case|enclosure','📦'], ['noodle|ramen|food|eat|kitchen|cook|recipe','🍜'],
+  ['polar|pair|bear|ice|snow|cold|arctic','🐻‍❄️'], ['academy|school|class|course|learn|teach|study|edu','🎓'], ['pendant|necklace|jewel|ring|remix','📿'],
+  ['pager|beeper|message|chat|sms|text','📟'], ['human|person|people|body|health|fit','🧍'], ['straw|drink|cup|coffee|tea|bar','🥤'],
+  ['proof|life|heart|pulse|alive|check','💓'], ['moire|pattern|texture|grid|wave','🌀'], ['tempra|temp|heat|thermo|weather|climate','🌡️'],
+  ['constructor|build|sim|simulation|physics|engine','🏗️'], ['infinite|loop|forever|endless','♾️'], ['random|dice|together|chance|shuffle','🎲'],
+  ['dropbox|sync|cloud|backup|drive','☁️'], ['download|dl|fetch|import','⬇️'], ['advisor|advice|consult|coach|mentor','🧭'], ['crouton|bread|toast|bake','🍞'],
+  ['jesus|church|holy|faith|pray','✝️'], ['tag|barcode|label|qr|scan|sticker','🏷️'], ['darkball|ball|sphere|orb','⚫'], ['ios|iphone|mobile|app|swift|xcode','📱'],
+  ['mac|macos|desktop|electron','🖥️'], ['git|github|repo|code|dev|src','💻'], ['test|spec|lab|experiment|research','🧪'], ['doc|docs|note|wiki|readme|write|book','📓'],
+  ['home|house|room|furniture','🏠'], ['car|auto|vehicle|drive|bike|bicycle','🚲'], ['plant|garden|tree|leaf|flower|seed','🌱'], ['dog|puppy|cat|kitten|pet','🐾'],
+  ['fish|shark|whale|squid|octopus','🐙'], ['fire|flame|burn|hot','🔥'], ['water|rain|drop|liquid|fluid','💧'], ['wind|air|fan|breeze','🌬️'],
+  ['key|lock|auth|login|password|secure|vault','🔑'], ['search|find|query|index','🔍'], ['data|db|database|sql|table|sheet|csv','🗄️'], ['chart|graph|plot|dash|analytics|stat','📊'],
+  ['shop|store|cart|commerce|shopify|order|sell','🛒'], ['ship|deliver|post|parcel|tracking','📬'], ['phone|call|voice|dial','📞'], ['printer|print|ink|paper','🖨️'],
+  ['battery|power|charge|volt|energy','🔋'], ['magnet|mag','🧲'], ['wire|cable|usb|plug','🔌'], ['watch|wrist|final','⌚'], ['pen|pencil|write|draft','✏️'],
+  ['trophy|win|award|best','🏆'], ['flag|country|nation','🚩'], ['egg|chick|hatch|gochi|tamagotchi','🥚'], ['wang|levy|cw|cwandt|cwt','🔪']
+];
+const EMOJI = ['🪚','🔧','🔩','⚙️','🧲','🧪','🔬','🔭','📐','📏','✏️','📎','🧷','🧵','🪵','🪨','🧱','🔦','🕯️','💡','🔋','📡','🛠️','⚗️','🧭','⏱️','⌛','🪙','🎛️','🎚️','📻','🔑','🪛','🧰','📦','📁','📓','🌲','🌵','🍄','🪴','🌊','🔥','❄️','⚡','🌑','🌕','🐙','🦀','🐢','🦉','🐋','🦊','🐻','🐚','🪶','🍋','🍎','🫐','🧊','🏔️','⛺','🛶','⛵','🚲','🎲','♟️','🎯','🎹','🥁','🎸'];
+const EMOJI_RX = EMOJI_KEYS.map(([k, e]) => [new RegExp('^(' + k + ')', 'i'), new RegExp('(' + k + ')', 'i'), e]);
+const emojiOverrides = JSON.parse(localStorage.getItem('emoji') || '{}');
+function emojiFor(path) {
+  if (!path) return '🔪';
+  if (emojiOverrides[path]) return emojiOverrides[path];
+  const name = path.split('/').pop();
+  const tokens = name.replace(/([a-z])([A-Z])/g, '$1 $2').split(/[^A-Za-z0-9]+/).filter(Boolean);
+  let best = null, bestLen = 0; // longest keyword match wins; prefix match on any token, substring only for longer tokens
+  tokens.forEach((t, i) => { for (const [rx, sub, e] of EMOJI_RX) {
+    const m = rx.exec(t) || (t.length >= 6 && sub.exec(t));
+    const len = m ? m[1].length + (i === 0 ? 3 : 0) : 0; // first word gets a bonus
+    if (len > bestLen) { best = e; bestLen = len; }
+  } });
+  if (best) return best;
+  let h = 0; for (const c of path) h = (h * 31 + c.charCodeAt(0)) >>> 0; return EMOJI[h % EMOJI.length];
+}
 const tabs = new Map(); // id -> { term, fit, tabEl, termEl }
 let active = null;
 let nextId = 1;
