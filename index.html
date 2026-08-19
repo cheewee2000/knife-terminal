@@ -8,10 +8,10 @@
   <style>
     html, body { margin: 0; height: 100%; overflow: hidden; }
     /* dark theme: inverted ink/paper on warm neutrals (cerakote black) */
-    :root { --accent: #B1A57E; }
+    :root { --accent: #B1A57E; --sidew: 220px; }
     :root[data-theme="dark"] { --ink: #ececea; --ink-soft: #b9b8b3; --ink-faint: #8a8a8a; --rule: #2e2e2c; --paper: #111111; --paper-2: #1a1a18; --paper-3: #222220; }
     body { background: var(--paper); color: var(--ink); transition: background var(--dur) var(--ease); }
-    #side { position: absolute; top: 0; bottom: 25px; left: 0; width: 220px; background: var(--paper-2); border-right: 1px solid var(--rule); display: flex; flex-direction: column; user-select: none; font-size: 12px; }
+    #side { position: absolute; top: 0; bottom: 25px; left: 0; width: var(--sidew); background: var(--paper-2); border-right: 1px solid var(--rule); display: flex; flex-direction: column; user-select: none; font-size: 12px; }
     #drag { height: 36px; -webkit-app-region: drag; flex: none; }
     #collapse { color: var(--ink-soft); font-size: 13px; line-height: 1; cursor: default; transition: opacity var(--dur-fast) var(--ease); }
     #collapse:hover { opacity: 0.55; }
@@ -57,7 +57,12 @@
     #setdefault:hover { opacity: 0.55; }
     #theme { cursor: default; color: var(--ink-soft); transition: opacity var(--dur-fast) var(--ease); }
     #theme:hover { opacity: 0.55; }
-    #terms { position: absolute; top: 0; bottom: 25px; left: 221px; right: 0; }
+    #terms { position: absolute; top: 0; bottom: 25px; left: calc(var(--sidew) + 1px); right: 0; }
+    #resizer { position: absolute; top: 0; bottom: 25px; left: calc(var(--sidew) - 2px); width: 5px; cursor: col-resize; z-index: 3; }
+    #resizer:hover, body.resizing #resizer { background: var(--accent); opacity: 0.5; }
+    body.resizing { cursor: col-resize; user-select: none; }
+    body.resizing #terms { pointer-events: none; }
+    body.collapsed #resizer { display: none; }
     #dragbar { position: absolute; top: 0; left: 0; right: 0; height: 14px; -webkit-app-region: drag; }
     .term { position: absolute; inset: 0; padding: 14px 0 4px 12px; display: none; }
     .term.active { display: block; }
@@ -74,7 +79,8 @@
     <div id="projects"></div>
   </div>
   <div id="terms"><div id="dragbar"></div></div>
-  <div id="foot"><span id="collapse" title="Hide/show sidebar (⌘B)">‹</span><span class="id">CWT_STE3XM1_2607<span>KNIFE TERM</span></span><span class="sp"></span><span id="version">v0.7.3</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
+  <div id="resizer"></div>
+  <div id="foot"><span id="collapse" title="Hide/show sidebar (⌘B)">‹</span><span class="id">CWT_STE3XM1_2607<span>KNIFE TERM</span></span><span class="sp"></span><span id="version">v0.7.4</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
   <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="renderer.js"></script>

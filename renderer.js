@@ -234,6 +234,16 @@ function toggleSidebar() {
   document.getElementById('collapse').textContent = on ? '›' : '‹';
   requestAnimationFrame(() => active && tabs.get(active)?.fit.fit());
 }
+// Drag the sidebar edge to resize (160–480px), persisted
+const setSideW = (w) => document.documentElement.style.setProperty('--sidew', w + 'px');
+const savedW = Number(localStorage.getItem('sidew')); if (savedW) setSideW(savedW);
+document.getElementById('resizer').onmousedown = (e) => {
+  e.preventDefault(); document.body.classList.add('resizing');
+  const move = (ev) => setSideW(Math.max(160, Math.min(480, ev.clientX)));
+  const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); document.body.classList.remove('resizing');
+    localStorage.setItem('sidew', parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidew'))); active && tabs.get(active)?.fit.fit(); };
+  window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+};
 if (localStorage.getItem('sidebar') === 'collapsed') { document.body.classList.add('collapsed'); document.getElementById('collapse').textContent = '›'; }
 document.getElementById('collapse').onclick = toggleSidebar;
 
