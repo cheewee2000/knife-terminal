@@ -137,7 +137,7 @@ function createTab(opts = {}) {
   term.onData(data => { window.pty.write(id, data); tabEl.classList.remove('attn'); });
   term.onBell(() => markAttention(id, true));
   term.onResize(({ cols, rows }) => window.pty.resize(id, cols, rows));
-  term.onTitleChange(title => { if (!opts.title) tabEl.querySelector('.title').textContent = title || `shell ${id}`; });
+  term.onTitleChange(title => { if (!opts.title && title) tabEl.querySelector('.title').textContent = title; });
 }
 
 function activate(id) {
@@ -297,7 +297,7 @@ window.pty.onRestore(s => {
   const saved = (s?.tabs || []).filter(t => t.cwd);
   if (!saved.length) { createTab(); defaultTabId = active; tabs.get(active).term.onData(() => { defaultTabId = null; }); return; }
   let act = null;
-  for (const t of saved) { createTab({ cwd: t.cwd, cmd: t.cmd, restoreCmd: t.cmd, title: t.cmd ? t.title : undefined }); if (t.active) act = active; }
+  for (const t of saved) { createTab({ cwd: t.cwd, cmd: t.cmd, restoreCmd: t.cmd, title: t.cmd ? t.title : undefined, shownTitle: t.title }); if (t.active) act = active; }
   if (act) activate(act);
 });
 window.pty.ready();
