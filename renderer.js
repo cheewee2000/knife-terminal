@@ -31,6 +31,8 @@ document.getElementById('theme').onclick = () => {
   localStorage.setItem('theme', themeMode); applyTheme();
 };
 
+const EMOJI = ['🔪','🪚','🔧','🔩','⚙️','🧲','🧪','🔬','🔭','📐','📏','✏️','🖊️','📎','🧷','🧵','🪡','🧶','🪵','🪨','🧱','🪞','🔦','🕯️','💡','🔋','🔌','📡','🛰️','🚀','🛠️','⚗️','🧭','⏱️','⌛','🪙','🎛️','🎚️','📻','🔑','🗝️','🔒','🪛','🧰','📦','🗂️','📁','📓','📒','🗒️','🌲','🌵','🍄','🪴','🌊','🔥','❄️','⚡','🌑','🌕','☀️','🌈','🐙','🦑','🦀','🐢','🦎','🐝','🦉','🐋','🦔','🐈','🐕','🦊','🐻','🦫','🐚','🪶','🥚','🍋','🍎','🫐','🍇','🥝','🫒','🥨','🧊','🏔️','🏕️','⛺','🛶','⛵','🚲','🛹','🏀','⚽','🎲','♟️','🎯','🎹','🥁','🎸','🎺'];
+function emojiFor(path) { if (!path) return '🔪'; let h = 0; for (const c of path) h = (h * 31 + c.charCodeAt(0)) >>> 0; return EMOJI[h % EMOJI.length]; }
 const tabs = new Map(); // id -> { term, fit, tabEl, termEl }
 let active = null;
 let nextId = 1;
@@ -59,7 +61,7 @@ function createTab(opts = {}) {
 
   const tabEl = document.createElement('div');
   tabEl.className = 'tab';
-  tabEl.innerHTML = `<span class="dot"></span><span class="title">shell ${id}</span><span class="close">×</span>`;
+  tabEl.innerHTML = `<span class="dot"></span><span class="emoji">${opts.cwd ? emojiFor(opts.cwd) : "🔪"}</span><span class="title">shell ${id}</span><span class="close">×</span>`;
   tabEl.onclick = (e) => { if (e.target.classList.contains('close')) closeTab(id); else activate(id); };
   tabsEl.appendChild(tabEl);
 
@@ -122,7 +124,7 @@ async function loadProjects() {
   projectsEl.innerHTML = '';
   for (const p of list) {
     const el = document.createElement('div');
-    el.className = 'proj'; el.textContent = p.name; el.title = p.path;
+    el.className = 'proj'; el.innerHTML = `<span class="emoji">${emojiFor(p.path)}</span><span class="name"></span>`; el.querySelector('.name').textContent = p.name; el.title = p.path;
     el.onclick = () => createTab({ cwd: p.path, cmd: 'claude', restoreCmd: 'claude -c', title: p.name });
     projectsEl.appendChild(el);
   }
@@ -185,11 +187,11 @@ document.getElementById('setdefault').onclick = () => window.pty.setDefault();
 function toggleSidebar() {
   const on = document.body.classList.toggle('collapsed');
   localStorage.setItem('sidebar', on ? 'collapsed' : 'open');
+  document.getElementById('collapse').textContent = on ? '›' : '‹';
   requestAnimationFrame(() => active && tabs.get(active)?.fit.fit());
 }
-if (localStorage.getItem('sidebar') === 'collapsed') document.body.classList.add('collapsed');
+if (localStorage.getItem('sidebar') === 'collapsed') { document.body.classList.add('collapsed'); document.getElementById('collapse').textContent = '›'; }
 document.getElementById('collapse').onclick = toggleSidebar;
-document.getElementById('expand').onclick = toggleSidebar;
 
 function syncSession() {
   window.pty.saveTabs([...tabs].map(([id, t]) => ({ id, title: t.tabEl.querySelector('.title').textContent, restoreCmd: t.opts.restoreCmd || null, active: id === active })));
