@@ -272,6 +272,40 @@ window.pty.onMenu(what => {
   else if (what === 'install-hooks') { window.pty.installHooks().then(refreshHooks); }
 });
 document.getElementById('setdefault').onclick = () => window.pty.setDefault();
+
+// ─── Context panels: md files Claude Code loads globally / for the active tab's project ───
+const ctxPanel = document.getElementById('ctxpanel');
+let ctxScope = null;
+function hideCtx() { ctxScope = null; ctxPanel.classList.remove('open'); }
+async function toggleCtx(scope) {
+  if (ctxScope === scope) return hideCtx();
+  ctxScope = scope;
+  const { home, cwd, files } = await window.pty.contextList(scope, active);
+  const short = p => home && p.startsWith(home) ? '~' + p.slice(home.length) : p;
+  ctxPanel.innerHTML = '';
+  const head = document.createElement('div'); head.className = 'ctxhead';
+  head.textContent = scope === 'global' ? 'loaded into every session' : 'loaded by this tab' + (cwd ? ' — ' + short(cwd) : '');
+  ctxPanel.appendChild(head);
+  if (!files.length) {
+    const d = document.createElement('div'); d.className = 'ctxempty';
+    d.textContent = scope === 'global' ? 'no global context files' : (cwd ? 'no project context files' : 'no shell running in this tab');
+    ctxPanel.appendChild(d);
+  }
+  for (const f of files) {
+    const row = document.createElement('div'); row.className = 'ctxrow'; row.title = f.path;
+    const name = document.createElement('span'); name.className = 'name'; name.textContent = f.path.split('/').pop();
+    const dir = document.createElement('span'); dir.className = 'dir'; dir.textContent = short(f.path).replace(/\/[^/]+$/, '') || '/';
+    const size = document.createElement('span'); size.className = 'size'; size.textContent = f.size < 1024 ? f.size + 'b' : (f.size / 1024).toFixed(1) + 'k';
+    row.append(name, dir, size);
+    row.onclick = () => { window.pty.contextOpen(f.path); hideCtx(); };
+    ctxPanel.appendChild(row);
+  }
+  ctxPanel.classList.add('open');
+}
+document.getElementById('ctxglobal').onclick = (e) => { e.stopPropagation(); toggleCtx('global'); };
+document.getElementById('ctxsession').onclick = (e) => { e.stopPropagation(); toggleCtx('session'); };
+document.addEventListener('click', (e) => { if (ctxScope && !ctxPanel.contains(e.target)) hideCtx(); });
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ctxScope) hideCtx(); });
 function toggleSidebar() {
   const on = document.body.classList.toggle('collapsed');
   localStorage.setItem('sidebar', on ? 'collapsed' : 'open');

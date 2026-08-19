@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, Menu, dialog, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, Menu, dialog, screen, shell } = require('electron');
 const { execFile, execFileSync, spawn: spawnProc } = require('child_process');
 const net = require('net');
 const path = require('path');
@@ -242,6 +242,31 @@ ipcMain.handle('pty:spawn', (event, { id, cols, rows, cwd, cmd }) => {
 ipcMain.on('pty:write', (e, { id, data }) => ptys.get(id)?.p.write(data));
 ipcMain.on('pty:resize', (e, { id, cols, rows }) => { try { ptys.get(id)?.p.resize(cols, rows); } catch {} });
 ipcMain.on('pty:kill', (e, { id }) => { ptys.get(id)?.p.kill(); ptys.delete(id); });
+
+// ─── Context files: md files Claude Code loads globally (every session) or for the active tab's project ───
+function statOf(p) { try { const st = fs.statSync(p); return st.isFile() ? { path: p, size: st.size } : null; } catch { return null; } }
+ipcMain.handle('context:list', (e, { scope, tabId }) => {
+  const home = os.homedir();
+  const files = [];
+  if (scope === 'global') {
+    for (const p of ['/Library/Application Support/ClaudeCode/CLAUDE.md', path.join(home, '.claude', 'CLAUDE.md'), path.join(home, '.claude', 'CLAUDE.local.md')]) {
+      const s = statOf(p); if (s) files.push(s);
+    }
+    return { home, cwd: null, files };
+  }
+  const ent = ptys.get(Number(tabId));
+  const cwd = ent ? cwdOf(ent.p.pid) : null;
+  if (!cwd) return { home, cwd: null, files };
+  let dir = cwd;
+  for (let i = 0; i < 40; i++) { // CLAUDE.md / CLAUDE.local.md from cwd up to the root
+    for (const n of ['CLAUDE.md', 'CLAUDE.local.md']) { const s = statOf(path.join(dir, n)); if (s) files.push(s); }
+    const parent = path.dirname(dir); if (parent === dir) break; dir = parent;
+  }
+  const mem = statOf(path.join(home, '.claude', 'projects', cwd.replace(/[^A-Za-z0-9]/g, '-'), 'memory', 'MEMORY.md'));
+  if (mem) files.push(mem);
+  return { home, cwd, files };
+});
+ipcMain.handle('context:open', (e, p) => { if (typeof p === 'string' && p.endsWith('.md')) shell.openPath(p); });
 
 // Previously opened Claude Code projects, most recent first
 ipcMain.handle('projects:list', () => {

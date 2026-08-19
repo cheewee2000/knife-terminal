@@ -60,6 +60,17 @@
     #hooks:hover { opacity: 0.55; }
     #setdefault { cursor: default; color: var(--ink-soft); transition: opacity var(--dur-fast) var(--ease); }
     #setdefault:hover { opacity: 0.55; }
+    #ctxglobal, #ctxsession { cursor: default; color: var(--ink-soft); transition: opacity var(--dur-fast) var(--ease); }
+    #ctxglobal:hover, #ctxsession:hover { opacity: 0.55; }
+    #ctxpanel { display: none; position: absolute; bottom: 28px; right: 8px; min-width: 280px; max-width: 520px; max-height: 50%; overflow-y: auto; background: var(--paper-2); border: 1px solid var(--rule); box-shadow: 0 8px 30px rgba(0,0,0,0.35); z-index: 5; font-size: 11px; padding: 2px 0 4px; user-select: none; }
+    #ctxpanel.open { display: block; }
+    .ctxhead { padding: 6px 12px 4px; font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ctxrow { display: flex; align-items: baseline; gap: 8px; padding: 5px 12px; color: var(--ink); cursor: default; }
+    .ctxrow:hover { background: var(--paper-3); }
+    .ctxrow .name { flex: none; }
+    .ctxrow .dir { flex: 1; color: var(--ink-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+    .ctxrow .size { flex: none; color: var(--ink-soft); }
+    .ctxempty { padding: 6px 12px; color: var(--ink-faint); }
     #theme { cursor: default; color: var(--ink-soft); transition: opacity var(--dur-fast) var(--ease); }
     #theme:hover { opacity: 0.55; }
     #terms { position: absolute; top: 0; bottom: 25px; left: calc(var(--sidew) + 1px); right: 0; }
@@ -84,8 +95,9 @@
     <div id="projects"></div>
   </div>
   <div id="terms"><div id="dragbar"></div></div>
+  <div id="ctxpanel"></div>
   <div id="resizer"></div>
-  <div id="foot"><span id="collapse" title="Hide/show sidebar (⌘B)">‹</span><span class="id">CWT_STE3XM1_2607<span>KNIFE TERM</span></span><span class="sp"></span><span id="version">v0.8.4</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
+  <div id="foot"><span id="collapse" title="Hide/show sidebar (⌘B)">‹</span><span class="id">CWT_STE3XM1_2607<span>KNIFE TERM</span></span><span class="sp"></span><span id="version">v0.8.5</span><span id="ctxglobal" title="Context files loaded into every Claude Code session">global ctx</span><span id="ctxsession" title="Context files the active tab's project loads on top of the global ones">session ctx</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
   <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="node_modules/@xterm/addon-serialize/lib/addon-serialize.js"></script>

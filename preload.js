@@ -28,5 +28,7 @@ contextBridge.exposeInMainWorld('pty', {
   installHooks: () => ipcRenderer.invoke('hooks:install'),
   onAttention: (cb) => ipcRenderer.on('attention', (e, m) => cb(m.id, m.type)),
   onWorking: (cb) => ipcRenderer.on('working', (e, m) => cb(m.id, m.on)),
+  contextList: (scope, tabId) => ipcRenderer.invoke('context:list', { scope, tabId }),
+  contextOpen: (p) => ipcRenderer.invoke('context:open', p),
   chime: () => ipcRenderer.send('chime'),
 });
