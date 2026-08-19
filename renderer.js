@@ -204,7 +204,7 @@ function cycle(dir) {
   activate(ids[(i + dir + ids.length) % ids.length]);
 }
 
-// Orange dot + chime when a Claude Code session (or any bell) wants attention
+// Green tab (glowing emoji when collapsed) + chime when a Claude Code session (or any bell) wants attention
 function markAttention(id, fromBell) {
   const t = tabs.get(id); if (!t) return;
   if (fromBell && id === active && document.hasFocus()) return; // a bell in the tab you're looking at is just a bell

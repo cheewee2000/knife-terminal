@@ -25,7 +25,6 @@
     body.collapsed .tab { padding: 7px 0; justify-content: center; gap: 0; position: relative; }
     body.collapsed .tab .emoji { width: auto; font-size: 16px; }
     body.collapsed .tab .title, body.collapsed .tab .close { display: none; }
-    body.collapsed .tab .dot { position: absolute; top: 5px; right: 7px; width: 6px; height: 6px; }
     body.collapsed .tab.active { border-top-color: transparent; border-bottom-color: transparent; }
     .label { padding: 12px 12px 6px; font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-faint); display: flex; justify-content: space-between; align-items: center; flex: none; }
     #tabs { flex: none; max-height: 40%; overflow-y: auto; }
@@ -33,8 +32,10 @@
     .tab:hover { opacity: 0.55; }
     .tab.active { background: var(--paper); color: var(--ink); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin-right: -1px; box-shadow: inset 2px 0 0 var(--accent); }
     .tab .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .tab .dot { width: 7px; height: 7px; border-radius: var(--radius-pill); background: var(--accent); display: none; flex: none; }
-    .tab.attn .dot { display: block; }
+    .tab .dot { display: none; }
+    .tab.attn, .tab.attn .close { color: var(--signal-green); }
+    @keyframes glow { 0%, 100% { filter: drop-shadow(0 0 2px var(--signal-green)); } 50% { filter: drop-shadow(0 0 7px var(--signal-green)); } }
+    body.collapsed .tab.attn .emoji { animation: glow 1.4s ease-in-out infinite; }
     .tab .close { color: var(--ink-faint); font-size: 13px; }
     .tab.active .close { color: var(--ink); }
     #newtab { cursor: default; color: var(--ink); font-size: 14px; line-height: 1; transition: opacity var(--dur-fast) var(--ease); }
@@ -73,7 +74,7 @@
     <div id="projects"></div>
   </div>
   <div id="terms"><div id="dragbar"></div></div>
-  <div id="foot"><span id="collapse" title="Hide/show sidebar (⌘B)">‹</span><span class="id">CWT_STE3XM1_2607<span>KNIFE TERM</span></span><span class="sp"></span><span id="version">v0.7.2</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
+  <div id="foot"><span id="collapse" title="Hide/show sidebar (⌘B)">‹</span><span class="id">CWT_STE3XM1_2607<span>KNIFE TERM</span></span><span class="sp"></span><span id="version">v0.7.3</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
   <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="renderer.js"></script>
