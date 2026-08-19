@@ -1,0 +1,249 @@
+/* CW&T Design System — colors_and_type.css
+   The CW&T site is austere, utilitarian, and product-photography-driven.
+   Type is monospaced (Space Mono) — fits the studio's engineering / ID-label voice.
+   Color is largely absent: white page, near-black text, a single signal red,
+   and warm material greys borrowed from machined-metal product photography.
+*/
+
+@font-face {
+  font-family: "Space Mono";
+  src: url("fonts/SpaceMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Space Mono";
+  src: url("fonts/SpaceMono-Italic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Space Mono";
+  src: url("fonts/SpaceMono-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Space Mono";
+  src: url("fonts/SpaceMono-BoldItalic.ttf") format("truetype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root {
+  /* ─── Type ───────────────────────────────────────────────── */
+  --font-mono:    "Space Mono", "JetBrains Mono", "Menlo", "Courier New", monospace;
+  --font-display: "Space Mono", "JetBrains Mono", "Menlo", "Courier New", monospace; /* same family — system runs on one face */
+  --font-system:  -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; /* fallback only, e.g. user reviews */
+
+  /* Type scale — modular, slightly tight (this brand likes density) */
+  --fs-12: 11px;
+  --fs-14: 13px;   /* nav, captions, ID labels */
+  --fs-16: 15px;   /* body */
+  --fs-18: 17px;
+  --fs-20: 19px;
+  --fs-24: 22px;
+  --fs-32: 30px;
+  --fs-48: 44px;
+  --fs-64: 60px;
+  --fs-96: 92px;
+
+  /* Line-heights — monospace prefers a touch more breathing room */
+  --lh-tight: 1.15;
+  --lh-snug:  1.35;
+  --lh-body:  1.55;
+
+  /* Letter-spacing — Space Mono is wide; tighten labels & uppercase, leave body alone */
+  --ls-label: 0.04em;   /* ID labels, uppercase nav */
+  --ls-tight: -0.01em;  /* big display sizes */
+  --ls-body:  0;
+
+  /* ─── Color: ink + paper ──────────────────────────────────── */
+  --ink:        #111111; /* primary text — not pure black; printable feel */
+  --ink-soft:   #4a4a4a; /* secondary text, captions */
+  --ink-faint:  #8a8a8a; /* hints, disabled, ID label specs */
+  --rule:       #e3e3e3; /* hairline borders */
+  --rule-soft:  #efefef;
+  --paper:      #ffffff; /* page background */
+  --paper-2:    #f6f5f2; /* warm off-white — used for product cards, panels */
+  --paper-3:    #ececea; /* a touch warmer/darker — section divides */
+
+  /* ─── Color: machined-metal greys (echo product photography) ── */
+  --metal-stainless: #b9b8b3; /* stainless / glass-bead */
+  --metal-titanium:  #8c8c87;
+  --metal-graphite:  #3a3a38;
+  --metal-brass:     #b08a4d;
+  --metal-copper:    #b56b3f;
+  --metal-cerakote:  #1a1a18; /* black cerakote */
+
+  /* ─── Color: signal accents (used sparingly) ──────────────── */
+  --signal-red:    #d11d1d; /* "WAITLIST", error, callouts */
+  --signal-orange: #e35a1e; /* limited / hot drops — pulled from cerakote orange */
+  --signal-yellow: #efc94c; /* dot accents */
+  --signal-green:  #2e7d4f; /* in stock */
+
+  /* ─── Semantic ────────────────────────────────────────────── */
+  --fg-1: var(--ink);
+  --fg-2: var(--ink-soft);
+  --fg-3: var(--ink-faint);
+  --bg-1: var(--paper);
+  --bg-2: var(--paper-2);
+  --bg-3: var(--paper-3);
+  --border: var(--rule);
+  --border-strong: var(--ink);
+
+  /* ─── Spacing — 4px base, multiples ─────────────────────── */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+  --sp-24: 96px;
+
+  /* ─── Radius — almost always 0. Anything rounded is a deliberate exception. */
+  --radius-0: 0px;       /* default for cards, buttons, inputs */
+  --radius-1: 2px;       /* very light — tags, swatches */
+  --radius-pill: 999px;  /* rare — circular dots, status badges */
+
+  /* ─── Borders ─────────────────────────────────────────────── */
+  --bw-hair: 1px;
+  --bw-rule: 1px;
+  --bw-bold: 2px;
+
+  /* ─── Shadows — extremely restrained.
+        CW&T renders use real photographic shadows; UI shadows are quiet. */
+  --shadow-0: none;
+  --shadow-1: 0 1px 0 rgba(0,0,0,0.04);
+  --shadow-2: 0 1px 2px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.03);
+  --shadow-photo: 0 24px 48px -16px rgba(0,0,0,0.18); /* product image lift, optional */
+
+  /* ─── Motion ──────────────────────────────────────────────── */
+  --ease: cubic-bezier(0.4, 0.0, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur:      200ms;
+  --dur-slow: 360ms;
+}
+
+/* ─── Semantic role classes ────────────────────────────────────
+   Use these instead of hand-styling text repeatedly.
+*/
+
+html, body {
+  background: var(--bg-1);
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-16);
+  line-height: var(--lh-body);
+  letter-spacing: var(--ls-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+.h1, h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-64);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--ls-tight);
+  margin: 0;
+}
+.h2, h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-48);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--ls-tight);
+  margin: 0;
+}
+.h3, h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-32);
+  line-height: var(--lh-snug);
+  margin: 0;
+}
+.h4, h4 {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: var(--fs-20);
+  line-height: var(--lh-snug);
+  margin: 0;
+}
+.h5, h5 {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: var(--fs-16);
+  line-height: var(--lh-snug);
+  margin: 0;
+}
+.p, p {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: var(--fs-16);
+  line-height: var(--lh-body);
+  margin: 0;
+}
+.caption {
+  font-family: var(--font-mono);
+  font-size: var(--fs-14);
+  color: var(--fg-2);
+  line-height: var(--lh-snug);
+}
+.label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-14);
+  letter-spacing: var(--ls-label);
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+/* The CW&T ID label — the structured codename printed on every product page.
+   e.g.  CWT_HSM4PW4_1610   ·   (H)ard (S)mall (M)etal …
+*/
+.id-label {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: var(--fs-14);
+  letter-spacing: 0.06em;
+  color: var(--fg-1);
+}
+.id-label__expansion {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: var(--fs-14);
+  color: var(--fg-2);
+  letter-spacing: 0.02em;
+}
+.code, code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  background: var(--bg-2);
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+}
+
+/* Hairline horizontal rule — used everywhere as a divider */
+.hr {
+  height: 1px;
+  background: var(--border);
+  border: 0;
+  margin: 0;
+}
+
+/* Link */
+a, .link {
+  color: var(--fg-1);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  transition: opacity var(--dur) var(--ease);
+}
+a:hover, .link:hover { opacity: 0.55; } /* primary hover state: opacity, not color */
+a:active, .link:active { opacity: 0.8; }

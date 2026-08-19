@@ -3,26 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <title>Knife Terminal</title>
+  <link rel="stylesheet" href="colors_and_type.css">
   <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css">
   <style>
-    html, body { margin: 0; height: 100%; background: #1e1e1e; color: #ccc; font-family: -apple-system, sans-serif; overflow: hidden; }
-    #tabbar { height: 38px; display: flex; align-items: flex-end; padding-left: 78px; background: #2a2a2a; -webkit-app-region: drag; user-select: none; }
-    .tab { -webkit-app-region: no-drag; padding: 6px 12px; font-size: 12px; background: #2a2a2a; color: #999; border-right: 1px solid #1e1e1e; cursor: default; display: flex; align-items: center; gap: 8px; max-width: 180px; }
-    .tab.active { background: #1e1e1e; color: #eee; }
-    .tab .close { opacity: 0.5; font-size: 11px; }
-    .tab .close:hover { opacity: 1; }
-    #newtab { -webkit-app-region: no-drag; padding: 6px 10px; font-size: 14px; color: #999; cursor: default; }
-    #newtab:hover { color: #eee; }
-    #terms { position: absolute; top: 38px; bottom: 0; left: 0; right: 0; }
-    .term { position: absolute; inset: 0; padding: 4px; display: none; }
+    :root { --hair: var(--rule); --panel: var(--paper-2); --ink2: var(--ink-soft); --hint: var(--ink-faint); }
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    #tabbar { height: 40px; display: flex; align-items: stretch; padding-left: 80px; background: var(--panel); border-bottom: 1px solid var(--hair); -webkit-app-region: drag; user-select: none; }
+    #mark { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 8px; padding: 0 16px 0 0; font-size: 12px; }
+    #mark b { font-weight: 700; letter-spacing: 0.06em; color: var(--ink); }
+    #mark span { color: var(--ink2); letter-spacing: 0.02em; }
+    .tab { -webkit-app-region: no-drag; padding: 0 12px; font-size: 12px; color: var(--ink2); border-left: 1px solid var(--hair); cursor: default; display: flex; align-items: center; gap: 12px; max-width: 200px; transition: opacity 120ms var(--ease); }
+    .tab:hover { opacity: 0.55; }
+    .tab.active { background: var(--paper); color: var(--ink); margin-bottom: -1px; }
+    .tab .title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tab .close { color: var(--hint); font-size: 13px; }
+    .tab.active .close { color: var(--ink); }
+    #newtab { -webkit-app-region: no-drag; padding: 0 12px; font-size: 14px; color: var(--ink); border-left: 1px solid var(--hair); border-right: 1px solid var(--hair); display: flex; align-items: center; cursor: default; transition: opacity 120ms var(--ease); }
+    #newtab:hover { opacity: 0.55; }
+    #version { -webkit-app-region: no-drag; margin-left: auto; display: flex; align-items: center; padding: 0 12px; font-size: 10px; letter-spacing: 0.04em; color: var(--hint); text-transform: uppercase; }
+    #terms { position: absolute; top: 41px; bottom: 0; left: 0; right: 0; }
+    .term { position: absolute; inset: 0; padding: 8px 0 4px 12px; display: none; }
     .term.active { display: block; }
-    #version { position: fixed; right: 8px; top: 12px; font-size: 10px; color: #666; -webkit-app-region: no-drag; }
   </style>
 </head>
 <body>
-  <div id="tabbar"><div id="newtab" title="New tab (⌘T)">+</div></div>
+  <div id="tabbar"><div id="mark"><b>CWT_TERM</b><span>(knife terminal)</span></div><div id="newtab" title="New tab (⌘T)">+</div><div id="version">v0.2.0</div></div>
   <div id="terms"></div>
-  <div id="version">v0.1.0</div>
   <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="renderer.js"></script>

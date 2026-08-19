@@ -12,10 +12,20 @@ function createTab() {
   termsEl.appendChild(termEl);
 
   const term = new Terminal({
-    fontFamily: 'Menlo, Monaco, monospace',
+    fontFamily: "'Space Mono', 'JetBrains Mono', Menlo, 'Courier New', monospace",
     fontSize: 13,
-    cursorBlink: true,
-    theme: { background: '#1e1e1e' },
+    lineHeight: 1.2,
+    cursorBlink: false,
+    cursorStyle: 'block',
+    theme: {
+      background: '#ffffff', foreground: '#111111',
+      cursor: '#111111', cursorAccent: '#ffffff',
+      selectionBackground: 'rgba(17,17,17,0.15)',
+      black: '#111111', red: '#d11d1d', green: '#2e7d4f', yellow: '#e35a1e',
+      blue: '#3a3a38', magenta: '#b08a4d', cyan: '#8c8c87', white: '#b9b8b3',
+      brightBlack: '#8a8a8a', brightRed: '#d11d1d', brightGreen: '#2e7d4f', brightYellow: '#e35a1e',
+      brightBlue: '#4a4a4a', brightMagenta: '#b08a4d', brightCyan: '#8c8c87', brightWhite: '#ececea',
+    },
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
@@ -23,7 +33,7 @@ function createTab() {
 
   const tabEl = document.createElement('div');
   tabEl.className = 'tab';
-  tabEl.innerHTML = `<span class="title">Shell ${id}</span><span class="close">✕</span>`;
+  tabEl.innerHTML = `<span class="title">shell ${id}</span><span class="close">×</span>`;
   tabEl.onclick = (e) => { if (e.target.classList.contains('close')) closeTab(id); else activate(id); };
   tabbar.insertBefore(tabEl, newtabBtn);
 
@@ -34,7 +44,7 @@ function createTab() {
 
   term.onData(data => window.pty.write(id, data));
   term.onResize(({ cols, rows }) => window.pty.resize(id, cols, rows));
-  term.onTitleChange(title => { tabEl.querySelector('.title').textContent = title || `Shell ${id}`; });
+  term.onTitleChange(title => { tabEl.querySelector('.title').textContent = title || `shell ${id}`; });
 }
 
 function activate(id) {

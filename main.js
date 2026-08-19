@@ -11,7 +11,8 @@ function createWindow() {
     width: 1000,
     height: 650,
     titleBarStyle: 'hiddenInset',
-    backgroundColor: '#1e1e1e',
+    trafficLightPosition: { x: 14, y: 13 },
+    backgroundColor: '#ffffff',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -23,7 +24,7 @@ function createWindow() {
 }
 
 ipcMain.handle('pty:spawn', (event, { id, cols, rows }) => {
-  const shell = process.env.SHELL || '/bin/zsh';
+  const shell = os.userInfo().shell || process.env.SHELL || '/bin/zsh';
   const p = pty.spawn(shell, ['-l'], {
     name: 'xterm-256color',
     cols, rows,
