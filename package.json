@@ -1,6 +1,6 @@
 {
   "name": "knife-terminal",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "CW&T's own terminal. Basic, with tabs.",
   "main": "main.js",
   "scripts": {

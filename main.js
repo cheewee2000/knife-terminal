@@ -190,7 +190,8 @@ function createWindow(bounds) {
   wins.add(w);
   w.on('move', saveSoon); w.on('resize', saveSoon);
   w.loadFile('index.html');
-  w.on('closed', () => { wins.delete(w); tabMeta.delete(w.webContents.id); for (const [id, e] of ptys) if (e.wc.isDestroyed()) { e.p.kill(); ptys.delete(id); } });
+  const wcId = w.webContents.id;
+  w.on('closed', () => { wins.delete(w); tabMeta.delete(wcId); for (const [id, e] of ptys) if (e.wc.isDestroyed()) { e.p.kill(); ptys.delete(id); } });
   return w;
 }
 

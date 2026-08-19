@@ -107,7 +107,7 @@ function createTab(opts = {}) {
 
   const tabEl = document.createElement('div');
   tabEl.className = 'tab';
-  tabEl.innerHTML = `<span class="dot"></span><span class="emoji">${opts.cwd ? emojiFor(opts.cwd) : "🔪"}</span><span class="title">shell ${id}</span><span class="close">×</span>`;
+  tabEl.innerHTML = `<span class="dot"></span><span class="emoji">${opts.cwd ? emojiFor(opts.cwd) : "🔪"}</span><span class="title">${opts.cwd ? opts.cwd.split('/').pop() : 'shell ' + id}</span><span class="close">×</span>`;
   tabEl.onclick = (e) => { if (e.target.classList.contains('close')) closeTab(id); else activate(id); };
   tabsEl.appendChild(tabEl);
 
@@ -297,7 +297,7 @@ window.pty.onRestore(s => {
   const saved = (s?.tabs || []).filter(t => t.cwd);
   if (!saved.length) { createTab(); defaultTabId = active; tabs.get(active).term.onData(() => { defaultTabId = null; }); return; }
   let act = null;
-  for (const t of saved) { createTab({ cwd: t.cwd, cmd: t.cmd, restoreCmd: t.cmd, title: t.cmd ? t.title : undefined, shownTitle: t.title }); if (t.active) act = active; }
+  for (const t of saved) { createTab({ cwd: t.cwd, cmd: t.cmd, restoreCmd: t.cmd, title: t.cmd ? t.title : undefined, shownTitle: /^shell \d+$/.test(t.title || '') ? undefined : t.title }); if (t.active) act = active; }
   if (act) activate(act);
 });
 window.pty.ready();
