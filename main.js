@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, Menu, dialog, screen } = require('electron');
 const { execFile, execFileSync, spawn: spawnProc } = require('child_process');
 const net = require('net');
 const path = require('path');
@@ -163,9 +163,21 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(tpl));
 }
 
+// Use saved bounds only if a meaningful part of the window would land on a connected display
+function onScreen(b) {
+  if (!b || !(b.width > 0 && b.height > 0)) return false;
+  return screen.getAllDisplays().some(d => {
+    const a = d.workArea;
+    const ix = Math.min(b.x + b.width, a.x + a.width) - Math.max(b.x, a.x);
+    const iy = Math.min(b.y + b.height, a.y + a.height) - Math.max(b.y, a.y);
+    return ix >= 120 && iy >= 80;
+  });
+}
+let saveTimer = null;
+const saveSoon = () => { clearTimeout(saveTimer); saveTimer = setTimeout(saveSession, 800); };
 function createWindow(bounds) {
   const w = new BrowserWindow({
-    width: 1100, height: 700, ...(bounds || {}),
+    width: 1100, height: 700, ...(onScreen(bounds) ? bounds : {}),
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 14, y: 13 },
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#111111' : '#ffffff',
@@ -176,6 +188,7 @@ function createWindow(bounds) {
     },
   });
   wins.add(w);
+  w.on('move', saveSoon); w.on('resize', saveSoon);
   w.loadFile('index.html');
   w.on('closed', () => { wins.delete(w); tabMeta.delete(w.webContents.id); for (const [id, e] of ptys) if (e.wc.isDestroyed()) { e.p.kill(); ptys.delete(id); } });
   return w;
