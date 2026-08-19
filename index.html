@@ -34,6 +34,10 @@
     .tab.active { background: var(--paper); color: var(--ink); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin-right: -1px; box-shadow: inset 2px 0 0 var(--accent); }
     .tab .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tab .dot { display: none; }
+    /* thinking: breathing accent dot while Claude Code / sub-agents are mid-turn */
+    @keyframes think { 0%, 100% { opacity: 0.25; transform: scale(0.7); } 50% { opacity: 1; transform: scale(1.2); } }
+    .tab.working .dot { display: inline-block; flex: none; width: 5px; height: 5px; margin-right: -3px; border-radius: 50%; background: var(--accent); animation: think 1.1s ease-in-out infinite; }
+    body.collapsed .tab.working .dot { position: absolute; top: 5px; right: 7px; width: 4px; height: 4px; margin: 0; }
     .tab.attn, .tab.attn .close { color: var(--attn); text-shadow: 0 0 6px var(--attn); }
     @keyframes glow { 0%, 100% { filter: drop-shadow(0 0 3px var(--attn)) brightness(1.1); } 50% { filter: drop-shadow(0 0 10px var(--attn)) drop-shadow(0 0 18px var(--attn)) brightness(1.4); } }
     body.collapsed .tab.attn .emoji { animation: glow 1.4s ease-in-out infinite; }
@@ -81,7 +85,7 @@
   </div>
   <div id="terms"><div id="dragbar"></div></div>
   <div id="resizer"></div>
-  <div id="foot"><span id="collapse" title="Hide/show sidebar (⌘B)">‹</span><span class="id">CWT_STE3XM1_2607<span>KNIFE TERM</span></span><span class="sp"></span><span id="version">v0.8.3</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
+  <div id="foot"><span id="collapse" title="Hide/show sidebar (⌘B)">‹</span><span class="id">CWT_STE3XM1_2607<span>KNIFE TERM</span></span><span class="sp"></span><span id="version">v0.8.4</span><span id="setdefault" title="Make Knife the default terminal">set default</span><span id="hooks" title="Claude Code attention alerts (dot + chime)">alerts</span><span id="theme" title="Theme">auto</span></div>
   <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
   <script src="node_modules/@xterm/addon-serialize/lib/addon-serialize.js"></script>

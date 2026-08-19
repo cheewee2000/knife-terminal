@@ -111,6 +111,7 @@ function createTab(opts = {}) {
   tabEl.onclick = (e) => { if (e.target.classList.contains('close')) closeTab(id); else activate(id); };
   tabsEl.appendChild(tabEl);
 
+  if (opts.working) tabEl.classList.add('working');
   tabs.set(id, { term, fit, ser, tabEl, termEl, opts });
   activate(id);
   fit.fit();
@@ -170,7 +171,7 @@ window.pty.onData((id, data) => tabs.get(id)?.term.write(data));
 // ─── Moving tabs between windows ───
 function sendTab(id, targetWc) {
   const t = tabs.get(id); if (!t || targetWc === MY_WC) return;
-  window.pty.moveTab({ id, targetWc, title: t.tabEl.querySelector('.title').textContent, opts: { cwd: t.opts.cwd, restoreCmd: t.opts.restoreCmd, title: t.opts.title }, buffer: t.ser.serialize() });
+  window.pty.moveTab({ id, targetWc, title: t.tabEl.querySelector('.title').textContent, opts: { cwd: t.opts.cwd, restoreCmd: t.opts.restoreCmd, title: t.opts.title, working: t.tabEl.classList.contains('working') }, buffer: t.ser.serialize() });
   closeTab(id, true);
 }
 window.pty.onSendTab((id, targetWc) => sendTab(id, targetWc));
@@ -252,6 +253,8 @@ function markAttention(id, fromBell) {
   if (fromBell) window.pty.chime();
 }
 window.pty.onAttention((id) => markAttention(id, false));
+// Pulsing dot while Claude Code (or its sub-agents) are mid-turn in that tab
+window.pty.onWorking((id, on) => tabs.get(id)?.tabEl.classList.toggle('working', on));
 window.addEventListener('focus', () => { if (active) tabs.get(active)?.tabEl.classList.remove('attn'); });
 
 const hooksEl = document.getElementById('hooks');

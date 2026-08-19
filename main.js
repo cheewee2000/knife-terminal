@@ -91,7 +91,17 @@ ipcMain.handle('default:set', () => new Promise(resolve => {
 const SOCK = path.join(os.homedir(), '.knife-terminal.sock');
 const CHIME = '/System/Library/Sounds/Glass.aiff';
 function chime() { try { spawnProc('afplay', [CHIME], { stdio: 'ignore', detached: true }).unref(); } catch {} }
-function attention(id, type) { const e = ptys.get(Number(id)); if (e) e.wc.send('attention', { id: Number(id), type }); chime(); }
+// Working = Claude (or one of its sub-agents) is mid-turn: animate, don't chime.
+// PreToolUse fires for sub-agent tool calls too (they inherit KNIFE_TAB), so parallel agents keep it alive.
+const WORKING_ON = new Set(['UserPromptSubmit', 'PreToolUse', 'SubagentStop']);
+function attention(id, type) {
+  const e = ptys.get(Number(id));
+  if (WORKING_ON.has(type)) { if (e) e.wc.send('working', { id: Number(id), on: true }); return; }
+  if (e) e.wc.send('working', { id: Number(id), on: false });
+  if (type === 'SessionEnd') return;
+  if (e) e.wc.send('attention', { id: Number(id), type });
+  chime();
+}
 ipcMain.on('chime', chime);
 function startSocket() {
   try { fs.unlinkSync(SOCK); } catch {}
@@ -119,20 +129,21 @@ function startSocket() {
 // Claude Code hooks (Stop + Notification) that ping the socket. Installed only when the user asks.
 const HOOK_CMD = '[ -n "$KNIFE_TAB" ] && { printf \'%s \' "$KNIFE_TAB"; cat; } | nc -U -w 1 "$HOME/.knife-terminal.sock" >/dev/null 2>&1; exit 0';
 const SETTINGS = path.join(os.homedir(), '.claude', 'settings.json');
+const HOOK_EVENTS = ['Stop', 'Notification', 'UserPromptSubmit', 'PreToolUse', 'SubagentStop', 'SessionEnd'];
 function hooksInstalled() {
-  try { const cfg = JSON.parse(fs.readFileSync(SETTINGS, 'utf8')); return ['Stop', 'Notification'].every(ev => JSON.stringify(cfg.hooks?.[ev] || []).includes('knife-terminal.sock')); } catch { return false; }
+  try { const cfg = JSON.parse(fs.readFileSync(SETTINGS, 'utf8')); return HOOK_EVENTS.every(ev => JSON.stringify(cfg.hooks?.[ev] || []).includes('knife-terminal.sock')); } catch { return false; }
 }
 ipcMain.handle('hooks:status', () => hooksInstalled());
 ipcMain.handle('hooks:install', async () => {
   if (hooksInstalled()) return true;
   const { response } = await dialog.showMessageBox(win(), { type: 'question', buttons: ['Install', 'Cancel'], defaultId: 0, cancelId: 1,
     message: 'Add Claude Code hooks for attention alerts?',
-    detail: `Adds a Stop and a Notification hook to ${SETTINGS}. Each hook pings Knife (via ~/.knife-terminal.sock) so the tab gets an orange dot and a chime when Claude Code is waiting for you. Nothing else in the file is changed.` });
+    detail: `Adds hooks (${HOOK_EVENTS.join(', ')}) to ${SETTINGS}. Each hook pings Knife (via ~/.knife-terminal.sock) so the tab shows a thinking animation while Claude Code works and glows with a chime when it's waiting for you. Nothing else in the file is changed.` });
   if (response !== 0) return false;
   let cfg = {};
   try { cfg = JSON.parse(fs.readFileSync(SETTINGS, 'utf8')); } catch {}
   cfg.hooks = cfg.hooks || {};
-  for (const ev of ['Stop', 'Notification']) {
+  for (const ev of HOOK_EVENTS) {
     const arr = cfg.hooks[ev] = cfg.hooks[ev] || [];
     if (!JSON.stringify(arr).includes('knife-terminal.sock')) arr.push({ matcher: '', hooks: [{ type: 'command', command: HOOK_CMD }] });
   }
