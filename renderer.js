@@ -135,7 +135,10 @@ function createTab(opts = {}) {
     if (paths.length) { window.pty.write(id, paths.map(shellQuote).join(' ') + ' '); term.focus(); }
   });
 
-  term.onData(data => { window.pty.write(id, data); tabEl.classList.remove('attn'); });
+  // typing also clears 'working': an interrupted/dead session fires no closing hook, and a live one re-lights
+  // on its next tool call. ESC[-prefixed data isn't typing — focus in/out reports, mouse events, and terminal
+  // query responses all arrive here too (Claude Code enables focus reporting, so every tab switch emits one).
+  term.onData(data => { window.pty.write(id, data); if (!data.startsWith('\x1b[')) tabEl.classList.remove('attn', 'working'); });
   term.onBell(() => markAttention(id, true));
   term.onResize(({ cols, rows }) => window.pty.resize(id, cols, rows));
   term.onTitleChange(title => { if (!opts.title && title) tabEl.querySelector('.title').textContent = title; });
@@ -250,7 +253,7 @@ function markAttention(id, fromBell) {
   const t = tabs.get(id); if (!t) return;
   if (fromBell && id === active && document.hasFocus()) return; // a bell in the tab you're looking at is just a bell
   t.tabEl.classList.add('attn');
-  if (fromBell) window.pty.chime();
+  if (fromBell && !hooksOn) window.pty.chime(); // with hooks on, claude rings the bell at the same moments the hooks chime — don't double up
 }
 window.pty.onAttention((id) => markAttention(id, false));
 // Pulsing dot while Claude Code (or its sub-agents) are mid-turn in that tab
@@ -258,7 +261,8 @@ window.pty.onWorking((id, on) => tabs.get(id)?.tabEl.classList.toggle('working',
 window.addEventListener('focus', () => { if (active) tabs.get(active)?.tabEl.classList.remove('attn'); });
 
 const hooksEl = document.getElementById('hooks');
-async function refreshHooks() { hooksEl.textContent = (await window.pty.hooksStatus()) ? 'alerts on' : 'alerts off'; }
+let hooksOn = false;
+async function refreshHooks() { hooksOn = await window.pty.hooksStatus(); hooksEl.textContent = hooksOn ? 'alerts on' : 'alerts off'; }
 hooksEl.onclick = async () => { await window.pty.installHooks(); refreshHooks(); };
 refreshHooks();
 

@@ -93,13 +93,38 @@ const CHIME = '/System/Library/Sounds/Glass.aiff';
 function chime() { try { spawnProc('afplay', [CHIME], { stdio: 'ignore', detached: true }).unref(); } catch {} }
 // Working = Claude (or one of its sub-agents) is mid-turn: animate, don't chime.
 // PreToolUse fires for sub-agent tool calls too (they inherit KNIFE_TAB), so parallel agents keep it alive.
-const WORKING_ON = new Set(['UserPromptSubmit', 'PreToolUse', 'SubagentStop']);
+const WORKING_ON = new Set(['UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'SubagentStart', 'SubagentStop', 'TaskCompleted']);
+// Live sub-agent count per tab: a Stop while agents are still running is Claude posting a
+// progress message, not "ready for input" — swallow it. Only a Stop with zero agents chimes,
+// after a short quiet window to filter instant auto-resumes (background tasks re-invoking).
+const agents = new Map(); // tab id -> live subagent count
+const STOP_QUIET_MS = 2000;
+const pendingStop = new Map(); // tab id -> timeout
 function attention(id, type) {
-  const e = ptys.get(Number(id));
-  if (WORKING_ON.has(type)) { if (e) e.wc.send('working', { id: Number(id), on: true }); return; }
-  if (e) e.wc.send('working', { id: Number(id), on: false });
-  if (type === 'SessionEnd') return;
-  if (e) e.wc.send('attention', { id: Number(id), type });
+  id = Number(id);
+  const e = ptys.get(id);
+  if (WORKING_ON.has(type)) {
+    clearTimeout(pendingStop.get(id)); pendingStop.delete(id);
+    if (type === 'UserPromptSubmit') agents.set(id, 0); // fresh turn: recover from any drift (e.g. Escape killed agents silently)
+    else if (type === 'SubagentStart') agents.set(id, (agents.get(id) || 0) + 1);
+    else if (type === 'SubagentStop') agents.set(id, Math.max(0, (agents.get(id) || 0) - 1));
+    if (e) e.wc.send('working', { id, on: true });
+    return;
+  }
+  clearTimeout(pendingStop.get(id)); pendingStop.delete(id);
+  if (type === 'Stop') {
+    if ((agents.get(id) || 0) > 0) return; // sub-agents still running: not done, stay in working state
+    pendingStop.set(id, setTimeout(() => {
+      pendingStop.delete(id);
+      const e2 = ptys.get(id);
+      if (e2) { e2.wc.send('working', { id, on: false }); e2.wc.send('attention', { id, type }); }
+      chime();
+    }, STOP_QUIET_MS));
+    return;
+  }
+  if (e) e.wc.send('working', { id, on: false });
+  if (type === 'SessionEnd') { agents.delete(id); return; }
+  if (e) e.wc.send('attention', { id, type });
   chime();
 }
 ipcMain.on('chime', chime);
@@ -129,7 +154,7 @@ function startSocket() {
 // Claude Code hooks (Stop + Notification) that ping the socket. Installed only when the user asks.
 const HOOK_CMD = '[ -n "$KNIFE_TAB" ] && { printf \'%s \' "$KNIFE_TAB"; cat; } | nc -U -w 1 "$HOME/.knife-terminal.sock" >/dev/null 2>&1; exit 0';
 const SETTINGS = path.join(os.homedir(), '.claude', 'settings.json');
-const HOOK_EVENTS = ['Stop', 'Notification', 'UserPromptSubmit', 'PreToolUse', 'SubagentStop', 'SessionEnd'];
+const HOOK_EVENTS = ['Stop', 'Notification', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'SubagentStart', 'SubagentStop', 'TaskCompleted', 'SessionEnd'];
 function hooksInstalled() {
   try { const cfg = JSON.parse(fs.readFileSync(SETTINGS, 'utf8')); return HOOK_EVENTS.every(ev => JSON.stringify(cfg.hooks?.[ev] || []).includes('knife-terminal.sock')); } catch { return false; }
 }
