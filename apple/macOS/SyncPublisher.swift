@@ -137,7 +137,8 @@ final class SyncPublisher {
     func consumeInputs() async {
         guard enabled else { return }
         guard let delta = try? await cloud.fetchChanges(),
-              !delta.inputs.isEmpty || !delta.opens.isEmpty || !delta.closes.isEmpty else { return }
+              !delta.inputs.isEmpty || !delta.opens.isEmpty || !delta.closes.isEmpty || !delta.seens.isEmpty
+        else { return }
         for input in delta.inputs {
             guard let tab = AppModel.shared.tab(input.tabId) else { continue }
             var text = input.data
@@ -164,9 +165,17 @@ final class SyncPublisher {
                 break
             }
         }
+        // phone viewed a tab → its "waiting for you" flag is acknowledged
+        for seen in delta.seens {
+            if let tab = AppModel.shared.tab(seen.tabId), tab.attention {
+                tab.attention = false
+                tabStateChanged(tab)
+            }
+        }
         try? await cloud.deleteRecords(delta.inputs.map { $0.recordID }
                                        + delta.opens.map { $0.recordID }
-                                       + delta.closes.map { $0.recordID })
+                                       + delta.closes.map { $0.recordID }
+                                       + delta.seens.map { $0.recordID })
         // phone typed → screen will change; make sure it mirrors back fast
         for input in delta.inputs { markDirty(input.tabId, urgent: true) }
     }

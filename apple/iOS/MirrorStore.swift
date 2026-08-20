@@ -60,6 +60,16 @@ final class MirrorStore: ObservableObject {
         Task { try? await cloud.sendInput(tabId: tabId, text: text) }
     }
 
+    /// Viewing a tab acknowledges its "waiting for you" flag — cleared locally
+    /// right away, and on the Mac via a Seen record.
+    func markSeen(_ tab: MirroredTab) {
+        guard tab.attention else { return }
+        if let i = tabs.firstIndex(where: { $0.id == tab.id }) { tabs[i].attention = false }
+        let badge = tabs.filter { $0.attention }.count
+        Task { try? await UNUserNotificationCenter.current().setBadgeCount(badge) }
+        Task { try? await cloud.sendSeen(tabId: tab.tabId) }
+    }
+
     /// Ask the Mac to close a tab. Removed locally right away; the Mac deleting
     /// the Tab record makes it stick (or the next refresh brings it back if not).
     func closeTab(_ tab: MirroredTab) {

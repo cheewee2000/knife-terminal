@@ -72,6 +72,13 @@ public struct RemoteClose: Sendable {
     public let ts: Date
 }
 
+/// iOS viewed a tab — clear its attention ("waiting for you") flag on the Mac.
+public struct RemoteSeen: Sendable {
+    public let recordID: CKRecord.ID
+    public let tabId: Int
+    public let ts: Date
+}
+
 public struct ZoneDelta: Sendable {
     public var tabs: [MirroredTab] = []
     public var deletedTabRecordNames: [String] = []
@@ -79,6 +86,7 @@ public struct ZoneDelta: Sendable {
     public var projects: [ProjectRef]? = nil   // nil = projects record unchanged this fetch
     public var opens: [RemoteOpen] = []
     public var closes: [RemoteClose] = []
+    public var seens: [RemoteSeen] = []
 }
 
 public final class CloudSync: @unchecked Sendable {
@@ -246,6 +254,15 @@ public final class CloudSync: @unchecked Sendable {
         try await modify(save: [r], delete: nil)
     }
 
+    /// iOS: tell the Mac a tab was viewed (clears its attention flag).
+    public func sendSeen(tabId: Int) async throws {
+        let r = CKRecord(recordType: "Seen",
+                         recordID: CKRecord.ID(recordName: "seen-\(UUID().uuidString)", zoneID: zoneID))
+        r["tabId"] = tabId as CKRecordValue
+        r["ts"] = Date() as CKRecordValue
+        try await modify(save: [r], delete: nil)
+    }
+
     /// iOS: ask the Mac to close a tab.
     public func sendClose(tabId: Int) async throws {
         let r = CKRecord(recordType: "Close",
@@ -329,6 +346,11 @@ public final class CloudSync: @unchecked Sendable {
                             ts: record["ts"] as? Date ?? .distantPast))
                     case "Close":
                         delta.closes.append(RemoteClose(
+                            recordID: record.recordID,
+                            tabId: record["tabId"] as? Int ?? 0,
+                            ts: record["ts"] as? Date ?? .distantPast))
+                    case "Seen":
+                        delta.seens.append(RemoteSeen(
                             recordID: record.recordID,
                             tabId: record["tabId"] as? Int ?? 0,
                             ts: record["ts"] as? Date ?? .distantPast))

@@ -29,6 +29,10 @@ struct SessionDetailView: View {
         }
         .navigationTitle(tab.map { "\($0.emoji) \($0.title)" } ?? "")
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { if let tab { store.markSeen(tab) } }
+        .onChange(of: tab?.attention ?? false) { _, waiting in
+            if waiting, let tab { store.markSeen(tab) } // arrived while already viewing
+        }
         .toolbar {
             if let tab {
                 ToolbarItem(placement: .topBarTrailing) {
