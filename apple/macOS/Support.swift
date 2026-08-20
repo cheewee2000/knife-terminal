@@ -154,6 +154,19 @@ enum Projects {
         String(p.map { c in c.isLetter || c.isNumber ? c : "-" })
     }
 
+    private static let touchKey = "knife.projectOpened"
+
+    /// Remember that a project was just opened from Knife, so it sorts to the
+    /// top immediately (transcript mtimes only catch up once Claude writes).
+    static func touch(_ path: String) {
+        var d = UserDefaults.standard.dictionary(forKey: touchKey) as? [String: Double] ?? [:]
+        d[path] = Date().timeIntervalSince1970
+        if d.count > 60 {
+            d = Dictionary(uniqueKeysWithValues: Array(d.sorted { $0.value > $1.value }.prefix(40)))
+        }
+        UserDefaults.standard.set(d, forKey: touchKey)
+    }
+
     static func list() -> [Project] {
         let home = NSHomeDirectory()
         guard let data = FileManager.default.contents(atPath: (home as NSString).appendingPathComponent(".claude.json")),
@@ -161,13 +174,24 @@ enum Projects {
               let projects = cfg["projects"] as? [String: Any] else { return [] }
         let projDir = (home as NSString).appendingPathComponent(".claude/projects")
         let fm = FileManager.default
+        let touched = UserDefaults.standard.dictionary(forKey: touchKey) as? [String: Double] ?? [:]
         return projects.keys
             .filter { !$0.contains("/.claude-worktrees/") && fm.fileExists(atPath: $0) }
             .compactMap { p -> Project? in
                 let enc = (projDir as NSString).appendingPathComponent(encode(p))
                 guard let attrs = try? fm.attributesOfItem(atPath: enc),
-                      let m = attrs[.modificationDate] as? Date else { return nil }
-                return Project(path: p, name: (p as NSString).lastPathComponent, t: m.timeIntervalSince1970)
+                      let dirDate = attrs[.modificationDate] as? Date else { return nil }
+                // most recent activity: newest transcript in the dir (appends bump
+                // file mtime, not the dir's), or an open from Knife itself
+                var t = dirDate.timeIntervalSince1970
+                for f in (try? fm.contentsOfDirectory(atPath: enc)) ?? [] {
+                    if let a = try? fm.attributesOfItem(atPath: (enc as NSString).appendingPathComponent(f)),
+                       let m = a[.modificationDate] as? Date {
+                        t = max(t, m.timeIntervalSince1970)
+                    }
+                }
+                t = max(t, touched[p] ?? 0)
+                return Project(path: p, name: (p as NSString).lastPathComponent, t: t)
             }
             .sorted { $0.t > $1.t }
             .prefix(30).map { $0 }

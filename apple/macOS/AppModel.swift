@@ -141,6 +141,7 @@ final class AppModel: ObservableObject {
     func dispatchOpen(_ target: String, cmd: String? = nil) {
         guard var req = openRequest(for: target) else { return }
         if let cmd { req.cmd = cmd }
+        if let cwd = req.cwd { Projects.touch(cwd) }
         let wc = frontWindow() ?? newWindow(withTab: false)
         wc.addTab(TabOptions(cwd: req.cwd, cmd: req.cmd, title: req.title,
                              restoreCmd: req.cmd == "claude" ? "claude -c" : nil))

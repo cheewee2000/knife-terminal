@@ -155,9 +155,11 @@ struct SidebarView: View {
     }
 
     private func open(project p: Project) {
+        Projects.touch(p.path)
         controller.addTab(TabOptions(cwd: p.path, cmd: "claude", title: p.name, restoreCmd: "claude -c"))
         query = ""
         searchFocused = false
+        projects = Projects.list()
     }
 
 }
