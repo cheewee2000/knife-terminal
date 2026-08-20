@@ -18,12 +18,12 @@ public struct TabSnapshot: Sendable {
     public var rows: Int
     public var working: Bool
     public var attention: Bool
-    public var text: String
+    public var styled: Data
 
     public init(tabId: Int, title: String, emoji: String, cwd: String?, order: Int,
-                cols: Int, rows: Int, working: Bool, attention: Bool, text: String) {
+                cols: Int, rows: Int, working: Bool, attention: Bool, styled: Data) {
         self.tabId = tabId; self.title = title; self.emoji = emoji; self.cwd = cwd; self.order = order
-        self.cols = cols; self.rows = rows; self.working = working; self.attention = attention; self.text = text
+        self.cols = cols; self.rows = rows; self.working = working; self.attention = attention; self.styled = styled
     }
 }
 
@@ -38,7 +38,7 @@ public struct MirroredTab: Identifiable, Sendable {
     public var rows: Int
     public var working: Bool
     public var attention: Bool
-    public var text: String
+    public var styled: Data
     public var updatedAt: Date
 }
 
@@ -174,7 +174,7 @@ public final class CloudSync: @unchecked Sendable {
             r["rows"] = s.rows as CKRecordValue
             r["working"] = (s.working ? 1 : 0) as CKRecordValue
             r["attention"] = (s.attention ? 1 : 0) as CKRecordValue
-            r["text"] = s.text as CKRecordValue
+            r["styled"] = s.styled as CKRecordValue
             r["updatedAt"] = Date() as CKRecordValue
             return r
         }
@@ -309,7 +309,7 @@ public final class CloudSync: @unchecked Sendable {
                             rows: record["rows"] as? Int ?? 24,
                             working: (record["working"] as? Int ?? 0) == 1,
                             attention: (record["attention"] as? Int ?? 0) == 1,
-                            text: record["text"] as? String ?? "",
+                            styled: record["styled"] as? Data ?? Data(),
                             updatedAt: record["updatedAt"] as? Date ?? .distantPast))
                     case "Input":
                         delta.inputs.append(RemoteInput(

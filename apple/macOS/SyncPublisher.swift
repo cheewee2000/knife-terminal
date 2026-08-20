@@ -117,7 +117,7 @@ final class SyncPublisher {
                                          cwd: tab.lastReportedCwd ?? tab.opts.cwd, order: order,
                                          cols: tab.cols, rows: tab.rows,
                                          working: tab.working, attention: tab.attention,
-                                         text: tab.view.renderedTail()))
+                                         styled: tab.view.styledScreen()))
                 lastFlush[tab.id] = Date()
             }
         }
@@ -139,8 +139,18 @@ final class SyncPublisher {
         guard let delta = try? await cloud.fetchChanges(),
               !delta.inputs.isEmpty || !delta.opens.isEmpty || !delta.closes.isEmpty else { return }
         for input in delta.inputs {
-            if let tab = AppModel.shared.tab(input.tabId) {
-                tab.view.send(txt: input.data)
+            guard let tab = AppModel.shared.tab(input.tabId) else { continue }
+            var text = input.data
+            if text.count > 1, text.hasSuffix("\r") {
+                // Text and Enter must not land in one chunk: TUIs (Claude Code)
+                // treat fast multi-char input as a paste and insert the CR as a
+                // newline instead of submitting. Send the CR separately, later.
+                text.removeLast()
+                tab.view.send(txt: text)
+                let view = tab.view
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { view.send(txt: "\r") }
+            } else {
+                tab.view.send(txt: text)
             }
         }
         // phone asked to open a project → new tab running claude, mirrored back

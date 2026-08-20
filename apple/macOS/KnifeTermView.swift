@@ -40,17 +40,53 @@ final class KnifeTermView: LocalProcessTerminalView {
         super.send(source: source, data: data)
     }
 
-    /// Rendered text tail of the terminal (scrollback + screen) for the iOS mirror.
-    func renderedTail(maxLines: Int = 400, maxBytes: Int = 48_000) -> String {
-        guard let full = String(data: getTerminal().getBufferAsData(), encoding: .utf8) else { return "" }
-        var lines = full.split(separator: "\n", omittingEmptySubsequences: false)
-        while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
-        if lines.count > maxLines { lines.removeFirst(lines.count - maxLines) }
-        var text = lines.joined(separator: "\n")
-        while text.utf8.count > maxBytes, let nl = text.firstIndex(of: "\n") {
-            text = String(text[text.index(after: nl)...])
+    /// The visible screen as styled runs (colors, bold, …) for the iOS mirror.
+    func styledScreen() -> Data {
+        let t = getTerminal()
+        var lines: [[TermRun]] = []
+        for row in 0..<t.rows {
+            guard let line = t.getLine(row: row) else { lines.append([]); continue }
+            var runs: [TermRun] = []
+            var text = ""
+            var key: (f: Int?, g: Int?, s: Int?) = (nil, nil, nil)
+            func flush() {
+                if !text.isEmpty { runs.append(TermRun(t: text, f: key.f, g: key.g, s: key.s)); text = "" }
+            }
+            for col in 0..<t.cols {
+                let cd = line[col]
+                let a = cd.attribute
+                var s = 0
+                if a.style.contains(.bold) { s |= StyledScreen.styleBold }
+                if a.style.contains(.dim) { s |= StyledScreen.styleDim }
+                if a.style.contains(.italic) { s |= StyledScreen.styleItalic }
+                if a.style.contains(.underline) { s |= StyledScreen.styleUnderline }
+                if a.style.contains(.inverse) { s |= StyledScreen.styleInverse }
+                let k = (Self.colorCode(a.fg), Self.colorCode(a.bg), s == 0 ? nil : s)
+                if k != key { flush(); key = k }
+                let ch = cd.getCharacter()
+                text.append(ch == "\u{0}" ? " " : ch)
+            }
+            flush()
+            // trim unstyled trailing blanks so lines don't carry cols of padding
+            while let last = runs.last, last.g == nil,
+                  last.t.trimmingCharacters(in: .whitespaces).isEmpty { runs.removeLast() }
+            if var last = runs.popLast() {
+                if last.g == nil { while last.t.hasSuffix(" ") { last.t.removeLast() } }
+                runs.append(last)
+            }
+            lines.append(runs)
         }
-        return text
+        while let l = lines.last, l.isEmpty { lines.removeLast() }
+        return StyledScreen(lines: lines).encoded()
+    }
+
+    private static func colorCode(_ c: Attribute.Color) -> Int? {
+        switch c {
+        case .defaultColor, .defaultInvertedColor: return nil
+        case .ansi256(let code): return Int(code)
+        case .trueColor(let r, let g, let b):
+            return StyledScreen.trueColorFlag | Int(r) << 16 | Int(g) << 8 | Int(b)
+        }
     }
 
     // Click near the cursor (no drag, no modifiers) → move the shell's cursor to

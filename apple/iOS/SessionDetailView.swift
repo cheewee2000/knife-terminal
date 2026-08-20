@@ -17,7 +17,7 @@ struct SessionDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let tab {
-                MirrorTextView(text: tab.text, dark: scheme == .dark)
+                MirrorTextView(styled: tab.styled, dark: scheme == .dark)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 quickKeys(tab)
@@ -100,43 +100,131 @@ struct SessionDetailView: View {
     }
 }
 
-// ─── Native mirror of the Mac's screen text ───
-// The Mac publishes the rendered terminal text; the phone shows it in a plain
-// UITextView — wraps to the screen width (never side-scrolls), native selection
-// and copy, follows the bottom unless you've scrolled up to read.
+// ─── Native mirror of the Mac's screen ───
+// The Mac publishes the visible screen as styled runs; the phone renders an
+// attributed string — real colors, bold/dim/underline, wrapped to the screen
+// width (never side-scrolls), native selection and copy. Long horizontal rules
+// and padding are squeezed so the desktop's box drawing fits the phone.
+
+private func uiColor(_ c: TermTheme.RGB, alpha: CGFloat = 1) -> UIColor {
+    UIColor(red: CGFloat(c.r) / 255, green: CGFloat(c.g) / 255, blue: CGFloat(c.b) / 255, alpha: alpha)
+}
 
 struct MirrorTextView: UIViewRepresentable {
-    let text: String
+    let styled: Data
     let dark: Bool
 
-    func makeUIView(context: Context) -> UITextView {
-        let tv = UITextView()
+    func makeUIView(context: Context) -> MirrorTextUIView {
+        let tv = MirrorTextUIView()
         tv.isEditable = false
         tv.isSelectable = true
         tv.alwaysBounceVertical = true
         tv.showsHorizontalScrollIndicator = false
-        tv.textContainer.lineBreakMode = .byCharWrapping
-        tv.textContainerInset = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        tv.font = UIFont(name: "Space Mono", size: 12) ?? UIFont.monospacedSystemFont(ofSize: 12, weight: .regular)
+        tv.textContainerInset = UIEdgeInsets(top: 10, left: 8, bottom: 10, right: 8)
         return tv
     }
 
-    func updateUIView(_ tv: UITextView, context: Context) {
-        let t: TermTheme = dark ? .dark : .light
-        tv.backgroundColor = uiColor(t.background)
-        tv.textColor = uiColor(t.foreground)
-        guard tv.text != text else { return }
-        let firstLoad = (tv.text ?? "").isEmpty
-        let nearBottom = tv.contentOffset.y >= tv.contentSize.height - tv.bounds.height - 60
-        tv.text = text
-        if firstLoad || nearBottom {
-            tv.layoutIfNeeded()
-            let y = max(0, tv.contentSize.height - tv.bounds.height + tv.adjustedContentInset.bottom)
-            tv.setContentOffset(CGPoint(x: 0, y: y), animated: false)
+    func updateUIView(_ tv: MirrorTextUIView, context: Context) {
+        tv.render(styled: styled, dark: dark)
+    }
+}
+
+final class MirrorTextUIView: UITextView {
+    private var lastStyled = Data()
+    private var lastDark: Bool?
+    private var lastWidth: CGFloat = 0
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if abs(bounds.width - lastWidth) > 0.5 {
+            lastWidth = bounds.width
+            rerender()
         }
     }
 
-    private func uiColor(_ c: TermTheme.RGB) -> UIColor {
-        UIColor(red: CGFloat(c.r) / 255, green: CGFloat(c.g) / 255, blue: CGFloat(c.b) / 255, alpha: 1)
+    func render(styled: Data, dark: Bool) {
+        guard styled != lastStyled || dark != lastDark else { return }
+        lastStyled = styled
+        lastDark = dark
+        rerender()
+    }
+
+    private func rerender() {
+        let theme: TermTheme = (lastDark ?? false) ? .dark : .light
+        backgroundColor = uiColor(theme.background)
+        guard bounds.width > 40, let screen = StyledScreen.decode(lastStyled) else { return }
+
+        let size: CGFloat = 12
+        let regular = UIFont(name: "Space Mono", size: size) ?? .monospacedSystemFont(ofSize: size, weight: .regular)
+        let boldFont = UIFont(name: "Space Mono Bold", size: size) ?? .monospacedSystemFont(ofSize: size, weight: .bold)
+        let cellW = ("W" as NSString).size(withAttributes: [.font: regular]).width
+        let usable = bounds.width - textContainerInset.left - textContainerInset.right - 2 * textContainer.lineFragmentPadding
+        let cols = max(20, Int(usable / cellW))
+
+        let para = NSMutableParagraphStyle()
+        para.lineBreakMode = .byCharWrapping
+        let out = NSMutableAttributedString()
+        for (i, line) in screen.lines.enumerated() {
+            for run in Self.squeeze(line, toCols: cols) {
+                let style = run.s ?? 0
+                var attrs: [NSAttributedString.Key: Any] = [.paragraphStyle: para]
+                attrs[.font] = style & StyledScreen.styleBold != 0 ? boldFont : regular
+                var fg = run.f.map { theme.rgb(code: $0) } ?? theme.foreground
+                var bg = run.g.map { theme.rgb(code: $0) }
+                if style & StyledScreen.styleInverse != 0 {
+                    (fg, bg) = (bg ?? theme.background, fg)
+                }
+                attrs[.foregroundColor] = uiColor(fg, alpha: style & StyledScreen.styleDim != 0 ? 0.55 : 1)
+                if let bg { attrs[.backgroundColor] = uiColor(bg) }
+                if style & StyledScreen.styleUnderline != 0 { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+                if style & StyledScreen.styleItalic != 0 { attrs[.obliqueness] = 0.2 }
+                out.append(NSAttributedString(string: run.t, attributes: attrs))
+            }
+            if i < screen.lines.count - 1 {
+                out.append(NSAttributedString(string: "\n", attributes: [.font: regular, .paragraphStyle: para]))
+            }
+        }
+
+        let firstLoad = attributedText.length == 0
+        let nearBottom = contentOffset.y >= contentSize.height - bounds.height - 60
+        attributedText = out
+        if firstLoad || nearBottom {
+            layoutIfNeeded()
+            let y = max(0, contentSize.height - bounds.height + adjustedContentInset.bottom)
+            setContentOffset(CGPoint(x: 0, y: y), animated: false)
+        }
+    }
+
+    /// Shrink runs of repeated "horizontal" characters (rules, padding) so the
+    /// desktop's box drawing fits `cols`; leading indentation is left alone.
+    static func squeeze(_ line: [TermRun], toCols cols: Int) -> [TermRun] {
+        let squeezable: Set<Character> = ["─", "━", "═", "╌", "┄", "┈", "╍", "┅", "┉", "⎯", "▁", "▔", "-", "=", "_", "·", " "]
+        var overflow = line.reduce(0) { $0 + $1.t.count } - cols
+        guard overflow > 0 else { return line }
+        var out: [TermRun] = []
+        var seenInk = false
+        for var run in line {
+            if overflow <= 0 { out.append(run); continue }
+            var newText = ""
+            var i = run.t.startIndex
+            while i < run.t.endIndex {
+                let ch = run.t[i]
+                var j = run.t.index(after: i)
+                while j < run.t.endIndex, run.t[j] == ch { j = run.t.index(after: j) }
+                var len = run.t.distance(from: i, to: j)
+                let isIndent = ch == " " && !seenInk
+                if ch != " " { seenInk = true }
+                if overflow > 0, len > 4, !isIndent, squeezable.contains(ch) {
+                    let cut = min(len - 4, overflow)
+                    len -= cut
+                    overflow -= cut
+                }
+                newText += String(repeating: ch, count: len)
+                i = j
+            }
+            run.t = newText
+            out.append(run)
+        }
+        return out
     }
 }
