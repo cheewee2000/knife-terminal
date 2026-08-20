@@ -1,6 +1,6 @@
 # Knife Terminal
 
-`CWT_STE3XM1_2607` · accent `#B1A57E` · v0.9.2
+`CWT_STE3XM1_2607` · accent `#B1A57E` · v0.9.3
 
 CW&T's own terminal. Native Swift — SwiftUI + [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) on macOS, with an iOS companion app that mirrors the Mac's live sessions over CloudKit. (The original Electron app lives in `legacy/electron/`.)
 
@@ -21,8 +21,8 @@ Needs Xcode signed into the CW&T Studio developer account (team `L6DVQR8JB9`) �
 - Drag files/folders onto the terminal to paste their shell-quoted paths.
 
 ## iOS mirror
-- One sign-in = your Apple ID. The Mac publishes every tab (title, status, last 96 KB of raw screen) to your private CloudKit database; the phone renders it in SwiftTerm.
-- Fully interactive: the on-screen keyboard, quick keys (esc/tab/^C/arrows/⏎/y⏎), and a send bar create `Input` records the Mac applies to the real PTY. Round trip is a few seconds — made for "yes, continue", not vim.
+- One sign-in = your Apple ID. The Mac publishes every tab (title, status, rendered text tail) to your private CloudKit database; the phone shows it in a native text view — wraps to the screen, native selection/copy, no side-scrolling.
+- Fully interactive: quick keys (esc/tab/^C/arrows/⏎/y⏎) and a real multiline compose bar create `Input` records the Mac applies to the real PTY. Round trip is a few seconds — made for "yes, continue", not vim.
 - Push notification when Claude Code is waiting for you in any tab; app badge counts waiting tabs.
 - Latency: silent CloudKit pushes when available, 10 s polling as fallback.
 

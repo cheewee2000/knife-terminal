@@ -3,7 +3,7 @@ import CloudKit
 
 // ─── CloudKit mirroring ───
 // Private database, custom zone "KnifeZone". Three record types, each written by one side only:
-//   Tab   — Mac-owned. One per open terminal tab: title/emoji/status + raw screen tail.
+//   Tab   — Mac-owned. One per open terminal tab: title/emoji/status + rendered text tail.
 //   Input — iOS-owned. Keystrokes for a tab; Mac applies to the PTY and deletes.
 //   Alert — Mac-owned. Created on attention; iOS has a visible-push query subscription on it.
 // All reads go through zone-change fetches (no CKQuery), so no indexes are needed.
@@ -18,12 +18,12 @@ public struct TabSnapshot: Sendable {
     public var rows: Int
     public var working: Bool
     public var attention: Bool
-    public var screen: Data
+    public var text: String
 
     public init(tabId: Int, title: String, emoji: String, cwd: String?, order: Int,
-                cols: Int, rows: Int, working: Bool, attention: Bool, screen: Data) {
+                cols: Int, rows: Int, working: Bool, attention: Bool, text: String) {
         self.tabId = tabId; self.title = title; self.emoji = emoji; self.cwd = cwd; self.order = order
-        self.cols = cols; self.rows = rows; self.working = working; self.attention = attention; self.screen = screen
+        self.cols = cols; self.rows = rows; self.working = working; self.attention = attention; self.text = text
     }
 }
 
@@ -38,7 +38,7 @@ public struct MirroredTab: Identifiable, Sendable {
     public var rows: Int
     public var working: Bool
     public var attention: Bool
-    public var screen: Data
+    public var text: String
     public var updatedAt: Date
 }
 
@@ -148,7 +148,7 @@ public final class CloudSync: @unchecked Sendable {
             r["rows"] = s.rows as CKRecordValue
             r["working"] = (s.working ? 1 : 0) as CKRecordValue
             r["attention"] = (s.attention ? 1 : 0) as CKRecordValue
-            r["screen"] = s.screen as CKRecordValue
+            r["text"] = s.text as CKRecordValue
             r["updatedAt"] = Date() as CKRecordValue
             return r
         }
@@ -256,7 +256,7 @@ public final class CloudSync: @unchecked Sendable {
                             rows: record["rows"] as? Int ?? 24,
                             working: (record["working"] as? Int ?? 0) == 1,
                             attention: (record["attention"] as? Int ?? 0) == 1,
-                            screen: record["screen"] as? Data ?? Data(),
+                            text: record["text"] as? String ?? "",
                             updatedAt: record["updatedAt"] as? Date ?? .distantPast))
                     case "Input":
                         delta.inputs.append(RemoteInput(

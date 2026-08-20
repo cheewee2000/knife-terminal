@@ -104,7 +104,7 @@ final class SyncPublisher {
                                          cwd: tab.lastReportedCwd ?? tab.opts.cwd, order: order,
                                          cols: tab.cols, rows: tab.rows,
                                          working: tab.working, attention: tab.attention,
-                                         screen: tab.view.ring.snapshot()))
+                                         text: tab.view.renderedTail()))
                 lastFlush[tab.id] = Date()
             }
         }
