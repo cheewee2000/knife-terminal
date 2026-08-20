@@ -116,7 +116,7 @@ struct SidebarView: View {
                         .focused($searchFocused)
                         .padding(.horizontal, 10).padding(.bottom, 4)
                         .onSubmit {
-                            if let first = filtered.first { open(project: first); query = "" }
+                            if let first = filtered.first { open(project: first) }
                         }
                         .onExitCommand { query = ""; searchFocused = false }
 
@@ -156,6 +156,8 @@ struct SidebarView: View {
 
     private func open(project p: Project) {
         controller.addTab(TabOptions(cwd: p.path, cmd: "claude", title: p.name, restoreCmd: "claude -c"))
+        query = ""
+        searchFocused = false
     }
 
 }
