@@ -11,27 +11,49 @@ let knifeOrange = Color(red: 0xE3 / 255.0, green: 0x5A / 255.0, blue: 0x1E / 255
 struct SessionListView: View {
     @EnvironmentObject var store: MirrorStore
 
+    /// Recent projects with no live tab on the Mac.
+    private var closedProjects: [ProjectRef] {
+        store.projects.filter { p in !store.tabs.contains { $0.cwd == p.path } }
+    }
+
     var body: some View {
         NavigationStack {
-            Group {
-                if store.tabs.isEmpty {
-                    VStack(spacing: 12) {
-                        Text("no live sessions").font(mono(13)).foregroundStyle(.secondary)
-                        Text("open Knife Terminal on your Mac").font(mono(11)).foregroundStyle(.tertiary)
-                        if let t = store.lastSync {
-                            Text("last sync \(t.formatted(date: .omitted, time: .standard))")
-                                .font(mono(10)).foregroundStyle(.tertiary)
+            List {
+                Section {
+                    if store.tabs.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("no live sessions").font(mono(13)).foregroundStyle(.secondary)
+                            Text("open Knife Terminal on your Mac").font(mono(11)).foregroundStyle(.tertiary)
+                            if let t = store.lastSync {
+                                Text("last sync \(t.formatted(date: .omitted, time: .standard))")
+                                    .font(mono(10)).foregroundStyle(.tertiary)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        .listRowSeparator(.hidden)
+                    } else {
+                        ForEach(store.tabs) { tab in
+                            NavigationLink(value: tab.id) {
+                                SessionRow(tab: tab)
+                            }
                         }
                     }
-                } else {
-                    List(store.tabs) { tab in
-                        NavigationLink(value: tab.id) {
-                            SessionRow(tab: tab)
+                } header: {
+                    Text("sessions").font(mono(10)).foregroundStyle(.secondary)
+                }
+                if !closedProjects.isEmpty {
+                    Section {
+                        ForEach(closedProjects) { p in
+                            ProjectRow(project: p, pending: store.pendingOpens.contains(p.path)) {
+                                store.openProject(p)
+                            }
                         }
+                    } header: {
+                        Text("projects — tap to open on the Mac").font(mono(10)).foregroundStyle(.secondary)
                     }
-                    .listStyle(.plain)
                 }
             }
+            .listStyle(.plain)
             .navigationDestination(for: String.self) { id in
                 if let tab = store.tabs.first(where: { $0.id == id }) {
                     SessionDetailView(tabRecordName: tab.id)
@@ -48,6 +70,29 @@ struct SessionListView: View {
             }
             .refreshable { await store.refresh() }
         }
+    }
+}
+
+struct ProjectRow: View {
+    let project: ProjectRef
+    let pending: Bool
+    let open: () -> Void
+
+    var body: some View {
+        Button(action: { if !pending { open() } }) {
+            HStack(spacing: 8) {
+                Text(Emoji.forPath(project.path))
+                Text(project.name).font(mono(13)).lineLimit(1)
+                Spacer()
+                if pending {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text("open").font(mono(11)).foregroundStyle(knifeAccent)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .buttonStyle(.plain)
     }
 }
 

@@ -26,6 +26,7 @@ final class SyncPublisher {
                         sync.subReady = (try? await sync.cloud.ensureDatabaseSubscription()) != nil
                     }
                     await sync.consumeInputs()
+                    await sync.publishProjectsIfChanged()
                 } else { await sync.setup() }
             }
         }
@@ -55,6 +56,18 @@ final class SyncPublisher {
         for wc in AppModel.shared.windows { for t in wc.tabs { dirty.insert(t.id) } }
         scheduleFlush(after: 0.5)
         await consumeInputs()
+        await publishProjectsIfChanged()
+    }
+
+    // ─── Recent projects list (for the iOS "open a project" screen) ───
+
+    private var lastProjectsJSON: Data?
+    func publishProjectsIfChanged() async {
+        guard enabled else { return }
+        let refs = Projects.list().map { ProjectRef(name: $0.name, path: $0.path) }
+        guard let json = try? JSONEncoder().encode(refs), json != lastProjectsJSON else { return }
+        do { try await cloud.saveProjects(refs); lastProjectsJSON = json }
+        catch { NSLog("knife sync: projects publish failed (will retry): \(error)") }
     }
 
     // ─── Publishing ───
@@ -123,13 +136,18 @@ final class SyncPublisher {
 
     func consumeInputs() async {
         guard enabled else { return }
-        guard let delta = try? await cloud.fetchChanges(), !delta.inputs.isEmpty else { return }
+        guard let delta = try? await cloud.fetchChanges(),
+              !delta.inputs.isEmpty || !delta.opens.isEmpty else { return }
         for input in delta.inputs {
             if let tab = AppModel.shared.tab(input.tabId) {
                 tab.view.send(txt: input.data)
             }
         }
-        try? await cloud.deleteRecords(delta.inputs.map { $0.recordID })
+        // phone asked to open a project → new tab running claude, mirrored back
+        for open in delta.opens where !open.path.isEmpty {
+            AppModel.shared.dispatchOpen(open.path, cmd: "claude")
+        }
+        try? await cloud.deleteRecords(delta.inputs.map { $0.recordID } + delta.opens.map { $0.recordID })
         // phone typed → screen will change; make sure it mirrors back fast
         for input in delta.inputs { markDirty(input.tabId, urgent: true) }
     }

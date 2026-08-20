@@ -49,10 +49,28 @@ public struct RemoteInput: Sendable {
     public let ts: Date
 }
 
+/// One recent Claude Code project on the Mac (from ~/.claude.json).
+public struct ProjectRef: Codable, Sendable, Identifiable, Equatable {
+    public var name: String
+    public var path: String
+    public var id: String { path }
+
+    public init(name: String, path: String) { self.name = name; self.path = path }
+}
+
+/// iOS asked the Mac to open a project in a new tab.
+public struct RemoteOpen: Sendable {
+    public let recordID: CKRecord.ID
+    public let path: String
+    public let ts: Date
+}
+
 public struct ZoneDelta: Sendable {
     public var tabs: [MirroredTab] = []
     public var deletedTabRecordNames: [String] = []
     public var inputs: [RemoteInput] = []
+    public var projects: [ProjectRef]? = nil   // nil = projects record unchanged this fetch
+    public var opens: [RemoteOpen] = []
 }
 
 public final class CloudSync: @unchecked Sendable {
@@ -178,6 +196,15 @@ public final class CloudSync: @unchecked Sendable {
         defaults.set([String](), forKey: publishedKey)
     }
 
+    /// Publish the Mac's recent-projects list (single record, JSON payload).
+    public func saveProjects(_ refs: [ProjectRef]) async throws {
+        let r = CKRecord(recordType: "Projects",
+                         recordID: CKRecord.ID(recordName: "projects", zoneID: zoneID))
+        r["list"] = (try JSONEncoder().encode(refs)) as CKRecordValue
+        r["updatedAt"] = Date() as CKRecordValue
+        try await modify(save: [r], delete: nil)
+    }
+
     public func publishAlert(tabTitle: String, message: String) async throws {
         let r = CKRecord(recordType: "Alert",
                          recordID: CKRecord.ID(recordName: "alert-\(UUID().uuidString)", zoneID: zoneID))
@@ -207,6 +234,15 @@ public final class CloudSync: @unchecked Sendable {
                          recordID: CKRecord.ID(recordName: "input-\(UUID().uuidString)", zoneID: zoneID))
         r["tabId"] = tabId as CKRecordValue
         r["data"] = text as CKRecordValue
+        r["ts"] = Date() as CKRecordValue
+        try await modify(save: [r], delete: nil)
+    }
+
+    /// iOS: ask the Mac to open a project in a new tab (running claude).
+    public func sendOpen(path: String) async throws {
+        let r = CKRecord(recordType: "Open",
+                         recordID: CKRecord.ID(recordName: "open-\(UUID().uuidString)", zoneID: zoneID))
+        r["path"] = path as CKRecordValue
         r["ts"] = Date() as CKRecordValue
         try await modify(save: [r], delete: nil)
     }
@@ -263,6 +299,16 @@ public final class CloudSync: @unchecked Sendable {
                             recordID: record.recordID,
                             tabId: record["tabId"] as? Int ?? 0,
                             data: record["data"] as? String ?? "",
+                            ts: record["ts"] as? Date ?? .distantPast))
+                    case "Projects":
+                        if let data = record["list"] as? Data,
+                           let refs = try? JSONDecoder().decode([ProjectRef].self, from: data) {
+                            delta.projects = refs
+                        }
+                    case "Open":
+                        delta.opens.append(RemoteOpen(
+                            recordID: record.recordID,
+                            path: record["path"] as? String ?? "",
                             ts: record["ts"] as? Date ?? .distantPast))
                     default: break
                     }
