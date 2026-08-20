@@ -75,10 +75,30 @@ public final class CloudSync: @unchecked Sendable {
 
     // ─── Setup ───
 
-    public func ensureZone() async throws {
-        if defaults.bool(forKey: "knife.zoneCreated.\(role)") { return }
-        _ = try await db.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)], deleting: [])
-        defaults.set(true, forKey: "knife.zoneCreated.\(role)")
+    public func ensureZone(force: Bool = false) async throws {
+        let key = "knife.zoneCreated.\(role)"
+        if !force, defaults.bool(forKey: key) { return }
+        let res = try await db.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)], deleting: [])
+        // per-zone failures don't throw at the top level — surface them
+        for (_, r) in res.saveResults { if case .failure(let e) = r { throw e } }
+        defaults.set(true, forKey: key)
+    }
+
+    /// True if the error is (or wraps, via partialFailure) a missing-zone error.
+    public static func isZoneNotFound(_ error: Error) -> Bool {
+        guard let ck = error as? CKError else { return false }
+        if ck.code == .zoneNotFound || ck.code == .userDeletedZone { return true }
+        if ck.code == .partialFailure, let partial = ck.partialErrorsByItemID {
+            return partial.values.contains { isZoneNotFound($0) }
+        }
+        return false
+    }
+
+    /// Recreate the zone after a server-side zoneNotFound and forget the change token.
+    private func recoverMissingZone() async throws {
+        defaults.set(false, forKey: "knife.zoneCreated.\(role)")
+        changeToken = nil
+        try await ensureZone(force: true)
     }
 
     /// Silent push on any change in the zone (both sides).
@@ -132,9 +152,7 @@ public final class CloudSync: @unchecked Sendable {
             r["updatedAt"] = Date() as CKRecordValue
             return r
         }
-        let op = CKModifyRecordsOperation(recordsToSave: records, recordIDsToDelete: nil)
-        op.savePolicy = .allKeys // single writer: last write wins, no fetch-merge dance
-        try await run(op)
+        try await modify(save: records, delete: nil)
         var published = Set(defaults.stringArray(forKey: publishedKey) ?? [])
         for s in snaps { published.insert("tab-\(s.tabId)") }
         defaults.set(Array(published), forKey: publishedKey)
@@ -143,8 +161,7 @@ public final class CloudSync: @unchecked Sendable {
     public func deleteTabs(_ tabIds: [Int]) async throws {
         guard !tabIds.isEmpty else { return }
         let ids = tabIds.map { recordID(forTab: $0) }
-        let op = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: ids)
-        try await run(op)
+        try await modify(save: nil, delete: ids)
         var published = Set(defaults.stringArray(forKey: publishedKey) ?? [])
         for t in tabIds { published.remove("tab-\(t)") }
         defaults.set(Array(published), forKey: publishedKey)
@@ -157,8 +174,7 @@ public final class CloudSync: @unchecked Sendable {
         let stale = defaults.stringArray(forKey: publishedKey) ?? []
         guard !stale.isEmpty else { return }
         let ids = stale.map { CKRecord.ID(recordName: $0, zoneID: zoneID) }
-        let op = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: ids)
-        try await run(op)
+        try await modify(save: nil, delete: ids)
         defaults.set([String](), forKey: publishedKey)
     }
 
@@ -168,9 +184,9 @@ public final class CloudSync: @unchecked Sendable {
         r["tabTitle"] = tabTitle as CKRecordValue
         r["message"] = message as CKRecordValue
         r["ts"] = Date() as CKRecordValue
-        let saved = try await db.save(r)
+        try await modify(save: [r], delete: nil)
         var alerts = defaults.stringArray(forKey: "knife.alerts") ?? []
-        alerts.append(saved.recordID.recordName)
+        alerts.append(r.recordID.recordName)
         // keep the backlog bounded; older ones get cleaned on next launch
         if alerts.count > 50 { alerts.removeFirst(alerts.count - 50) }
         defaults.set(alerts, forKey: "knife.alerts")
@@ -180,8 +196,7 @@ public final class CloudSync: @unchecked Sendable {
         let names = defaults.stringArray(forKey: "knife.alerts") ?? []
         guard !names.isEmpty else { return }
         let ids = names.map { CKRecord.ID(recordName: $0, zoneID: zoneID) }
-        let op = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: ids)
-        try await run(op)
+        try await modify(save: nil, delete: ids)
         defaults.set([String](), forKey: "knife.alerts")
     }
 
@@ -193,13 +208,12 @@ public final class CloudSync: @unchecked Sendable {
         r["tabId"] = tabId as CKRecordValue
         r["data"] = text as CKRecordValue
         r["ts"] = Date() as CKRecordValue
-        _ = try await db.save(r)
+        try await modify(save: [r], delete: nil)
     }
 
     public func deleteRecords(_ ids: [CKRecord.ID]) async throws {
         guard !ids.isEmpty else { return }
-        let op = CKModifyRecordsOperation(recordsToSave: nil, recordIDsToDelete: ids)
-        try await run(op)
+        try await modify(save: nil, delete: ids)
     }
 
     // ─── Zone-change fetch (both sides) ───
@@ -259,10 +273,9 @@ public final class CloudSync: @unchecked Sendable {
                 more = moreComing
             } catch let e as CKError where e.code == .changeTokenExpired {
                 changeToken = nil
-            } catch let e as CKError where e.code == .zoneNotFound || e.code == .userDeletedZone {
-                defaults.set(false, forKey: "knife.zoneCreated.\(role)")
-                try await ensureZone()
-                changeToken = nil
+            } catch where Self.isZoneNotFound(error) {
+                try await recoverMissingZone()
+                return delta // zone is empty right after creation; nothing to fetch
             }
         }
         delta.inputs.sort { $0.ts < $1.ts }
@@ -299,11 +312,29 @@ public final class CloudSync: @unchecked Sendable {
         }
     }
 
-    private func run(_ op: CKModifyRecordsOperation) async throws {
+    /// Modify records; if the zone vanished (first run, or user wiped iCloud
+    /// data), recreate it and retry once. Per-record failures also surface.
+    private func modify(save: [CKRecord]?, delete: [CKRecord.ID]?, retried: Bool = false) async throws {
+        do {
+            try await runModify(save: save, delete: delete)
+        } catch where Self.isZoneNotFound(error) && !retried {
+            try await recoverMissingZone()
+            try await modify(save: save, delete: delete, retried: true)
+        }
+    }
+
+    private func runModify(save: [CKRecord]?, delete: [CKRecord.ID]?) async throws {
+        let op = CKModifyRecordsOperation(recordsToSave: save, recordIDsToDelete: delete)
+        op.savePolicy = .allKeys // single writer per record: last write wins
+        var recordError: Error?
+        op.perRecordSaveBlock = { _, result in
+            if case .failure(let e) = result, recordError == nil { recordError = e }
+        }
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             op.modifyRecordsResultBlock = { result in
                 switch result {
-                case .success: cont.resume()
+                case .success:
+                    if let e = recordError { cont.resume(throwing: e) } else { cont.resume() }
                 case .failure(let e): cont.resume(throwing: e)
                 }
             }
