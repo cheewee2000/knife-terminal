@@ -225,11 +225,10 @@ struct TabRow: View {
             Circle()
                 .fill(tab.attention ? signalOrange : (tab.working ? accent : .clear))
                 .frame(width: 6, height: 6)
-                .opacity(isPulsing ? (pulse ? 0.25 : 1.0) : 1.0)
-                .onAppear { if isPulsing { startPulse() } }
-                .onChange(of: isPulsing) { _, now in
-                    if now { startPulse() } else { var t = Transaction(); t.disablesAnimations = true; withTransaction(t) { pulse = false } }
-                }
+                .opacity(isPulsing && pulse ? 0.25 : 1.0)
+                .animation(isPulsing ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default, value: pulse)
+                .onAppear { pulse = isPulsing }
+                .onChange(of: isPulsing) { _, now in pulse = now }
             Text(tab.emoji).font(.system(size: 12))
             Text(tab.title).font(mono(11, bold: active)).lineLimit(1)
                 .foregroundStyle(active ? Color.primary : Color.secondary)
@@ -249,11 +248,6 @@ struct TabRow: View {
     }
 
     private var isPulsing: Bool { tab.working && !tab.attention }
-
-    private func startPulse() {
-        pulse = false
-        withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true }
-    }
 }
 
 struct ContextPanel: View {
