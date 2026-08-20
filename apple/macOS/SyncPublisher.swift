@@ -137,7 +137,7 @@ final class SyncPublisher {
     func consumeInputs() async {
         guard enabled else { return }
         guard let delta = try? await cloud.fetchChanges(),
-              !delta.inputs.isEmpty || !delta.opens.isEmpty else { return }
+              !delta.inputs.isEmpty || !delta.opens.isEmpty || !delta.closes.isEmpty else { return }
         for input in delta.inputs {
             if let tab = AppModel.shared.tab(input.tabId) {
                 tab.view.send(txt: input.data)
@@ -147,7 +147,16 @@ final class SyncPublisher {
         for open in delta.opens where !open.path.isEmpty {
             AppModel.shared.dispatchOpen(open.path, cmd: "claude")
         }
-        try? await cloud.deleteRecords(delta.inputs.map { $0.recordID } + delta.opens.map { $0.recordID })
+        // phone asked to close a tab
+        for close in delta.closes {
+            for wc in AppModel.shared.windows where wc.tabs.contains(where: { $0.id == close.tabId }) {
+                wc.closeTab(close.tabId)
+                break
+            }
+        }
+        try? await cloud.deleteRecords(delta.inputs.map { $0.recordID }
+                                       + delta.opens.map { $0.recordID }
+                                       + delta.closes.map { $0.recordID })
         // phone typed → screen will change; make sure it mirrors back fast
         for input in delta.inputs { markDirty(input.tabId, urgent: true) }
     }

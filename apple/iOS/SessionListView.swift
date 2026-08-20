@@ -36,6 +36,13 @@ struct SessionListView: View {
                             NavigationLink(value: tab.id) {
                                 SessionRow(tab: tab)
                             }
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) {
+                                    store.closeTab(tab)
+                                } label: {
+                                    Text("close").font(mono(11))
+                                }
+                            }
                         }
                     }
                 } header: {

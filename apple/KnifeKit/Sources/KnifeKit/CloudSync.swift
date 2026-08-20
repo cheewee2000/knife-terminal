@@ -65,12 +65,20 @@ public struct RemoteOpen: Sendable {
     public let ts: Date
 }
 
+/// iOS asked the Mac to close a tab.
+public struct RemoteClose: Sendable {
+    public let recordID: CKRecord.ID
+    public let tabId: Int
+    public let ts: Date
+}
+
 public struct ZoneDelta: Sendable {
     public var tabs: [MirroredTab] = []
     public var deletedTabRecordNames: [String] = []
     public var inputs: [RemoteInput] = []
     public var projects: [ProjectRef]? = nil   // nil = projects record unchanged this fetch
     public var opens: [RemoteOpen] = []
+    public var closes: [RemoteClose] = []
 }
 
 public final class CloudSync: @unchecked Sendable {
@@ -238,6 +246,15 @@ public final class CloudSync: @unchecked Sendable {
         try await modify(save: [r], delete: nil)
     }
 
+    /// iOS: ask the Mac to close a tab.
+    public func sendClose(tabId: Int) async throws {
+        let r = CKRecord(recordType: "Close",
+                         recordID: CKRecord.ID(recordName: "close-\(UUID().uuidString)", zoneID: zoneID))
+        r["tabId"] = tabId as CKRecordValue
+        r["ts"] = Date() as CKRecordValue
+        try await modify(save: [r], delete: nil)
+    }
+
     /// iOS: ask the Mac to open a project in a new tab (running claude).
     public func sendOpen(path: String) async throws {
         let r = CKRecord(recordType: "Open",
@@ -309,6 +326,11 @@ public final class CloudSync: @unchecked Sendable {
                         delta.opens.append(RemoteOpen(
                             recordID: record.recordID,
                             path: record["path"] as? String ?? "",
+                            ts: record["ts"] as? Date ?? .distantPast))
+                    case "Close":
+                        delta.closes.append(RemoteClose(
+                            recordID: record.recordID,
+                            tabId: record["tabId"] as? Int ?? 0,
                             ts: record["ts"] as? Date ?? .distantPast))
                     default: break
                     }

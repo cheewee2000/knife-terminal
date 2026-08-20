@@ -60,6 +60,17 @@ final class MirrorStore: ObservableObject {
         Task { try? await cloud.sendInput(tabId: tabId, text: text) }
     }
 
+    /// Ask the Mac to close a tab. Removed locally right away; the Mac deleting
+    /// the Tab record makes it stick (or the next refresh brings it back if not).
+    func closeTab(_ tab: MirroredTab) {
+        tabs.removeAll { $0.id == tab.id }
+        Task {
+            try? await cloud.sendClose(tabId: tab.tabId)
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            await refresh()
+        }
+    }
+
     /// Ask the Mac to open this project in a new tab (running claude).
     /// The new tab mirrors back through the normal sync within a few seconds.
     func openProject(_ p: ProjectRef) {
