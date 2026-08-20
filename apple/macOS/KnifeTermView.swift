@@ -19,6 +19,7 @@ final class KnifeTermView: LocalProcessTerminalView {
         super.init(frame: frame)
         bellStyle = .none // we run our own attention/chime logic
         registerForDraggedTypes([.fileURL])
+        installShiftEnterMonitor()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -31,6 +32,27 @@ final class KnifeTermView: LocalProcessTerminalView {
 
     override nonisolated func bell(source: Terminal) {
         DispatchQueue.main.async { [weak self] in self?.onBell?() }
+    }
+
+    // Shift+Enter → ESC CR: Claude Code (and other TUIs) read that as "insert
+    // a newline" instead of submitting, same as its /terminal-setup binding.
+    // (TerminalView.keyDown isn't open, so a local monitor intercepts instead.)
+    private var keyMonitor: Any?
+
+    private func installShiftEnterMonitor() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.keyCode == 36,
+                  event.modifierFlags.intersection([.shift, .command, .control, .option]) == [.shift],
+                  event.window === self.window, self.window?.firstResponder === self
+            else { return event }
+            self.send(txt: "\u{1b}\r")
+            self.onUserInput?()
+            return nil
+        }
+    }
+
+    deinit {
+        if let m = keyMonitor { NSEvent.removeMonitor(m) }
     }
 
     override func send(source: TerminalView, data: ArraySlice<UInt8>) {
