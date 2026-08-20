@@ -18,23 +18,26 @@ struct ContentView: View {
     @AppStorage("sideWidth") private var sideWidth: Double = 220
 
     var body: some View {
-        HStack(spacing: 0) {
-            if !collapsed {
-                SidebarView(controller: controller)
-                    .frame(width: max(160, min(480, sideWidth)))
-                Rectangle()
-                    .fill(Color.primary.opacity(0.12))
-                    .frame(width: 1)
-                    .overlay(
-                        Rectangle().fill(Color.clear).frame(width: 7)
-                            .contentShape(Rectangle())
-                            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                                .onChanged { v in sideWidth = max(160, min(480, v.location.x)) })
-                            .onHover { inside in inside ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
-                    )
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                if !collapsed {
+                    SidebarView(controller: controller)
+                        .frame(width: max(160, min(480, sideWidth)))
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.12))
+                        .frame(width: 1)
+                        .overlay(
+                            Rectangle().fill(Color.clear).frame(width: 7)
+                                .contentShape(Rectangle())
+                                .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                                    .onChanged { v in sideWidth = max(160, min(480, v.location.x)) })
+                                .onHover { inside in inside ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
+                        )
+                }
+                TerminalPane(controller: controller)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            TerminalPane(controller: controller)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            FooterBar(controller: controller)
         }
         .background(bg)
         .ignoresSafeArea()
@@ -82,8 +85,6 @@ struct SidebarView: View {
     @State private var projects: [Project] = []
     @State private var query = ""
     @FocusState private var searchFocused: Bool
-    @State private var hooksOn = HooksInstaller.installed()
-    @State private var ctxScope: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -136,13 +137,11 @@ struct SidebarView: View {
                 .padding(.vertical, 4)
             }
 
-            footer
         }
         .onAppear { projects = Projects.list() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { n in
             guard (n.object as? NSWindow) === controller.window else { return }
             projects = Projects.list()
-            hooksOn = HooksInstaller.installed()
         }
         .onReceive(NotificationCenter.default.publisher(for: .knifeFocusSearch)) { _ in
             if controller.window?.isKeyWindow ?? false { searchFocused = true }
@@ -159,20 +158,25 @@ struct SidebarView: View {
         controller.addTab(TabOptions(cwd: p.path, cmd: "claude", title: p.name, restoreCmd: "claude -c"))
     }
 
-    // ─── Footer ───
+}
 
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 4) {
+// ─── Footer: spans the full window width, below sidebar + terminal ───
+
+struct FooterBar: View {
+    @ObservedObject var controller: KnifeWindowController
+    @ObservedObject var theme = AppModel.shared.theme
+    @State private var hooksOn = HooksInstaller.installed()
+    @State private var ctxScope: String? = nil
+
+    var body: some View {
+        VStack(spacing: 0) {
             Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
-            HStack(spacing: 10) {
+            HStack(spacing: 12) {
                 footBtn(theme.mode.rawValue) { theme.cycle() }
                 footBtn(hooksOn ? "alerts on" : "alerts off") {
                     _ = HooksInstaller.install(); hooksOn = HooksInstaller.installed()
                 }
                 footBtn("set default") { DefaultTerminal.register() }
-                Spacer()
-            }
-            HStack(spacing: 10) {
                 footBtn("global ctx") { ctxScope = ctxScope == "global" ? nil : "global" }
                     .popover(isPresented: Binding(get: { ctxScope == "global" }, set: { if !$0 { ctxScope = nil } })) {
                         ContextPanel(scope: "global", cwd: nil)
@@ -185,8 +189,12 @@ struct SidebarView: View {
                 Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
                     .font(mono(9)).foregroundStyle(.tertiary)
             }
+            .padding(.horizontal, 10).padding(.vertical, 6)
         }
-        .padding(.horizontal, 10).padding(.vertical, 8)
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { n in
+            guard (n.object as? NSWindow) === controller.window else { return }
+            hooksOn = HooksInstaller.installed()
+        }
     }
 
     private func footBtn(_ label: String, action: @escaping () -> Void) -> some View {
@@ -213,9 +221,11 @@ struct TabRow: View {
             Circle()
                 .fill(tab.attention ? signalOrange : (tab.working ? accent : .clear))
                 .frame(width: 6, height: 6)
-                .opacity(tab.working && !tab.attention ? (pulse ? 0.25 : 1.0) : 1.0)
-                .animation(tab.working ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default, value: pulse)
-                .onAppear { pulse = true }
+                .opacity(isPulsing ? (pulse ? 0.25 : 1.0) : 1.0)
+                .onAppear { if isPulsing { startPulse() } }
+                .onChange(of: isPulsing) { _, now in
+                    if now { startPulse() } else { var t = Transaction(); t.disablesAnimations = true; withTransaction(t) { pulse = false } }
+                }
             Text(tab.emoji).font(.system(size: 12))
             Text(tab.title).font(mono(11, bold: active)).lineLimit(1)
                 .foregroundStyle(active ? Color.primary : Color.secondary)
@@ -232,6 +242,13 @@ struct TabRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: activate)
         .onHover { hovering = $0 }
+    }
+
+    private var isPulsing: Bool { tab.working && !tab.attention }
+
+    private func startPulse() {
+        pulse = false
+        withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true }
     }
 }
 

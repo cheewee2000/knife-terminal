@@ -60,9 +60,11 @@ struct SessionRow: View {
             Circle()
                 .fill(tab.attention ? knifeOrange : (tab.working ? knifeAccent : .clear))
                 .frame(width: 7, height: 7)
-                .opacity(tab.working && !tab.attention ? (pulse ? 0.25 : 1) : 1)
-                .animation(tab.working ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default, value: pulse)
-                .onAppear { pulse = true }
+                .opacity(isPulsing ? (pulse ? 0.25 : 1) : 1)
+                .onAppear { if isPulsing { startPulse() } }
+                .onChange(of: isPulsing) { _, now in
+                    if now { startPulse() } else { var t = Transaction(); t.disablesAnimations = true; withTransaction(t) { pulse = false } }
+                }
             Text(tab.emoji)
             VStack(alignment: .leading, spacing: 2) {
                 Text(tab.title).font(mono(13, bold: tab.attention)).lineLimit(1)
@@ -74,6 +76,13 @@ struct SessionRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    private var isPulsing: Bool { tab.working && !tab.attention }
+
+    private func startPulse() {
+        pulse = false
+        withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true }
     }
 
     private func relative(_ d: Date) -> String {

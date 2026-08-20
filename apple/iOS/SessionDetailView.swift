@@ -17,7 +17,7 @@ struct SessionDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let tab {
-                TerminalMirrorView(screen: tab.screen, cols: tab.cols, dark: scheme == .dark) { bytes in
+                TerminalMirrorView(screen: tab.screen, cols: tab.cols, rows: tab.rows, dark: scheme == .dark) { bytes in
                     store.send(bytes, to: tab.tabId)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -100,68 +100,35 @@ struct SessionDetailView: View {
 }
 
 // ─── SwiftTerm-rendered mirror of the Mac's screen ───
+// The terminal is locked to the Mac's exact cols×rows grid (anything else garbles
+// TUI redraws that assume the Mac's geometry) at a readable font size; when the
+// grid is bigger than the phone screen, the outer scroll view pans.
 
 struct TerminalMirrorView: UIViewRepresentable {
     let screen: Data
     let cols: Int
+    let rows: Int
     let dark: Bool
     let sendBytes: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(send: sendBytes) }
 
-    func makeUIView(context: Context) -> TerminalView {
-        let tv = TerminalView(frame: CGRect(x: 0, y: 0, width: 390, height: 600))
-        tv.terminalDelegate = context.coordinator
-        tv.allowMouseReporting = false
-        context.coordinator.applyTheme(tv, dark: dark)
-        return tv
+    func makeUIView(context: Context) -> MirrorScrollView {
+        let v = MirrorScrollView()
+        v.terminal.terminalDelegate = context.coordinator
+        return v
     }
 
-    func updateUIView(_ tv: TerminalView, context: Context) {
-        let co = context.coordinator
-        if co.dark != dark { co.dark = dark; co.applyTheme(tv, dark: dark) }
-        co.fitFont(tv, cols: max(20, cols))
-        guard screen != co.lastFed else { return }
-        if !co.lastFed.isEmpty, screen.starts(with: co.lastFed) {
-            let delta = screen.dropFirst(co.lastFed.count)
-            tv.feed(byteArray: [UInt8](delta)[...])
-        } else {
-            tv.feed(byteArray: [UInt8]("\u{1b}c".utf8)[...]) // RIS: full reset
-            tv.feed(byteArray: [UInt8](screen)[...])
-        }
-        co.lastFed = screen
+    func updateUIView(_ v: MirrorScrollView, context: Context) {
+        v.apply(screen: screen, cols: max(20, cols), rows: max(5, rows), dark: dark)
     }
 
     final class Coordinator: NSObject, TerminalViewDelegate {
-        var lastFed = Data()
-        var dark = false
         private var pending = ""
         private var flushTask: Task<Void, Never>?
         private let send: (String) -> Void
 
         init(send: @escaping (String) -> Void) { self.send = send }
-
-        func applyTheme(_ tv: TerminalView, dark: Bool) {
-            let t: TermTheme = dark ? .dark : .light
-            tv.installColors(t.ansi.map { SwiftTerm.Color(red8: UInt16($0.r), green8: UInt16($0.g), blue8: UInt16($0.b)) })
-            tv.nativeBackgroundColor = uiColor(t.background)
-            tv.nativeForegroundColor = uiColor(t.foreground)
-            tv.backgroundColor = uiColor(t.background)
-        }
-
-        private func uiColor(_ c: TermTheme.RGB) -> UIColor {
-            UIColor(red: CGFloat(c.r) / 255, green: CGFloat(c.g) / 255, blue: CGFloat(c.b) / 255, alpha: 1)
-        }
-
-        private var lastCols = 0
-        func fitFont(_ tv: TerminalView, cols: Int) {
-            guard cols != lastCols, tv.bounds.width > 40 else { return }
-            lastCols = cols
-            let probe = UIFont(name: "Space Mono", size: 100) ?? UIFont.monospacedSystemFont(ofSize: 100, weight: .regular)
-            let cell = ("W" as NSString).size(withAttributes: [.font: probe]).width / 100 // em width per point
-            let size = max(4, min(14, tv.bounds.width / (CGFloat(cols) * cell)))
-            tv.font = UIFont(name: "Space Mono", size: size) ?? UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
-        }
 
         // keyboard input on the phone → coalesce → CloudKit Input record
         func send(source: TerminalView, data: ArraySlice<UInt8>) {
@@ -189,5 +156,108 @@ struct TerminalMirrorView: UIViewRepresentable {
         }
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {}
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
+    }
+}
+
+final class MirrorScrollView: UIScrollView {
+    let terminal = TerminalView(frame: CGRect(x: 0, y: 0, width: 390, height: 600))
+    private var gridCols = 0
+    private var gridRows = 0
+    private var appliedFontSize: CGFloat = 0
+    private var appliedDark: Bool?
+    private var screenData = Data()
+    private var fedBytes = Data()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        // the outer scroll view owns all panning; SwiftTerm's own (vertical
+        // scrollback) scrolling would swallow the gesture
+        terminal.allowMouseReporting = false
+        terminal.isScrollEnabled = false
+        addSubview(terminal)
+        contentInsetAdjustmentBehavior = .never
+        alwaysBounceVertical = false
+        alwaysBounceHorizontal = false
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func apply(screen: Data, cols: Int, rows: Int, dark: Bool) {
+        if dark != appliedDark { appliedDark = dark; applyTheme(dark) }
+        if cols != gridCols || rows != gridRows {
+            gridCols = cols
+            gridRows = rows
+            setNeedsLayout()
+            layoutIfNeeded() // size the grid before feeding so wrapping matches the Mac
+        }
+        screenData = screen
+        feedCurrent()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        relayoutGrid()
+    }
+
+    private func mirrorFont(_ size: CGFloat) -> UIFont {
+        UIFont(name: "Space Mono", size: size) ?? UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    }
+
+    private func relayoutGrid() {
+        guard gridCols > 0, bounds.width > 40 else { return }
+        // largest font 9–13pt that fits the Mac's columns; below 9 the grid pans
+        let em = ("W" as NSString).size(withAttributes: [.font: mirrorFont(13)]).width / 13
+        var size = bounds.width / (CGFloat(gridCols) * em)
+        size = (size * 2).rounded(.down) / 2
+        size = max(9, min(13, size))
+        let f = mirrorFont(size)
+        // cell metrics exactly as SwiftTerm computes them, so width/cellW == gridCols
+        let scale = max(UIScreen.main.scale, 1)
+        let cellW = (("W" as NSString).size(withAttributes: [.font: f]).width * scale).rounded() / scale
+        let ct = f as CTFont
+        let cellH = ceil(ceil(CTFontGetAscent(ct) + CTFontGetDescent(ct) + CTFontGetLeading(ct)) * scale) / scale
+        let w = CGFloat(gridCols) * cellW + 0.5
+        let h = CGFloat(gridRows) * cellH + 0.5
+        var changed = false
+        if appliedFontSize != size { appliedFontSize = size; terminal.font = f; changed = true }
+        if terminal.frame.size != CGSize(width: w, height: h) {
+            terminal.frame = CGRect(x: 0, y: 0, width: w, height: h)
+            changed = true
+        }
+        contentSize = CGSize(width: w, height: h)
+        if changed {
+            fedBytes = Data() // grid changed: replay everything at the new geometry
+            feedCurrent()
+        }
+    }
+
+    private func feedCurrent() {
+        guard gridCols > 0, !screenData.isEmpty, screenData != fedBytes else { return }
+        let wasAtBottom = contentOffset.y >= contentSize.height - bounds.height - 40
+        if !fedBytes.isEmpty, screenData.starts(with: fedBytes) {
+            terminal.feed(byteArray: [UInt8](screenData.dropFirst(fedBytes.count))[...])
+        } else {
+            terminal.feed(byteArray: [UInt8]("\u{1b}c".utf8)[...]) // RIS: full reset
+            terminal.feed(byteArray: [UInt8](screenData)[...])
+        }
+        let first = fedBytes.isEmpty
+        fedBytes = screenData
+        if first || wasAtBottom {
+            contentOffset = CGPoint(x: contentOffset.x,
+                                    y: max(0, contentSize.height - bounds.height))
+        }
+    }
+
+    private func applyTheme(_ dark: Bool) {
+        let t: TermTheme = dark ? .dark : .light
+        terminal.installColors(t.ansi.map { SwiftTerm.Color(red8: UInt16($0.r), green8: UInt16($0.g), blue8: UInt16($0.b)) })
+        terminal.nativeBackgroundColor = uiColor(t.background)
+        terminal.nativeForegroundColor = uiColor(t.foreground)
+        terminal.backgroundColor = uiColor(t.background)
+        backgroundColor = uiColor(t.background)
+    }
+
+    private func uiColor(_ c: TermTheme.RGB) -> UIColor {
+        UIColor(red: CGFloat(c.r) / 255, green: CGFloat(c.g) / 255, blue: CGFloat(c.b) / 255, alpha: 1)
     }
 }
