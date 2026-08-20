@@ -27,7 +27,20 @@ final class KnifeTermView: LocalProcessTerminalView {
     override func dataReceived(slice: ArraySlice<UInt8>) {
         ring.append(slice)
         super.dataReceived(slice: slice)
-        DispatchQueue.main.async { [weak self] in self?.onOutput?() }
+        DispatchQueue.main.async { [weak self] in
+            self?.onOutput?()
+            self?.scheduleLinkScan()
+        }
+    }
+
+    override func scrolled(source: TerminalView, position: Double) {
+        super.scrolled(source: source, position: position)
+        scheduleLinkScan()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        scheduleLinkScan()
     }
 
     override nonisolated func bell(source: Terminal) {
@@ -167,25 +180,134 @@ final class KnifeTermView: LocalProcessTerminalView {
               !(allowMouseReporting && getTerminal().mouseMode != .off) // app owns the mouse
         else { return }
         let (col, row) = cellHit(p)
-        // A plain click on a URL opens it — except on the cursor's own row,
-        // where a click means "place the cursor" (you may be editing that URL).
-        // ⌘-click (SwiftTerm's own path, in super) opens links anywhere.
-        if row != getTerminal().getCursorLocation().y,
-           let link = getTerminal().link(at: .screen(Position(col: col, row: row)), mode: .explicitAndImplicit) {
-            TerminalView.openDefaultLink(link)
-            return
+        // A plain click on an underlined URL opens it — except on the cursor's
+        // own row, where a click means "place the cursor" (you may be editing
+        // that URL). ⌘-click (SwiftTerm's own path, in super) opens anywhere.
+        if row != getTerminal().getCursorLocation().y {
+            rescanLinks() // make sure the hit test sees the current screen
+            if let url = linkAt(col: col, row: row) {
+                NSWorkspace.shared.open(url)
+                return
+            }
         }
         placeCursor(col: col, row: row)
     }
 
-    /// Point → screen-relative cell, with cell metrics exactly as SwiftTerm
-    /// computes them for hit testing.
-    private func cellHit(_ p: NSPoint) -> (col: Int, row: Int) {
+    /// Cell metrics exactly as SwiftTerm computes them for hit testing.
+    private func cellSize() -> (w: CGFloat, h: CGFloat) {
         let f = font
         let scale = max(window?.backingScaleFactor ?? 2, 1)
-        let cellW = max(1, (f.advancement(forGlyph: f.glyph(withName: "W")).width * scale).rounded() / scale)
-        let cellH = max(1, ceil(ceil(CTFontGetAscent(f) + CTFontGetDescent(f) + CTFontGetLeading(f)) * scale) / scale)
-        return (Int(p.x / cellW), Int((frame.height - p.y) / cellH))
+        let w = max(1, (f.advancement(forGlyph: f.glyph(withName: "W")).width * scale).rounded() / scale)
+        let h = max(1, ceil(ceil(CTFontGetAscent(f) + CTFontGetDescent(f) + CTFontGetLeading(f)) * scale) / scale)
+        return (w, h)
+    }
+
+    private func cellHit(_ p: NSPoint) -> (col: Int, row: Int) {
+        let (w, h) = cellSize()
+        return (Int(p.x / w), Int((frame.height - p.y) / h))
+    }
+
+    // ─── Links: URLs on screen are underlined and open on a plain click ───
+    // We scan the visible screen ourselves (joining wrapped rows) so links
+    // always LOOK like links — SwiftTerm only underlines while ⌘ is held.
+
+    private struct ScreenLink {
+        let url: URL
+        let spans: [(row: Int, cols: Range<Int>)] // screen-relative rows
+    }
+    private var screenLinks: [ScreenLink] = []
+    private let linkLayer = CAShapeLayer()
+    private var linkScanPending = false
+    private static let urlDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+
+    private func scheduleLinkScan() {
+        guard !linkScanPending else { return }
+        linkScanPending = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            guard let self else { return }
+            self.linkScanPending = false
+            self.rescanLinks()
+        }
+    }
+
+    private func rescanLinks() {
+        guard let det = Self.urlDetector else { return }
+        let t = getTerminal()
+        var found: [ScreenLink] = []
+        var row = 0
+        while row < t.rows {
+            guard t.getLine(row: row) != nil else { row += 1; continue }
+            // one logical line = this row plus following wrapped rows
+            var text = ""
+            var cellOfUnit: [Int] = [] // utf16 offset → cell ordinal in group
+            var rows: [Int] = []
+            var cell = 0
+            repeat {
+                guard let line = t.getLine(row: row) else { break }
+                rows.append(row)
+                for col in 0..<t.cols {
+                    var ch = line[col].getCharacter()
+                    if ch == "\u{0}" { ch = " " }
+                    text.append(ch)
+                    for _ in 0..<String(ch).utf16.count { cellOfUnit.append(cell) }
+                    cell += 1
+                }
+                row += 1
+            } while row < t.rows && (t.getLine(row: row)?.isWrapped ?? false)
+
+            let len = (text as NSString).length
+            for m in det.matches(in: text, options: [], range: NSRange(location: 0, length: len)) {
+                guard let url = m.url, m.range.length > 0,
+                      m.range.location < cellOfUnit.count else { continue }
+                let startCell = cellOfUnit[m.range.location]
+                let endCell = cellOfUnit[min(m.range.location + m.range.length, cellOfUnit.count) - 1]
+                var spans: [(row: Int, cols: Range<Int>)] = []
+                var c = startCell
+                while c <= endCell {
+                    let rowEnd = min(endCell, (c / t.cols) * t.cols + t.cols - 1)
+                    spans.append((row: rows[c / t.cols], cols: (c % t.cols)..<(rowEnd % t.cols) + 1))
+                    c = rowEnd + 1
+                }
+                found.append(ScreenLink(url: url, spans: spans))
+            }
+        }
+        screenLinks = found
+        refreshLinkOverlay()
+    }
+
+    private func refreshLinkOverlay() {
+        wantsLayer = true
+        if linkLayer.superlayer !== layer {
+            linkLayer.removeFromSuperlayer()
+            linkLayer.strokeColor = NSColor(red: 0xB1 / 255.0, green: 0xA5 / 255.0, blue: 0x7E / 255.0, alpha: 0.9).cgColor
+            linkLayer.lineWidth = 1
+            linkLayer.fillColor = nil
+            linkLayer.zPosition = 10
+            layer?.addSublayer(linkLayer)
+        }
+        let path = CGMutablePath()
+        let (cellW, cellH) = cellSize()
+        for link in screenLinks {
+            for span in link.spans {
+                let y = frame.height - CGFloat(span.row + 1) * cellH + 1.5
+                path.move(to: CGPoint(x: CGFloat(span.cols.lowerBound) * cellW, y: y))
+                path.addLine(to: CGPoint(x: CGFloat(span.cols.upperBound) * cellW, y: y))
+            }
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        linkLayer.frame = layer?.bounds ?? bounds
+        linkLayer.path = screenLinks.isEmpty ? nil : path
+        CATransaction.commit()
+    }
+
+    private func linkAt(col: Int, row: Int) -> URL? {
+        for link in screenLinks {
+            for span in link.spans where span.row == row && span.cols.contains(col) {
+                return link.url
+            }
+        }
+        return nil
     }
 
     private func placeCursor(col: Int, row: Int) {
