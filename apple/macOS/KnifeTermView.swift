@@ -19,7 +19,7 @@ final class KnifeTermView: LocalProcessTerminalView {
         super.init(frame: frame)
         bellStyle = .none // we run our own attention/chime logic
         registerForDraggedTypes([.fileURL])
-        installShiftEnterMonitor()
+        installKeyMonitor()
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -34,21 +34,57 @@ final class KnifeTermView: LocalProcessTerminalView {
         DispatchQueue.main.async { [weak self] in self?.onBell?() }
     }
 
-    // Shift+Enter → ESC CR: Claude Code (and other TUIs) read that as "insert
-    // a newline" instead of submitting, same as its /terminal-setup binding.
-    // (TerminalView.keyDown isn't open, so a local monitor intercepts instead.)
+    // Editing chords (TerminalView.keyDown isn't open, so a local monitor):
+    //   Shift+Enter        newline instead of submit (ESC CR, Claude Code's binding)
+    //   ⌃Delete / ⌘Delete  delete the whole input line (^E ^U)
+    //   Delete w/selection erase the highlighted text on the input row
     private var keyMonitor: Any?
 
-    private func installShiftEnterMonitor() {
+    private func installKeyMonitor() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.keyCode == 36,
-                  event.modifierFlags.intersection([.shift, .command, .control, .option]) == [.shift],
-                  event.window === self.window, self.window?.firstResponder === self
-            else { return event }
-            self.send(txt: "\u{1b}\r")
-            self.onUserInput?()
+            guard let self, event.window === self.window,
+                  self.window?.firstResponder === self else { return event }
+            return self.handleKey(event)
+        }
+    }
+
+    private func handleKey(_ event: NSEvent) -> NSEvent? {
+        let mods = event.modifierFlags.intersection([.shift, .command, .control, .option])
+        if event.keyCode == 36, mods == [.shift] {
+            send(txt: "\u{1b}\r")
+            onUserInput?()
             return nil
         }
+        if event.keyCode == 51, mods == [.control] || mods == [.command] {
+            send(txt: "\u{05}\u{15}") // end-of-line, then kill-to-start
+            onUserInput?()
+            return nil
+        }
+        if event.keyCode == 51, mods.isEmpty, selection.active {
+            deleteSelection()
+            return nil
+        }
+        return event
+    }
+
+    /// Backspace with a highlight: walk the cursor to the end of the selection
+    /// and erase it. Only works on the cursor's own (input) row — a terminal
+    /// can't edit rows the program isn't editing.
+    private func deleteSelection() {
+        defer { selectNone() }
+        guard !selection.isMultiLine else { return }
+        let t = getTerminal()
+        let row = selection.start.row - t.getTopVisibleRow()
+        let cur = t.getCursorLocation()
+        guard row == cur.y else { return }
+        let startCol = min(selection.start.col, selection.end.col)
+        let endCol = max(selection.start.col, selection.end.col)
+        var seq = ""
+        let dc = (endCol + 1) - cur.x
+        if dc != 0 { seq += String(repeating: dc < 0 ? "\u{1b}[D" : "\u{1b}[C", count: min(abs(dc), 400)) }
+        seq += String(repeating: "\u{7f}", count: min(endCol - startCol + 1, 400))
+        send(txt: seq)
+        onUserInput?()
     }
 
     deinit {
