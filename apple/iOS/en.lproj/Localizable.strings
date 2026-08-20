@@ -1,0 +1,2 @@
+/* CloudKit alert push body: %1$@ is the Alert record's message field */
+"KNIFE_ALERT" = "🔪 %1$@";

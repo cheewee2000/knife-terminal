@@ -1,0 +1,137 @@
+import AppKit
+import SwiftTerm
+import KnifeKit
+
+struct TabOptions {
+    var cwd: String?
+    var cmd: String?
+    var title: String?       // fixed title (project name, "man ls", …) — OSC titles don't override it
+    var shownTitle: String?   // restored display title
+    var restoreCmd: String?
+}
+
+@MainActor
+final class TabModel: NSObject, ObservableObject, Identifiable {
+    let id: Int
+    let view: KnifeTermView
+    let emoji: String
+    let opts: TabOptions
+    @Published var title: String
+    @Published var working = false
+    @Published var attention = false
+    var cols = 80
+    var rows = 25
+    var lastReportedCwd: String? // OSC 7, when the shell emits it
+
+    var shellPid: pid_t { view.process?.shellPid ?? 0 }
+
+    /// Current working directory of the shell, for session restore + context files.
+    var currentCwd: String? {
+        let pid = shellPid
+        guard pid > 0 else { return lastReportedCwd }
+        return Self.cwdOf(pid: pid) ?? lastReportedCwd
+    }
+
+    static func cwdOf(pid: pid_t) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        p.arguments = ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = Pipe()
+        do { try p.run() } catch { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        guard let out = String(data: data, encoding: .utf8) else { return nil }
+        for line in out.split(separator: "\n") where line.hasPrefix("n") {
+            return String(line.dropFirst())
+        }
+        return nil
+    }
+
+    init(id: Int, opts: TabOptions) {
+        self.id = id
+        self.opts = opts
+        self.emoji = opts.cwd != nil ? Emoji.forPath(opts.cwd) : "🔪"
+        self.title = opts.shownTitle ?? opts.title ?? (opts.cwd.map { ($0 as NSString).lastPathComponent } ?? "shell \(id)")
+        self.view = KnifeTermView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        super.init()
+        view.processDelegate = self
+        AppModel.shared.theme.style(terminal: view)
+
+        var env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CLAUDE_CODE_") }
+        env["KNIFE_TAB"] = String(id)
+        env["TERM"] = "xterm-256color"
+        env["COLORTERM"] = "truecolor"
+        if env["LANG"] == nil { env["LANG"] = "en_US.UTF-8" }
+        let envList = env.map { "\($0.key)=\($0.value)" }
+
+        let shell = Self.userShell()
+        var cwd = opts.cwd ?? NSHomeDirectory()
+        if !FileManager.default.fileExists(atPath: cwd) { cwd = NSHomeDirectory() }
+        view.startProcess(executable: shell, args: ["-l"], environment: envList, execName: nil, currentDirectory: cwd)
+
+        if let cmd = opts.cmd {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.view.send(txt: cmd + "\r")
+            }
+        }
+        view.onUserInput = { [weak self] in
+            guard let self else { return }
+            if self.working || self.attention {
+                self.working = false; self.attention = false
+                AppModel.shared.tabStateChanged(self)
+            }
+        }
+        view.onBell = { [weak self] in
+            guard let self else { return }
+            AppModel.shared.bellRang(in: self)
+        }
+        view.onOutput = { [weak self] in
+            guard let self else { return }
+            AppModel.shared.sync?.tabOutput(self)
+        }
+    }
+
+    static func userShell() -> String {
+        if let pw = getpwuid(getuid()), let sh = pw.pointee.pw_shell, let s = String(validatingUTF8: sh), !s.isEmpty { return s }
+        return ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+    }
+
+    func terminate() {
+        view.process?.terminate()
+    }
+}
+
+extension TabModel: LocalProcessTerminalViewDelegate {
+    nonisolated func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.cols = newCols; self.rows = newRows
+            AppModel.shared.sync?.tabOutput(self)
+        }
+    }
+
+    nonisolated func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.opts.title == nil, !title.isEmpty {
+                self.title = title
+                AppModel.shared.tabStateChanged(self)
+            }
+        }
+    }
+
+    nonisolated func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
+        DispatchQueue.main.async { [weak self] in
+            if let directory, let url = URL(string: directory), url.isFileURL { self?.lastReportedCwd = url.path }
+        }
+    }
+
+    nonisolated func processTerminated(source: TerminalView, exitCode: Int32?) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            AppModel.shared.processExited(tabId: self.id)
+        }
+    }
+}

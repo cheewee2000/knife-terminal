@@ -1,0 +1,126 @@
+name: KnifeTerminal
+options:
+  bundleIdPrefix: com.cwandt
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "14.0"
+    iOS: "17.0"
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: L6DVQR8JB9
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.9.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    from: 1.2.0
+  KnifeKit:
+    path: KnifeKit
+
+targets:
+  KnifeMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: macOS
+      - path: Resources
+        buildPhase: resources
+      - path: Fonts
+        buildPhase: resources
+    dependencies:
+      - package: SwiftTerm
+      - package: KnifeKit
+    info:
+      path: macOS/Info.plist
+      properties:
+        CFBundleName: Knife Terminal
+        CFBundleDisplayName: Knife Terminal
+        CFBundleIconFile: icon
+        LSMinimumSystemVersion: "14.0"
+        NSPrincipalClass: NSApplication
+        ATSApplicationFontsPath: "."
+        NSAppleEventsUsageDescription: Knife Terminal opens folders and scripts you send it.
+        NSHumanReadableCopyright: CW&T
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Shell Script
+            CFBundleTypeRole: Shell
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.apple.terminal.shell-script
+              - public.shell-script
+              - public.bash-script
+              - public.zsh-script
+              - public.unix-executable
+          - CFBundleTypeName: Folder
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: None
+            LSItemContentTypes:
+              - public.folder
+        CFBundleURLTypes:
+          - CFBundleURLName: Remote shell
+            CFBundleURLSchemes: [ssh, telnet, x-man-page]
+    entitlements:
+      path: macOS/KnifeMac.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.cwandt.knifeterminal
+        com.apple.developer.icloud-services: [CloudKit]
+        com.apple.developer.aps-environment: development
+    settings:
+      base:
+        PRODUCT_NAME: Knife Terminal
+        PRODUCT_BUNDLE_IDENTIFIER: com.cwandt.knifeterminal
+        ENABLE_HARDENED_RUNTIME: NO
+        ENABLE_APP_SANDBOX: NO
+        COMBINE_HIDPI_IMAGES: YES
+
+  KnifeiOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: iOS
+      - path: Fonts
+        buildPhase: resources
+    dependencies:
+      - package: SwiftTerm
+      - package: KnifeKit
+    info:
+      path: iOS/Info.plist
+      properties:
+        CFBundleName: Knife
+        CFBundleDisplayName: Knife
+        UILaunchScreen: {}
+        UIAppFonts:
+          - SpaceMono-Regular.ttf
+          - SpaceMono-Bold.ttf
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIBackgroundModes: [remote-notification]
+        ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: iOS/KnifeiOS.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.cwandt.knifeterminal
+        com.apple.developer.icloud-services: [CloudKit]
+        aps-environment: development
+    settings:
+      base:
+        PRODUCT_NAME: Knife
+        PRODUCT_BUNDLE_IDENTIFIER: com.cwandt.knifeterminal.ios
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+
+schemes:
+  KnifeMac:
+    build:
+      targets: { KnifeMac: all }
+  KnifeiOS:
+    build:
+      targets: { KnifeiOS: all }
