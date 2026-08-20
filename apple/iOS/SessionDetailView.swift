@@ -125,6 +125,10 @@ struct MirrorTextView: UIViewRepresentable {
         tv.alwaysBounceVertical = true
         tv.showsHorizontalScrollIndicator = false
         tv.textContainerInset = UIEdgeInsets(top: 10, left: 8, bottom: 10, right: 8)
+        tv.linkTextAttributes = [
+            .foregroundColor: UIColor(knifeAccent),
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+        ]
         return tv
     }
 
@@ -189,6 +193,8 @@ final class MirrorTextUIView: UITextView {
             }
         }
 
+        Self.linkify(out)
+
         let firstLoad = attributedText.length == 0
         let nearBottom = contentOffset.y >= contentSize.height - bounds.height - 60
         attributedText = out
@@ -196,6 +202,19 @@ final class MirrorTextUIView: UITextView {
             layoutIfNeeded()
             let y = max(0, contentSize.height - bounds.height + adjustedContentInset.bottom)
             setContentOffset(CGPoint(x: 0, y: y), animated: false)
+        }
+    }
+
+    /// Mark URLs as tappable links (UITextView opens them natively). The screen
+    /// arrives as styled runs, so detection has to run on the final string.
+    private static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+
+    static func linkify(_ out: NSMutableAttributedString) {
+        guard let detector = linkDetector else { return }
+        let s = out.string as NSString
+        for m in detector.matches(in: out.string, range: NSRange(location: 0, length: s.length)) {
+            guard let url = m.url else { continue }
+            out.addAttribute(.link, value: url, range: m.range)
         }
     }
 

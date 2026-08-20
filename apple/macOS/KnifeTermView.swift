@@ -166,17 +166,29 @@ final class KnifeTermView: LocalProcessTerminalView {
               event.modifierFlags.intersection([.command, .control, .shift]).isEmpty,
               !(allowMouseReporting && getTerminal().mouseMode != .off) // app owns the mouse
         else { return }
-        placeCursor(at: p)
+        let (col, row) = cellHit(p)
+        // A plain click on a URL opens it — except on the cursor's own row,
+        // where a click means "place the cursor" (you may be editing that URL).
+        // ⌘-click (SwiftTerm's own path, in super) opens links anywhere.
+        if row != getTerminal().getCursorLocation().y,
+           let link = getTerminal().link(at: .screen(Position(col: col, row: row)), mode: .explicitAndImplicit) {
+            TerminalView.openDefaultLink(link)
+            return
+        }
+        placeCursor(col: col, row: row)
     }
 
-    private func placeCursor(at p: NSPoint) {
-        // cell metrics exactly as SwiftTerm computes them for hit testing
+    /// Point → screen-relative cell, with cell metrics exactly as SwiftTerm
+    /// computes them for hit testing.
+    private func cellHit(_ p: NSPoint) -> (col: Int, row: Int) {
         let f = font
         let scale = max(window?.backingScaleFactor ?? 2, 1)
         let cellW = max(1, (f.advancement(forGlyph: f.glyph(withName: "W")).width * scale).rounded() / scale)
         let cellH = max(1, ceil(ceil(CTFontGetAscent(f) + CTFontGetDescent(f) + CTFontGetLeading(f)) * scale) / scale)
-        let col = Int(p.x / cellW)
-        let row = Int((frame.height - p.y) / cellH)
+        return (Int(p.x / cellW), Int((frame.height - p.y) / cellH))
+    }
+
+    private func placeCursor(col: Int, row: Int) {
         let cur = getTerminal().getCursorLocation() // screen-relative, like row/col above
         let dr = row - cur.y
         let dc = col - cur.x
