@@ -62,13 +62,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let shell = NSMenu(title: "Shell")
         shell.addItem(withTitle: "New Tab", action: #selector(newTab), keyEquivalent: "t").target = self
-        shell.addItem(withTitle: "New Window", action: #selector(newWindow), keyEquivalent: "n").target = self
+        shell.addItem(withTitle: "New Mini Terminal", action: #selector(newMini), keyEquivalent: "n").target = self
         shell.addItem(withTitle: "Close Tab", action: #selector(closeTab), keyEquivalent: "w").target = self
-        shell.addItem(.separator())
-        let toNew = shell.addItem(withTitle: "Move Tab to New Window", action: #selector(tabToNewWindow), keyEquivalent: "N")
-        toNew.target = self
-        let merge = shell.addItem(withTitle: "Merge All Windows", action: #selector(mergeAll), keyEquivalent: "M")
-        merge.target = self
         main.addItem(withTitle: "Shell", action: nil, keyEquivalent: "").submenu = shell
 
         let edit = NSMenu(title: "Edit")
@@ -108,13 +103,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func newTab() {
         if let wc = front { wc.addTab() } else { AppModel.shared.newWindow() }
     }
-    @objc private func newWindow() { AppModel.shared.newWindow() }
+    @objc private func newMini() { AppModel.shared.newMiniTerm() }
     @objc private func closeTab() {
+        // ⌘W in a mini popout closes the popout
+        if let key = NSApp.keyWindow, let mini = AppModel.shared.minis.first(where: { $0.window == key }) {
+            mini.close()
+            return
+        }
         guard let wc = front, let id = wc.activeId else { return }
         wc.closeTab(id)
     }
-    @objc private func tabToNewWindow() { AppModel.shared.moveActiveTabToNewWindow() }
-    @objc private func mergeAll() { AppModel.shared.mergeAllWindows() }
     @objc private func toggleSidebar() {
         UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "sidebarCollapsed"), forKey: "sidebarCollapsed")
     }

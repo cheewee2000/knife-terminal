@@ -47,6 +47,10 @@ final class ThemeManager: ObservableObject {
             wc.window?.backgroundColor = bg
             for tab in wc.tabs { style(terminal: tab.view) }
         }
+        for m in AppModel.shared.minis {
+            m.window?.backgroundColor = bg
+            style(terminal: m.term)
+        }
         AppModel.shared.objectWillChange.send()
     }
 

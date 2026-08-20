@@ -57,11 +57,6 @@ final class AppModel: ObservableObject {
         sync?.tabOpened(tab)
     }
 
-    func reassign(_ tab: TabModel, to wc: KnifeWindowController) {
-        owner[tab.id] = wc
-        saveSessionSoon()
-    }
-
     func tabClosed(_ tab: TabModel) {
         owner.removeValue(forKey: tab.id)
         tabById.removeValue(forKey: tab.id)
@@ -96,20 +91,16 @@ final class AppModel: ObservableObject {
         return wc
     }
 
-    func mergeAllWindows() {
-        guard let target = frontWindow() else { return }
-        for wc in windows where wc !== target {
-            for tab in wc.tabs { target.adopt(tab) }
-            wc.tabs.removeAll()
-            wc.window?.close()
-        }
+    // ─── Mini popout terminals (⌘N): plain shells, not saved or mirrored ───
+
+    var minis: [MiniTermController] = []
+
+    func newMiniTerm() {
+        minis.append(MiniTermController())
     }
 
-    func moveActiveTabToNewWindow() {
-        guard let src = frontWindow(), src.tabs.count > 1, let id = src.activeId,
-              let tab = src.detach(id) else { return }
-        let wc = newWindow(withTab: false)
-        wc.adopt(tab)
+    func miniClosed(_ m: MiniTermController) {
+        minis.removeAll { $0 === m }
     }
 
     // ─── Open requests (files, urls, socket "open <dir>") ───
@@ -297,26 +288,27 @@ final class AppModel: ObservableObject {
             }
         }
         guard let session, !session.windows.isEmpty else { newWindow(); return }
+        // single-window app: every saved window's tabs land in the one window
+        var rect: NSRect?
         for w in session.windows {
-            var rect: NSRect?
-            if let b = w.bounds {
-                let r = NSRect(x: b.x, y: b.y, width: b.width, height: b.height)
-                if onScreen(r) { rect = r }
-            }
-            let wc = newWindow(bounds: rect, withTab: false)
-            var activeTabId: Int?
+            guard let b = w.bounds else { continue }
+            let r = NSRect(x: b.x, y: b.y, width: b.width, height: b.height)
+            if onScreen(r) { rect = r; break }
+        }
+        let wc = newWindow(bounds: rect, withTab: false)
+        var activeTabId: Int?
+        for w in session.windows {
             for t in w.tabs where t.cwd != nil {
                 let isShellName = t.title?.range(of: "^shell \\d+$", options: .regularExpression) != nil
                 let tab = wc.addTab(TabOptions(cwd: t.cwd, cmd: t.cmd,
                                                title: t.cmd != nil ? t.title : nil,
                                                shownTitle: isShellName ? nil : t.title,
                                                restoreCmd: t.cmd), activateIt: false)
-                if t.active == true { activeTabId = tab.id }
+                if t.active == true, activeTabId == nil { activeTabId = tab.id }
             }
-            if wc.tabs.isEmpty { wc.addTab(); wc.defaultTabId = wc.activeId }
-            else { wc.activate(activeTabId ?? wc.tabs[0].id) }
         }
-        if windows.isEmpty { newWindow() }
+        if wc.tabs.isEmpty { wc.addTab(); wc.defaultTabId = wc.activeId }
+        else { wc.activate(activeTabId ?? wc.tabs[0].id) }
     }
 
     /// Use saved bounds only if a meaningful part would land on a connected display.

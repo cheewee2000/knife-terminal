@@ -1,6 +1,6 @@
 # Knife Terminal
 
-`CWT_STE3XM1_2607` · accent `#B1A57E` · v0.9.11
+`CWT_STE3XM1_2607` · accent `#B1A57E` · v0.9.12
 
 CW&T's own terminal. Native Swift — SwiftUI + [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) on macOS, with an iOS companion app that mirrors the Mac's live sessions over CloudKit. (The original Electron app lives in `legacy/electron/`.)
 
@@ -28,7 +28,7 @@ Needs Xcode signed into the CW&T Studio developer account (team `L6DVQR8JB9`) �
 - Latency: silent CloudKit pushes when available, 10 s polling as fallback.
 
 ## Shortcuts
-- ⌘T new tab · ⌘W close tab · ⌘1–9 jump to tab · ⌘⇧[ / ⌘⇧] prev/next tab · ⌘B hide/show sidebar · ⌘N new window · ⌘⇧N move tab to new window · ⌘⇧M merge all windows
+- ⌘T new tab · ⌘W close tab (or mini) · ⌘1–9 jump to tab · ⌘⇧[ / ⌘⇧] prev/next tab · ⌘B hide/show sidebar · ⌘N mini popout terminal (plain shell, no tabs/projects)
 
 ## Layout
 - `apple/project.yml` — XcodeGen spec (the `.xcodeproj` is generated, not committed)

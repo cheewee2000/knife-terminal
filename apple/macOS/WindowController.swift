@@ -36,18 +36,6 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
         return tab
     }
 
-    /// Adopt an existing tab (moved from another window).
-    func adopt(_ tab: TabModel, activateIt: Bool = true) {
-        tabs.append(tab)
-        AppModel.shared.reassign(tab, to: self)
-        if activateIt { activate(tab.id) }
-        // a lone untouched default shell gets replaced by the incoming tab
-        if tabs.count == 2, let stray = defaultTabId, stray != tab.id, let s = tabs.first(where: { $0.id == stray }) {
-            closeTab(s.id)
-        }
-        defaultTabId = nil
-    }
-
     func activate(_ id: Int) {
         guard tabs.contains(where: { $0.id == id }) else { return }
         activeId = id
@@ -75,15 +63,6 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
         }
         if activeId == id { activate(tabs[min(idx, tabs.count - 1)].id) }
         AppModel.shared.saveSessionSoon()
-    }
-
-    /// Remove without killing — the tab is moving to another window.
-    func detach(_ id: Int) -> TabModel? {
-        guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return nil }
-        let tab = tabs.remove(at: idx)
-        if tabs.isEmpty { window?.close() }
-        else if activeId == id { activate(tabs[min(idx, tabs.count - 1)].id) }
-        return tab
     }
 
     func cycle(_ dir: Int) {
