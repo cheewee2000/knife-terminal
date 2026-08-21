@@ -20,6 +20,21 @@ final class KnifeTermView: LocalProcessTerminalView {
         bellStyle = .none // we run our own attention/chime logic
         registerForDraggedTypes([.fileURL])
         installKeyMonitor()
+        installMouseMonitor()
+        klog("init")
+    }
+
+    // Click diagnostics to a plain file — unified log proved unreliable to query.
+    private static let klogURL = URL(fileURLWithPath: "/tmp/knifelink.log")
+    private func klog(_ s: String) {
+        guard let d = "\(Date()) \(s)\n".data(using: .utf8) else { return }
+        if let h = try? FileHandle(forWritingTo: Self.klogURL) {
+            defer { try? h.close() }
+            _ = try? h.seekToEnd()
+            try? h.write(contentsOf: d)
+        } else {
+            try? d.write(to: Self.klogURL)
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -100,8 +115,50 @@ final class KnifeTermView: LocalProcessTerminalView {
         onUserInput?()
     }
 
+    // Plain-click link opening runs on a local monitor, not the mouseUp
+    // override — clicks never reached the override in practice (cause unknown;
+    // the monitor sees every event before dispatch, same as the key monitor).
+    private var mouseMonitor: Any?
+    private var lastOpenedEventTimestamp: TimeInterval = -1
+
+    private func installMouseMonitor() {
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
+            guard let self, event.window === self.window else { return event }
+            let p = self.convert(event.locationInWindow, from: nil)
+            guard self.bounds.contains(p) else { return event }
+            if event.type == .leftMouseDown {
+                self.downPoint = p
+                return event
+            }
+            self.klog("monitor up clicks=\(event.clickCount) mods=\(event.modifierFlags.rawValue) mouseMode=\(self.getTerminal().mouseMode != .off)")
+            guard event.clickCount == 1,
+                  hypot(p.x - self.downPoint.x, p.y - self.downPoint.y) <= 3,
+                  event.modifierFlags.intersection([.command, .control, .shift]).isEmpty,
+                  !(self.allowMouseReporting && self.getTerminal().mouseMode != .off)
+            else { return event }
+            let (col, row) = self.cellHit(p)
+            guard row != self.getTerminal().getCursorLocation().y else {
+                self.klog("monitor cursor-row col=\(col) row=\(row)")
+                return event
+            }
+            self.rescanLinks()
+            let url = self.linkAt(col: col, row: row)
+            let spans = self.screenLinks.flatMap(\.spans)
+                .map { "r\($0.row):\($0.cols.lowerBound)-\($0.cols.upperBound)" }
+                .joined(separator: " ")
+            self.klog("monitor hit col=\(col) row=\(row) cursorRow=\(self.getTerminal().getCursorLocation().y) links=\(self.screenLinks.count) url=\(url?.absoluteString ?? "nil") spans=[\(spans)]")
+            if let url {
+                self.lastOpenedEventTimestamp = event.timestamp
+                let ok = NSWorkspace.shared.open(url)
+                self.klog("monitor open \(url.absoluteString) -> \(ok)")
+            }
+            return event
+        }
+    }
+
     deinit {
         if let m = keyMonitor { NSEvent.removeMonitor(m) }
+        if let m = mouseMonitor { NSEvent.removeMonitor(m) }
     }
 
     override func send(source: TerminalView, data: ArraySlice<UInt8>) {
@@ -175,9 +232,7 @@ final class KnifeTermView: LocalProcessTerminalView {
         let p = convert(event.locationInWindow, from: nil)
         let dragged = hypot(p.x - downPoint.x, p.y - downPoint.y) > 3
         super.mouseUp(with: event)
-        NSLog("KNIFELINK up clicks=%d dragged=%d mods=0x%lx mouseMode=%d",
-              event.clickCount, dragged ? 1 : 0,
-              event.modifierFlags.rawValue, getTerminal().mouseMode != .off ? 1 : 0)
+        klog("override up clicks=\(event.clickCount) dragged=\(dragged)")
         guard event.clickCount == 1, !dragged,
               event.modifierFlags.intersection([.command, .control, .shift]).isEmpty,
               !(allowMouseReporting && getTerminal().mouseMode != .off) // app owns the mouse
@@ -186,22 +241,16 @@ final class KnifeTermView: LocalProcessTerminalView {
         // A plain click on an underlined URL opens it — except on the cursor's
         // own row, where a click means "place the cursor" (you may be editing
         // that URL). ⌘-click (SwiftTerm's own path, in super) opens anywhere.
+        // The monitor normally opens the link first; the timestamp guard keeps
+        // this path from opening it a second time.
         if row != getTerminal().getCursorLocation().y {
+            if event.timestamp == lastOpenedEventTimestamp { return }
             rescanLinks() // make sure the hit test sees the current screen
-            let url = linkAt(col: col, row: row)
-            let spans = screenLinks.flatMap(\.spans)
-                .map { "r\($0.row):\($0.cols.lowerBound)-\($0.cols.upperBound)" }
-                .joined(separator: " ")
-            NSLog("KNIFELINK hit col=%d row=%d cursorRow=%d links=%d url=%@ spans=[%@]",
-                  col, row, getTerminal().getCursorLocation().y, screenLinks.count,
-                  url?.absoluteString ?? "nil", spans)
-            if let url {
-                let ok = NSWorkspace.shared.open(url)
-                NSLog("KNIFELINK open %@ -> %d", url.absoluteString, ok ? 1 : 0)
+            if let url = linkAt(col: col, row: row) {
+                klog("override open \(url.absoluteString)")
+                NSWorkspace.shared.open(url)
                 return
             }
-        } else {
-            NSLog("KNIFELINK cursor-row click col=%d row=%d", col, row)
         }
         placeCursor(col: col, row: row)
     }
