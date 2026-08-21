@@ -13,6 +13,7 @@ final class AppModel: ObservableObject {
     private var tabById: [Int: TabModel] = [:]
     var sync: SyncPublisher?
     private var socket: UnixSocketServer?
+    private var napBlocker: NSObjectProtocol?
     private var saveTimer: Timer?
     private var debounceTimer: Timer?
 
@@ -35,6 +36,11 @@ final class AppModel: ObservableObject {
             Task { @MainActor in self?.handleSocketMessage(msg) }
         }
         socket?.start()
+        // App Nap suspends the process when every window is occluded, so socket
+        // "open" pings from the Finder quick action would sit unhandled until focus.
+        napBlocker = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiatedAllowingIdleSystemSleep, .automaticTerminationDisabled, .suddenTerminationDisabled],
+            reason: "terminal sessions + socket server")
         restoreSession()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in
             Task { @MainActor in AppModel.shared.saveSession() }
