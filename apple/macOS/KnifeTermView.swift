@@ -128,7 +128,7 @@ final class KnifeTermView: LocalProcessTerminalView {
             self.rescanLinks()
             if let url = self.linkAt(col: col, row: row) {
                 self.lastOpenedEventTimestamp = event.timestamp
-                NSWorkspace.shared.open(url)
+                Self.openLink(url)
             }
             return event
         }
@@ -260,6 +260,7 @@ final class KnifeTermView: LocalProcessTerminalView {
 
     private func rescanLinks() {
         guard let det = Self.urlDetector else { return }
+        refreshCwdIfStale()
         let t = getTerminal()
         var found: [ScreenLink] = []
         var row = 0
@@ -283,12 +284,11 @@ final class KnifeTermView: LocalProcessTerminalView {
                 row += 1
             } while row < t.rows && (t.getLine(row: row)?.isWrapped ?? false)
 
-            let len = (text as NSString).length
-            for m in det.matches(in: text, options: [], range: NSRange(location: 0, length: len)) {
-                guard let url = m.url, m.range.length > 0,
-                      m.range.location < cellOfUnit.count else { continue }
-                let startCell = cellOfUnit[m.range.location]
-                let endCell = cellOfUnit[min(m.range.location + m.range.length, cellOfUnit.count) - 1]
+            let ns = text as NSString
+            func spansFor(_ range: NSRange) -> [(row: Int, cols: Range<Int>)] {
+                guard range.length > 0, range.location < cellOfUnit.count else { return [] }
+                let startCell = cellOfUnit[range.location]
+                let endCell = cellOfUnit[min(range.location + range.length, cellOfUnit.count) - 1]
                 var spans: [(row: Int, cols: Range<Int>)] = []
                 var c = startCell
                 while c <= endCell {
@@ -296,11 +296,93 @@ final class KnifeTermView: LocalProcessTerminalView {
                     spans.append((row: rows[c / t.cols], cols: (c % t.cols)..<(rowEnd % t.cols) + 1))
                     c = rowEnd + 1
                 }
+                return spans
+            }
+
+            var claimed: [NSRange] = []
+            for m in det.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
+                guard let url = m.url else { continue }
+                let spans = spansFor(m.range)
+                guard !spans.isEmpty else { continue }
+                claimed.append(m.range)
+                found.append(ScreenLink(url: url, spans: spans))
+            }
+            // File paths: any token that resolves to something on disk.
+            for m in Self.tokenRegex.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
+                guard !claimed.contains(where: { NSIntersectionRange($0, m.range).length > 0 }),
+                      let (url, range) = fileLink(token: ns.substring(with: m.range), at: m.range)
+                else { continue }
+                let spans = spansFor(range)
+                guard !spans.isEmpty else { continue }
                 found.append(ScreenLink(url: url, spans: spans))
             }
         }
         screenLinks = found
         refreshLinkOverlay()
+    }
+
+    // ─── File paths: underlined like URLs, click shows them in Finder ───
+
+    private static let tokenRegex = try! NSRegularExpression(pattern: #"\S+"#)
+
+    /// "(apple/macOS/Foo.swift:12)" → file URL for apple/macOS/Foo.swift plus
+    /// the range of just the path part, or nil when nothing on disk matches.
+    /// Relative paths resolve against the shell's cwd; existence is the filter
+    /// that keeps ordinary prose like "and/or" from underlining.
+    private func fileLink(token: String, at range: NSRange) -> (URL, NSRange)? {
+        guard token.contains("/") || token.first == "~" else { return nil }
+        var core = Substring(token)
+        while let f = core.first, "('\"`<[{".contains(f) { core.removeFirst() }
+        while let l = core.last, ")'\"`>]},.;:!?".contains(l) { core.removeLast() }
+        if let m = core.range(of: #":\d+(:\d+)?$"#, options: .regularExpression) {
+            core = core[..<m.lowerBound] // compiler-style file.swift:12:5 suffix
+        }
+        guard core.count > 1, core.contains("/") || core.first == "~" else { return nil }
+        var path = String(core)
+        if path.hasPrefix("~") {
+            path = (path as NSString).expandingTildeInPath
+        } else if !path.hasPrefix("/") {
+            guard let cwd = cachedCwd else { return nil }
+            path = cwd + "/" + path
+        }
+        path = (path as NSString).standardizingPath
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        let lead = token[token.startIndex..<core.startIndex].utf16.count
+        return (URL(fileURLWithPath: path),
+                NSRange(location: range.location + lead, length: core.utf16.count))
+    }
+
+    // The shell's cwd (for resolving relative paths) comes from lsof, which is
+    // too slow for the scan itself — cache it and refresh off the main thread.
+    private var cachedCwd: String?
+    private var cwdFetchedAt = Date.distantPast
+    private var cwdFetchInFlight = false
+
+    private func refreshCwdIfStale() {
+        guard Date().timeIntervalSince(cwdFetchedAt) > 3, !cwdFetchInFlight,
+              let pid = process?.shellPid, pid > 0 else { return }
+        cwdFetchInFlight = true
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let cwd = TabModel.cwdOf(pid: pid)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.cwdFetchInFlight = false
+                self.cwdFetchedAt = Date()
+                if let cwd { self.cachedCwd = cwd }
+            }
+        }
+    }
+
+    /// URLs → browser. Directories → a Finder window. Files → revealed in Finder.
+    private static func openLink(_ url: URL) {
+        guard url.isFileURL else { NSWorkspace.shared.open(url); return }
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return }
+        if isDir.boolValue {
+            NSWorkspace.shared.open(url)
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
     }
 
     private func refreshLinkOverlay() {

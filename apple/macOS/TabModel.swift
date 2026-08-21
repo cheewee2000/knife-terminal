@@ -32,7 +32,7 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         return Self.cwdOf(pid: pid) ?? lastReportedCwd
     }
 
-    static func cwdOf(pid: pid_t) -> String? {
+    nonisolated static func cwdOf(pid: pid_t) -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
         p.arguments = ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]
