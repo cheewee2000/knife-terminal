@@ -130,17 +130,15 @@ final class KnifeTermView: LocalProcessTerminalView {
                 self.downPoint = p
                 return event
             }
-            self.klog("monitor up clicks=\(event.clickCount) mods=\(event.modifierFlags.rawValue) mouseMode=\(self.getTerminal().mouseMode != .off)")
+            // No mouse-reporting check here: even when the TUI owns the mouse
+            // (Claude Code turns reporting on), a click ON a link opens it —
+            // that's the whole point. Non-link clicks fall through untouched.
             guard event.clickCount == 1,
                   hypot(p.x - self.downPoint.x, p.y - self.downPoint.y) <= 3,
-                  event.modifierFlags.intersection([.command, .control, .shift]).isEmpty,
-                  !(self.allowMouseReporting && self.getTerminal().mouseMode != .off)
+                  event.modifierFlags.intersection([.command, .control, .shift]).isEmpty
             else { return event }
             let (col, row) = self.cellHit(p)
-            guard row != self.getTerminal().getCursorLocation().y else {
-                self.klog("monitor cursor-row col=\(col) row=\(row)")
-                return event
-            }
+            guard row != self.getTerminal().getCursorLocation().y else { return event }
             self.rescanLinks()
             let url = self.linkAt(col: col, row: row)
             let spans = self.screenLinks.flatMap(\.spans)
