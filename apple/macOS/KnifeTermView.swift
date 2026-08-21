@@ -126,9 +126,9 @@ final class KnifeTermView: LocalProcessTerminalView {
             let (col, row) = self.cellHit(p)
             guard row != self.getTerminal().getCursorLocation().y else { return event }
             self.rescanLinks()
-            if let url = self.linkAt(col: col, row: row) {
+            if let link = self.linkAt(col: col, row: row) {
                 self.lastOpenedEventTimestamp = event.timestamp
-                Self.openLink(url)
+                Self.openLink(link.url, lineRef: link.lineRef)
             }
             return event
         }
@@ -241,6 +241,7 @@ final class KnifeTermView: LocalProcessTerminalView {
 
     private struct ScreenLink {
         let url: URL
+        var lineRef: String?  // "12" or "12:5" from a file.swift:12:5 reference
         let spans: [(row: Int, cols: Range<Int>)] // screen-relative rows
     }
     private var screenLinks: [ScreenLink] = []
@@ -305,16 +306,16 @@ final class KnifeTermView: LocalProcessTerminalView {
                 let spans = spansFor(m.range)
                 guard !spans.isEmpty else { continue }
                 claimed.append(m.range)
-                found.append(ScreenLink(url: url, spans: spans))
+                found.append(ScreenLink(url: url, lineRef: nil, spans: spans))
             }
             // File paths: any token that resolves to something on disk.
             for m in Self.tokenRegex.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
                 guard !claimed.contains(where: { NSIntersectionRange($0, m.range).length > 0 }),
-                      let (url, range) = fileLink(token: ns.substring(with: m.range), at: m.range)
+                      let (url, lineRef, range) = fileLink(token: ns.substring(with: m.range), at: m.range)
                 else { continue }
                 let spans = spansFor(range)
                 guard !spans.isEmpty else { continue }
-                found.append(ScreenLink(url: url, spans: spans))
+                found.append(ScreenLink(url: url, lineRef: lineRef, spans: spans))
             }
         }
         screenLinks = found
@@ -325,17 +326,20 @@ final class KnifeTermView: LocalProcessTerminalView {
 
     private static let tokenRegex = try! NSRegularExpression(pattern: #"\S+"#)
 
-    /// "(apple/macOS/Foo.swift:12)" → file URL for apple/macOS/Foo.swift plus
-    /// the range of just the path part, or nil when nothing on disk matches.
-    /// Relative paths resolve against the shell's cwd; existence is the filter
-    /// that keeps ordinary prose like "and/or" from underlining.
-    private func fileLink(token: String, at range: NSRange) -> (URL, NSRange)? {
+    /// "(apple/macOS/Foo.swift:12)" → file URL for apple/macOS/Foo.swift, the
+    /// "12" line reference, and the range of just the path part; nil when
+    /// nothing on disk matches. Relative paths resolve against the shell's
+    /// cwd; existence is the filter that keeps prose like "and/or" from
+    /// underlining.
+    private func fileLink(token: String, at range: NSRange) -> (URL, String?, NSRange)? {
         guard token.contains("/") || token.first == "~" else { return nil }
         var core = Substring(token)
         while let f = core.first, "('\"`<[{".contains(f) { core.removeFirst() }
         while let l = core.last, ")'\"`>]},.;:!?".contains(l) { core.removeLast() }
+        var lineRef: String?
         if let m = core.range(of: #":\d+(:\d+)?$"#, options: .regularExpression) {
-            core = core[..<m.lowerBound] // compiler-style file.swift:12:5 suffix
+            lineRef = String(core[m].dropFirst()) // compiler-style file.swift:12:5 suffix
+            core = core[..<m.lowerBound]
         }
         guard core.count > 1, core.contains("/") || core.first == "~" else { return nil }
         var path = String(core)
@@ -348,7 +352,7 @@ final class KnifeTermView: LocalProcessTerminalView {
         path = (path as NSString).standardizingPath
         guard FileManager.default.fileExists(atPath: path) else { return nil }
         let lead = token[token.startIndex..<core.startIndex].utf16.count
-        return (URL(fileURLWithPath: path),
+        return (URL(fileURLWithPath: path), lineRef,
                 NSRange(location: range.location + lead, length: core.utf16.count))
     }
 
@@ -373,16 +377,23 @@ final class KnifeTermView: LocalProcessTerminalView {
         }
     }
 
-    /// URLs → browser. Directories → a Finder window. Files → revealed in Finder.
-    private static func openLink(_ url: URL) {
+    /// URLs → browser. Directories → a Finder window. Files → revealed in
+    /// Finder, except a file:line reference, which opens VS Code at that line.
+    private static func openLink(_ url: URL, lineRef: String? = nil) {
         guard url.isFileURL else { NSWorkspace.shared.open(url); return }
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return }
         if isDir.boolValue {
             NSWorkspace.shared.open(url)
-        } else {
-            NSWorkspace.shared.activateFileViewerSelecting([url])
+            return
         }
+        if let lineRef,
+           let esc = url.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+           let vscode = URL(string: "vscode://file\(esc):\(lineRef)"),
+           NSWorkspace.shared.open(vscode) {
+            return // falls through to Finder if VS Code isn't around
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     private func refreshLinkOverlay() {
@@ -411,10 +422,10 @@ final class KnifeTermView: LocalProcessTerminalView {
         CATransaction.commit()
     }
 
-    private func linkAt(col: Int, row: Int) -> URL? {
+    private func linkAt(col: Int, row: Int) -> ScreenLink? {
         for link in screenLinks {
             for span in link.spans where span.row == row && span.cols.contains(col) {
-                return link.url
+                return link
             }
         }
         return nil
