@@ -175,6 +175,9 @@ final class KnifeTermView: LocalProcessTerminalView {
         let p = convert(event.locationInWindow, from: nil)
         let dragged = hypot(p.x - downPoint.x, p.y - downPoint.y) > 3
         super.mouseUp(with: event)
+        NSLog("KNIFELINK up clicks=%d dragged=%d mods=0x%lx mouseMode=%d",
+              event.clickCount, dragged ? 1 : 0,
+              event.modifierFlags.rawValue, getTerminal().mouseMode != .off ? 1 : 0)
         guard event.clickCount == 1, !dragged,
               event.modifierFlags.intersection([.command, .control, .shift]).isEmpty,
               !(allowMouseReporting && getTerminal().mouseMode != .off) // app owns the mouse
@@ -185,10 +188,20 @@ final class KnifeTermView: LocalProcessTerminalView {
         // that URL). ⌘-click (SwiftTerm's own path, in super) opens anywhere.
         if row != getTerminal().getCursorLocation().y {
             rescanLinks() // make sure the hit test sees the current screen
-            if let url = linkAt(col: col, row: row) {
-                NSWorkspace.shared.open(url)
+            let url = linkAt(col: col, row: row)
+            let spans = screenLinks.flatMap(\.spans)
+                .map { "r\($0.row):\($0.cols.lowerBound)-\($0.cols.upperBound)" }
+                .joined(separator: " ")
+            NSLog("KNIFELINK hit col=%d row=%d cursorRow=%d links=%d url=%@ spans=[%@]",
+                  col, row, getTerminal().getCursorLocation().y, screenLinks.count,
+                  url?.absoluteString ?? "nil", spans)
+            if let url {
+                let ok = NSWorkspace.shared.open(url)
+                NSLog("KNIFELINK open %@ -> %d", url.absoluteString, ok ? 1 : 0)
                 return
             }
+        } else {
+            NSLog("KNIFELINK cursor-row click col=%d row=%d", col, row)
         }
         placeCursor(col: col, row: row)
     }
