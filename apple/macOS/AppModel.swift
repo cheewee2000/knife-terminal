@@ -67,6 +67,7 @@ final class AppModel: ObservableObject {
         owner.removeValue(forKey: tab.id)
         tabById.removeValue(forKey: tab.id)
         agents.removeValue(forKey: tab.id)
+        mainDone.remove(tab.id)
         pendingStop[tab.id]?.cancel(); pendingStop.removeValue(forKey: tab.id)
         saveSessionSoon()
         sync?.tabClosed(tab.id)
@@ -148,6 +149,7 @@ final class AppModel: ObservableObject {
 
     static let workingEvents: Set<String> = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop", "TaskCompleted"]
     private var agents: [Int: Int] = [:]     // tab id → live subagent count
+    private var mainDone: Set<Int> = []      // saw Stop; only background agents may still run
     private var pendingStop: [Int: DispatchWorkItem] = [:]
     private let stopQuiet: TimeInterval = 2.0
 
@@ -181,35 +183,57 @@ final class AppModel: ObservableObject {
         let tab = tabById[id]
         if Self.workingEvents.contains(type) {
             pendingStop[id]?.cancel(); pendingStop.removeValue(forKey: id)
-            if type == "UserPromptSubmit" { agents[id] = 0 } // fresh turn: recover from drift
-            else if type == "SubagentStart" { agents[id] = (agents[id] ?? 0) + 1 }
-            else if type == "SubagentStop" { agents[id] = max(0, (agents[id] ?? 0) - 1) }
+            switch type {
+            case "UserPromptSubmit":
+                agents[id] = 0; mainDone.remove(id) // fresh turn: recover from drift
+            case "PreToolUse", "PostToolUse":
+                mainDone.remove(id) // main loop active again (e.g. re-invoked after a task)
+            case "SubagentStart":
+                agents[id] = (agents[id] ?? 0) + 1
+            case "SubagentStop":
+                agents[id] = max(0, (agents[id] ?? 0) - 1)
+                if mainDone.contains(id) && (agents[id] ?? 0) == 0 {
+                    scheduleStopFinish(id: id) // last background agent done after Stop: now finish
+                    return
+                }
+            case "TaskCompleted":
+                if mainDone.contains(id) { return } // don't resurrect the dot after Stop
+            default: break
+            }
             if let tab, !tab.working { tab.working = true; tabStateChanged(tab) }
             return
         }
         pendingStop[id]?.cancel(); pendingStop.removeValue(forKey: id)
         if type == "Stop" {
-            if (agents[id] ?? 0) > 0 { return } // sub-agents still running: not done
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.pendingStop.removeValue(forKey: id)
-                if let tab = self.tabById[id] {
-                    tab.working = false
-                    self.markAttention(tab, fromBell: false)
-                    self.tabStateChanged(tab)
-                }
-                self.chime()
-                self.publishAlert(id: id, type: type)
-            }
-            pendingStop[id] = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + stopQuiet, execute: work)
+            mainDone.insert(id)
+            if (agents[id] ?? 0) > 0 { return } // background agents still running: finish on last SubagentStop
+            scheduleStopFinish(id: id)
             return
         }
         if let tab, tab.working { tab.working = false; tabStateChanged(tab) }
-        if type == "SessionEnd" { agents.removeValue(forKey: id); return }
+        if type == "SessionEnd" { agents.removeValue(forKey: id); mainDone.remove(id); return }
         if let tab { markAttention(tab, fromBell: false) }
         chime()
         publishAlert(id: id, type: type)
+    }
+
+    /// Everything is done (main agent stopped, no live subagents): after the
+    /// quiet window, clear the dot, chime, and publish the alert.
+    private func scheduleStopFinish(id: Int) {
+        pendingStop[id]?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pendingStop.removeValue(forKey: id)
+            if let tab = self.tabById[id] {
+                tab.working = false
+                self.markAttention(tab, fromBell: false)
+                self.tabStateChanged(tab)
+            }
+            self.chime()
+            self.publishAlert(id: id, type: "Stop")
+        }
+        pendingStop[id] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + stopQuiet, execute: work)
     }
 
     func markAttention(_ tab: TabModel, fromBell: Bool) {

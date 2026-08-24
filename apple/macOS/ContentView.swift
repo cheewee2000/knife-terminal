@@ -241,7 +241,10 @@ struct TabRow: View {
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 4)
-        .background(active ? Color.primary.opacity(0.07) : Color.clear)
+        .background(active ? Color.primary.opacity(0.16) : Color.clear)
+        .overlay(alignment: .leading) {
+            if active { Rectangle().fill(accent).frame(width: 3) }
+        }
         .contentShape(Rectangle())
         .onTapGesture(perform: activate)
         .onHover { hovering = $0 }
