@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import KnifeKit
+import UniformTypeIdentifiers
 
 extension Notification.Name {
     static let knifeFocusSearch = Notification.Name("knife.focusSearch")
@@ -84,6 +85,7 @@ struct SidebarView: View {
     @ObservedObject var theme = AppModel.shared.theme
     @State private var projects: [Project] = []
     @State private var query = ""
+    @State private var draggingTabId: Int?
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -96,6 +98,13 @@ struct SidebarView: View {
                         TabRow(tab: tab, active: tab.id == controller.activeId,
                                activate: { controller.activate(tab.id) },
                                close: { controller.closeTab(tab.id) })
+                            .opacity(draggingTabId == tab.id ? 0.4 : 1.0)
+                            .onDrag {
+                                draggingTabId = tab.id
+                                return NSItemProvider(object: String(tab.id) as NSString)
+                            }
+                            .onDrop(of: [.text], delegate: TabReorderDrop(
+                                targetId: tab.id, dragging: $draggingTabId, controller: controller))
                     }
                     Button(action: { controller.addTab() }) {
                         HStack(spacing: 6) {
@@ -138,6 +147,7 @@ struct SidebarView: View {
             }
 
         }
+        .onDrop(of: [.text], isTargeted: nil) { _ in draggingTabId = nil; return true }
         .onAppear { projects = Projects.list() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { n in
             guard (n.object as? NSWindow) === controller.window else { return }
@@ -162,6 +172,25 @@ struct SidebarView: View {
         projects = Projects.list()
     }
 
+}
+
+/// Live-reorders sidebar tabs: dragging a row over another swaps them as you go.
+private struct TabReorderDrop: DropDelegate {
+    let targetId: Int
+    @Binding var dragging: Int?
+    let controller: KnifeWindowController
+
+    func dropEntered(info: DropInfo) {
+        guard let from = dragging, from != targetId else { return }
+        DispatchQueue.main.async { controller.moveTab(from, before: targetId) }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        DispatchQueue.main.async { dragging = nil }
+        return true
+    }
 }
 
 // ─── Footer: spans the full window width, below sidebar + terminal ───

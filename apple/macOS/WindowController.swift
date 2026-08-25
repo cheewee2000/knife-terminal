@@ -65,6 +65,14 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
         AppModel.shared.saveSessionSoon()
     }
 
+    func moveTab(_ id: Int, before targetId: Int) {
+        guard id != targetId,
+              let from = tabs.firstIndex(where: { $0.id == id }),
+              let to = tabs.firstIndex(where: { $0.id == targetId }) else { return }
+        tabs.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
+        AppModel.shared.saveSessionSoon()
+    }
+
     func cycle(_ dir: Int) {
         guard let cur = activeId, let i = tabs.firstIndex(where: { $0.id == cur }), !tabs.isEmpty else { return }
         activate(tabs[(i + dir + tabs.count) % tabs.count].id)
