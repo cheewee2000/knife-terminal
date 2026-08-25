@@ -10,10 +10,20 @@ let knifeOrange = Color(red: 0xE3 / 255.0, green: 0x5A / 255.0, blue: 0x1E / 255
 
 struct SessionListView: View {
     @EnvironmentObject var store: MirrorStore
+    @State private var query = ""
+
+    private var q: String { query.trimmingCharacters(in: .whitespaces).lowercased() }
+
+    private var filteredTabs: [MirroredTab] {
+        guard !q.isEmpty else { return store.tabs }
+        return store.tabs.filter { $0.title.lowercased().contains(q) || ($0.cwd ?? "").lowercased().contains(q) }
+    }
 
     /// Recent projects with no live tab on the Mac.
     private var closedProjects: [ProjectRef] {
-        store.projects.filter { p in !store.tabs.contains { $0.cwd == p.path } }
+        let closed = store.projects.filter { p in !store.tabs.contains { $0.cwd == p.path } }
+        guard !q.isEmpty else { return closed }
+        return closed.filter { $0.name.lowercased().contains(q) || $0.path.lowercased().contains(q) }
     }
 
     var body: some View {
@@ -32,7 +42,7 @@ struct SessionListView: View {
                         .padding(.vertical, 4)
                         .listRowSeparator(.hidden)
                     } else {
-                        ForEach(store.tabs) { tab in
+                        ForEach(filteredTabs) { tab in
                             NavigationLink(value: tab.id) {
                                 SessionRow(tab: tab)
                             }
@@ -61,6 +71,7 @@ struct SessionListView: View {
                 }
             }
             .listStyle(.plain)
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "search sessions + projects")
             .navigationDestination(for: String.self) { id in
                 if let tab = store.tabs.first(where: { $0.id == id }) {
                     SessionDetailView(tabRecordName: tab.id)
