@@ -37,6 +37,7 @@ targets:
     info:
       path: macOS/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleName: Knife Terminal
         CFBundleDisplayName: Knife Terminal
         CFBundleIconFile: icon
@@ -90,6 +91,7 @@ targets:
     info:
       path: iOS/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleName: Knife
         CFBundleDisplayName: Knife
         UILaunchScreen: {}
