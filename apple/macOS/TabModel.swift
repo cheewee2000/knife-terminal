@@ -59,11 +59,8 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         view.processDelegate = self
         AppModel.shared.theme.style(terminal: view)
 
-        var env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CLAUDE_CODE_") }
+        var env = Self.shellEnv()
         env["KNIFE_TAB"] = String(id)
-        env["TERM"] = "xterm-256color"
-        env["COLORTERM"] = "truecolor"
-        if env["LANG"] == nil { env["LANG"] = "en_US.UTF-8" }
         let envList = env.map { "\($0.key)=\($0.value)" }
 
         let shell = Self.userShell()
@@ -96,6 +93,24 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     static func userShell() -> String {
         if let pw = getpwuid(getuid()), let sh = pw.pointee.pw_shell, let s = String(validatingUTF8: sh), !s.isEmpty { return s }
         return ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+    }
+
+    /// Environment for spawned shells. The app inherits the environment of
+    /// whatever launched it (Finder, Xcode, another terminal) — launched from
+    /// Ghostty it carries TERM_PROGRAM=ghostty, GHOSTTY_*, and a TERMINFO that
+    /// only has xterm-ghostty entries, and shell integrations keyed on those
+    /// would think they're in Ghostty. Scrub the host's identity and set ours.
+    static func shellEnv() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment.filter {
+            !$0.key.hasPrefix("CLAUDE_CODE_") && !$0.key.hasPrefix("GHOSTTY_")
+        }
+        env["TERM"] = "xterm-256color"
+        env["COLORTERM"] = "truecolor"
+        env["TERM_PROGRAM"] = "KnifeTerminal"
+        env["TERM_PROGRAM_VERSION"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        env["TERMINFO"] = nil
+        if env["LANG"] == nil { env["LANG"] = "en_US.UTF-8" }
+        return env
     }
 
     func terminate() {
