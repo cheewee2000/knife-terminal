@@ -43,12 +43,17 @@ final class AppModel: ObservableObject {
             reason: "terminal sessions + socket server")
         restoreSession()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in
-            Task { @MainActor in AppModel.shared.saveSession() }
+            Task { @MainActor in
+                AppModel.shared.saveSession()
+                AppModel.shared.checkSocket()
+            }
         }
         let publisher = SyncPublisher()
         sync = publisher
         publisher.start()
     }
+
+    func checkSocket() { socket?.rebindIfNeeded() }
 
     func shutdown() {
         saveSession()

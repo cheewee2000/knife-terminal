@@ -6,6 +6,7 @@ import CoreServices
 final class UnixSocketServer {
     private let path: String
     private var fd: Int32 = -1
+    private var boundInode: ino_t = 0
     private var acceptSource: DispatchSourceRead?
     private let onMessage: (String) -> Void
     private let queue = DispatchQueue(label: "knife.socket")
@@ -16,9 +17,50 @@ final class UnixSocketServer {
     }
 
     func start() {
+        // Another live instance owns the path: leave its socket alone.
+        // rebindIfNeeded() takes over if that instance later dies.
+        guard !listenerAlive() else { return }
         unlink(path)
         fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return }
+        var addr = makeAddr()
+        let len = socklen_t(MemoryLayout<sockaddr_un>.size)
+        let bound = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, len) }
+        }
+        guard bound == 0, listen(fd, 16) == 0 else { close(fd); fd = -1; return }
+        var st = stat()
+        if stat(path, &st) == 0 { boundInode = st.st_ino }
+        let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+        src.setEventHandler { [weak self] in self?.acceptOne() }
+        src.resume()
+        acceptSource = src
+    }
+
+    /// Recover when the socket file was deleted or replaced out from under us
+    /// (e.g. a second app copy ran and quit): drop the orphaned fd and rebind.
+    func rebindIfNeeded() {
+        if fd < 0 { start(); return }
+        var st = stat()
+        if stat(path, &st) != 0 || st.st_ino != boundInode {
+            acceptSource?.cancel(); acceptSource = nil
+            close(fd); fd = -1; boundInode = 0
+            start()
+        }
+    }
+
+    private func listenerAlive() -> Bool {
+        let probe = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard probe >= 0 else { return false }
+        defer { close(probe) }
+        var addr = makeAddr()
+        let len = socklen_t(MemoryLayout<sockaddr_un>.size)
+        return withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(probe, $0, len) }
+        } == 0
+    }
+
+    private func makeAddr() -> sockaddr_un {
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         withUnsafeMutableBytes(of: &addr.sun_path) { raw in
@@ -26,15 +68,7 @@ final class UnixSocketServer {
                 raw.copyMemory(from: UnsafeRawBufferPointer(rebasing: src.prefix(raw.count - 1)))
             }
         }
-        let len = socklen_t(MemoryLayout<sockaddr_un>.size)
-        let bound = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, len) }
-        }
-        guard bound == 0, listen(fd, 16) == 0 else { close(fd); fd = -1; return }
-        let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-        src.setEventHandler { [weak self] in self?.acceptOne() }
-        src.resume()
-        acceptSource = src
+        return addr
     }
 
     private func acceptOne() {
@@ -57,7 +91,10 @@ final class UnixSocketServer {
     func stop() {
         acceptSource?.cancel(); acceptSource = nil
         if fd >= 0 { close(fd); fd = -1 }
-        unlink(path)
+        // Only delete the file if it's still ours — never a newer instance's socket.
+        var st = stat()
+        if boundInode != 0, stat(path, &st) == 0, st.st_ino == boundInode { unlink(path) }
+        boundInode = 0
     }
 }
 

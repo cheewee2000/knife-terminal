@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        AppModel.shared.checkSocket()
         if let wc = AppModel.shared.frontWindow(), let t = wc.activeTab, t.attention {
             t.attention = false
         }
