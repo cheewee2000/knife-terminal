@@ -75,7 +75,7 @@ targets:
       base:
         PRODUCT_NAME: Knife Terminal
         PRODUCT_BUNDLE_IDENTIFIER: com.cwandt.knifeterminal
-        ENABLE_HARDENED_RUNTIME: NO
+        ENABLE_HARDENED_RUNTIME: YES
         ENABLE_APP_SANDBOX: NO
         COMBINE_HIDPI_IMAGES: YES
 
