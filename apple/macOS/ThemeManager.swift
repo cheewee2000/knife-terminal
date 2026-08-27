@@ -65,13 +65,19 @@ final class ThemeManager: ObservableObject {
             ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
     }
 
+    /// Subtle tint for ordinary text selection.
+    var selectionTint: NSColor { nsColor(current.foreground).withAlphaComponent(isDark ? 0.18 : 0.15) }
+
+    /// Loud highlight for find matches (they render as the selection).
+    var findHighlight: NSColor { NSColor.systemYellow.withAlphaComponent(0.6) }
+
     func style(terminal: KnifeTermView) {
         let t = current
         terminal.installColors(t.ansi.map { SwiftTerm.Color(red8: UInt16($0.r), green8: UInt16($0.g), blue8: UInt16($0.b)) })
         terminal.nativeBackgroundColor = nsColor(t.background)
         terminal.nativeForegroundColor = nsColor(t.foreground)
         terminal.caretColor = nsColor(t.cursor)
-        terminal.selectedTextBackgroundColor = nsColor(t.foreground).withAlphaComponent(isDark ? 0.18 : 0.15)
+        terminal.selectedTextBackgroundColor = terminal.findBarVisible ? findHighlight : selectionTint
         terminal.font = Self.termFont(size: 13)
         terminal.needsDisplay = true
     }

@@ -14,6 +14,30 @@ final class KnifeTermView: LocalProcessTerminalView {
     var onBell: (() -> Void)?
     var onUserInput: (() -> Void)?   // real typing, not ESC[-prefixed reports
     let ring = OutputRingBuffer()
+    private var findBarWatch: NSKeyValueObservation?
+
+    // Find matches render as the selection, and the theme's subtle selection
+    // tint is too faint to spot. Swap in a loud highlight while the find bar
+    // is up; SwiftTerm keeps its bar private, so locate it by class name and
+    // track visibility via KVO.
+    private(set) var findBarVisible = false
+
+    override func performTextFinderAction(_ sender: Any?) {
+        super.performTextFinderAction(sender)
+        guard findBarWatch == nil,
+              let bar = subviews.first(where: { String(describing: type(of: $0)).contains("FindBar") })
+        else { return }
+        findBarWatch = bar.observe(\.isHidden, options: [.initial]) { [weak self] bar, _ in
+            let hidden = bar.isHidden
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.findBarVisible = !hidden
+                let theme = AppModel.shared.theme
+                self.selectedTextBackgroundColor = hidden ? theme.selectionTint : theme.findHighlight
+                self.needsDisplay = true
+            }
+        }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
