@@ -22,6 +22,18 @@ final class KnifeTermView: LocalProcessTerminalView {
     // track visibility via KVO.
     private(set) var findBarVisible = false
 
+    // SwiftTerm's find doesn't reliably scroll the match into view, so reveal
+    // it ourselves: every match lands as a selection change while the bar is up.
+    override func selectionChanged(source: Terminal) {
+        super.selectionChanged(source: source)
+        guard findBarVisible, selection.active else { return }
+        let row = min(selection.start.row, selection.end.row)
+        let top = source.getTopVisibleRow()
+        if row < top || row >= top + source.rows {
+            scrollTo(row: max(0, row - source.rows / 2))
+        }
+    }
+
     override func performTextFinderAction(_ sender: Any?) {
         super.performTextFinderAction(sender)
         guard findBarWatch == nil,
