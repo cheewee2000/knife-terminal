@@ -71,6 +71,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        edit.addItem(NSMenuItem.separator())
+        // SwiftTerm's TerminalView implements performTextFinderAction(_:), keyed off NSTextFinder.Action tags.
+        let find = edit.addItem(withTitle: "Find…", action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: "f")
+        find.tag = NSTextFinder.Action.showFindInterface.rawValue
+        let findNext = edit.addItem(withTitle: "Find Next", action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: "g")
+        findNext.tag = NSTextFinder.Action.nextMatch.rawValue
+        let findPrev = edit.addItem(withTitle: "Find Previous", action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: "g")
+        findPrev.keyEquivalentModifierMask = [.command, .shift]
+        findPrev.tag = NSTextFinder.Action.previousMatch.rawValue
         main.addItem(withTitle: "Edit", action: nil, keyEquivalent: "").submenu = edit
 
         let view = NSMenu(title: "View")
