@@ -114,6 +114,7 @@ targets:
           - SpaceMono-Bold.ttf
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIBackgroundModes: [remote-notification]
