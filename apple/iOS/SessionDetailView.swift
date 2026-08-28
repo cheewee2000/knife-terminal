@@ -11,21 +11,19 @@ struct SessionDetailView: View {
     @EnvironmentObject var store: MirrorStore
     @Environment(\.colorScheme) private var scheme
     @State private var draft = ""
+    @State private var showTerminal = false
     @FocusState private var composing: Bool
 
     private var tab: MirroredTab? { store.tabs.first { $0.id == tabRecordName } }
+    private var messages: [ChatMessage] { tab.flatMap { ChatTranscript.decode($0.chat) } ?? [] }
 
     var body: some View {
         Group {
             if let tab {
-                // The mirror ignores the keyboard: opening it covers the mirrored
-                // terminal's own footer (input box + progress bars) instead of
-                // squeezing the view. The compose bar floats above the keyboard,
-                // sitting right where that footer disappears.
-                ZStack(alignment: .bottom) {
-                    MirrorTextView(styled: tab.styled, dark: scheme == .dark)
-                        .ignoresSafeArea(.keyboard)
-                    inputBar(tab)
+                if showTerminal || messages.isEmpty {
+                    terminalView(tab)
+                } else {
+                    chatView(tab)
                 }
             } else {
                 Text("session closed on the Mac").font(mono(12)).foregroundStyle(.secondary)
@@ -41,11 +39,17 @@ struct SessionDetailView: View {
         .toolbar {
             if let tab {
                 ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 10) {
                         if tab.working {
                             Circle().fill(knifeAccent).frame(width: 7, height: 7)
                         } else if tab.attention {
                             Circle().fill(knifeOrange).frame(width: 7, height: 7)
+                        }
+                        if !messages.isEmpty {
+                            Button { showTerminal.toggle() } label: {
+                                Image(systemName: showTerminal ? "text.bubble" : "apple.terminal")
+                                    .font(.system(size: 13))
+                            }
                         }
                         Button { Task { await store.refresh() } } label: { Text("sync").font(mono(11)) }
                     }
@@ -54,11 +58,109 @@ struct SessionDetailView: View {
         }
     }
 
-    // Composing happens here, in a real native text field — cursor placement,
-    // selection, autocomplete-free editing — then one tap sends the whole line.
-    // The bar rides the keyboard; dragging the mirror down (or the chevron)
-    // dismisses it.
-    private func inputBar(_ tab: MirroredTab) -> some View {
+    // ─── Chat rendering of the Claude session (transcript from the Mac) ───
+
+    private func chatView(_ tab: MirroredTab) -> some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        ForEach(messages) { m in messageRow(m) }
+                        if tab.working { workingRow }
+                        Color.clear.frame(height: 1).id("chat-bottom")
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 12)
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .defaultScrollAnchor(.bottom)
+                .onChange(of: messages.last?.id ?? "") {
+                    withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("chat-bottom", anchor: .bottom) }
+                }
+                .onChange(of: composing) { _, focused in
+                    if focused { proxy.scrollTo("chat-bottom", anchor: .bottom) }
+                }
+            }
+            composer(tab)
+        }
+    }
+
+    @ViewBuilder
+    private func messageRow(_ m: ChatMessage) -> some View {
+        switch m.kind {
+        case .user:
+            HStack {
+                Spacer(minLength: 48)
+                Text(m.text)
+                    .font(mono(13))
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: 16).fill(knifeAccent.opacity(0.22)))
+                    .textSelection(.enabled)
+            }
+        case .assistant:
+            Text(markdown(m.text))
+                .font(mono(13))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        case .tool:
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+                Text(m.text).font(mono(11)).lineLimit(1)
+            }
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private var workingRow: some View {
+        HStack(spacing: 8) {
+            Circle().fill(knifeAccent).frame(width: 7, height: 7)
+            Text("working…").font(mono(11)).foregroundStyle(.secondary)
+        }
+    }
+
+    private func markdown(_ text: String) -> AttributedString {
+        (try? AttributedString(markdown: text, options: AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
+    }
+
+    private func composer(_ tab: MirroredTab) -> some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            TextField("Message", text: $draft, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(mono(13))
+                .lineLimit(1...5)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .focused($composing)
+                .onSubmit { submit(tab) }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 18).fill(Color.primary.opacity(0.05)))
+                .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.primary.opacity(0.15), lineWidth: 1))
+            Button { submit(tab) } label: {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.system(size: 30))
+                    .foregroundStyle(draft.isEmpty ? Color.secondary.opacity(0.5) : knifeAccent)
+            }
+            .buttonStyle(.plain)
+            .disabled(draft.isEmpty)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(.bar)
+    }
+
+    // ─── Raw terminal mirror (fallback, and one tap away for TUI moments) ───
+
+    private func terminalView(_ tab: MirroredTab) -> some View {
+        // The mirror ignores the keyboard: opening it covers the mirrored
+        // terminal's own footer (input box + progress bars) instead of
+        // squeezing the view; the bar floats above the keyboard.
+        ZStack(alignment: .bottom) {
+            MirrorTextView(styled: tab.styled, dark: scheme == .dark)
+                .ignoresSafeArea(.keyboard)
+            terminalInputBar(tab)
+        }
+    }
+
+    private func terminalInputBar(_ tab: MirroredTab) -> some View {
         HStack(alignment: .bottom, spacing: 10) {
             TextField("type here, ⏎ sends", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)

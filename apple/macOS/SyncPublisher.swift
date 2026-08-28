@@ -113,11 +113,13 @@ final class SyncPublisher {
             for tab in wc.tabs {
                 defer { order += 1 }
                 guard ids.contains(tab.id) else { continue }
+                let cwd = tab.lastReportedCwd ?? tab.opts.cwd
                 snaps.append(TabSnapshot(tabId: tab.id, title: tab.title, emoji: tab.emoji,
-                                         cwd: tab.lastReportedCwd ?? tab.opts.cwd, order: order,
+                                         cwd: cwd, order: order,
                                          cols: tab.cols, rows: tab.rows,
                                          working: tab.working, attention: tab.attention,
-                                         styled: tab.view.styledScreen()))
+                                         styled: tab.view.styledScreen(),
+                                         chat: TranscriptReader.chatData(forCwd: cwd)))
                 lastFlush[tab.id] = Date()
             }
         }
