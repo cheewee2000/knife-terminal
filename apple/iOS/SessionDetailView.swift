@@ -11,6 +11,7 @@ struct SessionDetailView: View {
     @EnvironmentObject var store: MirrorStore
     @Environment(\.colorScheme) private var scheme
     @State private var draft = ""
+    @FocusState private var composing: Bool
 
     private var tab: MirroredTab? { store.tabs.first { $0.id == tabRecordName } }
 
@@ -20,7 +21,6 @@ struct SessionDetailView: View {
                 MirrorTextView(styled: tab.styled, dark: scheme == .dark)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                quickKeys(tab)
                 inputBar(tab)
             } else {
                 Text("session closed on the Mac").font(mono(12)).foregroundStyle(.secondary)
@@ -49,47 +49,26 @@ struct SessionDetailView: View {
         }
     }
 
-    private func quickKeys(_ tab: MirroredTab) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                key("esc", "\u{1b}", tab)
-                key("tab", "\t", tab)
-                key("^C", "\u{03}", tab)
-                key("↑", "\u{1b}[A", tab)
-                key("↓", "\u{1b}[B", tab)
-                key("←", "\u{1b}[D", tab)
-                key("→", "\u{1b}[C", tab)
-                key("⏎", "\r", tab)
-                key("y⏎", "y\r", tab)
-                key("1", "1", tab)
-                key("2", "2", tab)
-                key("3", "3", tab)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 6)
-        }
-        .background(.bar)
-    }
-
-    private func key(_ label: String, _ seq: String, _ tab: MirroredTab) -> some View {
-        Button { store.send(seq, to: tab.tabId) } label: {
-            Text(label).font(mono(12))
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .overlay(RoundedRectangle(cornerRadius: 0).stroke(Color.primary.opacity(0.25), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
-    }
-
     // Composing happens here, in a real native text field — cursor placement,
     // selection, autocomplete-free editing — then one tap sends the whole line.
+    // The bar rides the keyboard; dragging the mirror down (or the chevron)
+    // dismisses it.
     private func inputBar(_ tab: MirroredTab) -> some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        HStack(alignment: .bottom, spacing: 10) {
             TextField("type here, ⏎ sends", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(mono(13))
                 .lineLimit(1...4)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
+                .focused($composing)
                 .onSubmit { submit(tab) }
+            if composing {
+                Button { composing = false } label: {
+                    Image(systemName: "keyboard.chevron.compact.down").font(.system(size: 15))
+                }
+                .buttonStyle(.plain)
+            }
             Button { submit(tab) } label: { Text("send").font(mono(11, bold: true)) }
                 .buttonStyle(.plain)
                 .disabled(draft.isEmpty)
@@ -124,6 +103,7 @@ struct MirrorTextView: UIViewRepresentable {
         tv.isSelectable = true
         tv.alwaysBounceVertical = true
         tv.showsHorizontalScrollIndicator = false
+        tv.keyboardDismissMode = .interactive
         tv.textContainerInset = UIEdgeInsets(top: 10, left: 8, bottom: 10, right: 8)
         tv.linkTextAttributes = [
             .foregroundColor: UIColor(knifeAccent),
