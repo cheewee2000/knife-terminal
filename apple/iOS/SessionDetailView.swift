@@ -16,12 +16,17 @@ struct SessionDetailView: View {
     private var tab: MirroredTab? { store.tabs.first { $0.id == tabRecordName } }
 
     var body: some View {
-        VStack(spacing: 0) {
+        Group {
             if let tab {
-                MirrorTextView(styled: tab.styled, dark: scheme == .dark)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                inputBar(tab)
+                // The mirror ignores the keyboard: opening it covers the mirrored
+                // terminal's own footer (input box + progress bars) instead of
+                // squeezing the view. The compose bar floats above the keyboard,
+                // sitting right where that footer disappears.
+                ZStack(alignment: .bottom) {
+                    MirrorTextView(styled: tab.styled, dark: scheme == .dark)
+                        .ignoresSafeArea(.keyboard)
+                    inputBar(tab)
+                }
             } else {
                 Text("session closed on the Mac").font(mono(12)).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -104,6 +109,9 @@ struct MirrorTextView: UIViewRepresentable {
         tv.alwaysBounceVertical = true
         tv.showsHorizontalScrollIndicator = false
         tv.keyboardDismissMode = .interactive
+        // room for the overlaid compose bar so scrolled-to-bottom content clears it
+        tv.contentInset.bottom = 52
+        tv.verticalScrollIndicatorInsets.bottom = 52
         tv.textContainerInset = UIEdgeInsets(top: 10, left: 8, bottom: 10, right: 8)
         tv.linkTextAttributes = [
             .foregroundColor: UIColor(knifeAccent),
