@@ -69,6 +69,16 @@ struct SessionListView: View {
                         Text("projects — tap to open on the Mac").font(mono(10)).foregroundStyle(.secondary)
                     }
                 }
+                Section {
+                    VStack(spacing: 6) {
+                        Text(Brand.idLabel).font(mono(10)).foregroundStyle(.tertiary)
+                        Link("cwandt.com", destination: URL(string: "https://cwandt.com")!)
+                            .font(mono(10)).foregroundStyle(knifeAccent)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 24)
+                    .listRowSeparator(.hidden)
+                }
             }
             .listStyle(.plain)
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "search sessions + projects")
@@ -77,7 +87,7 @@ struct SessionListView: View {
                     SessionDetailView(tabRecordName: tab.id)
                 }
             }
-            .navigationTitle(Brand.idLabel)
+            .navigationTitle("Knife Terminal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
