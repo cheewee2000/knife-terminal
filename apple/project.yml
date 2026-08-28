@@ -11,13 +11,16 @@ settings:
     DEVELOPMENT_TEAM: L6DVQR8JB9
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: "0.9.32"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.9.33"
+    CURRENT_PROJECT_VERSION: "0.9.33"  # CFBundleVersion must increase each release — Sparkle compares it
 
 packages:
   SwiftTerm:
     url: https://github.com/migueldeicaza/SwiftTerm
     from: 1.2.0
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.6.0
   KnifeKit:
     path: KnifeKit
 
@@ -31,13 +34,17 @@ targets:
         buildPhase: resources
       - path: Fonts
         buildPhase: resources
+      - path: AppIcon.icon
+        buildPhase: resources
     dependencies:
       - package: SwiftTerm
+      - package: Sparkle
       - package: KnifeKit
     info:
       path: macOS/Info.plist
       properties:
         CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleName: Knife Terminal
         CFBundleDisplayName: Knife Terminal
         CFBundleIconFile: icon
@@ -46,6 +53,9 @@ targets:
         ATSApplicationFontsPath: "."
         NSAppleEventsUsageDescription: Knife Terminal opens folders and scripts you send it.
         NSHumanReadableCopyright: CW&T
+        SUFeedURL: https://raw.githubusercontent.com/cheewee2000/knife-terminal/main/appcast.xml
+        SUPublicEDKey: IsZ2LtddRqNHFHsp6U40Gw/A6sWIJO4m5xJYr1r4qic=
+        SUEnableAutomaticChecks: true
         CFBundleDocumentTypes:
           - CFBundleTypeName: Shell Script
             CFBundleTypeRole: Shell
@@ -78,6 +88,7 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         ENABLE_APP_SANDBOX: NO
         COMBINE_HIDPI_IMAGES: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
   KnifeiOS:
     type: application
@@ -86,12 +97,15 @@ targets:
       - path: iOS
       - path: Fonts
         buildPhase: resources
+      - path: AppIcon.icon
+        buildPhase: resources
     dependencies:
       - package: KnifeKit
     info:
       path: iOS/Info.plist
       properties:
         CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleName: Knife
         CFBundleDisplayName: Knife
         UILaunchScreen: {}

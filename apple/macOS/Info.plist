@@ -67,7 +67,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSAppleEventsUsageDescription</key>
@@ -76,5 +76,11 @@
 	<string>CW&amp;T</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/cheewee2000/knife-terminal/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>IsZ2LtddRqNHFHsp6U40Gw/A6sWIJO4m5xJYr1r4qic=</string>
 </dict>
 </plist>
