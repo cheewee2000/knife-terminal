@@ -12,6 +12,7 @@ struct SessionDetailView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var draft = ""
     @State private var showTerminal = false
+    @State private var showUsage = false
     @FocusState private var composing: Bool
 
     private var tab: MirroredTab? { store.tabs.first { $0.id == tabRecordName } }
@@ -51,9 +52,61 @@ struct SessionDetailView: View {
                                     .font(.system(size: 13))
                             }
                         }
+                        Button { showUsage = true } label: {
+                            Image(systemName: "gauge.with.needle").font(.system(size: 13))
+                        }
                         Button { Task { await store.refresh() } } label: { Text("sync").font(mono(11)) }
                     }
                 }
+            }
+        }
+        .sheet(isPresented: $showUsage) { usageSheet }
+    }
+
+    // ─── Usage limits (parsed out of the mirrored statusline bars) ───
+
+    private var usageBars: [UsageBar] {
+        tab.map { UsageBar.parse($0.styled) } ?? []
+    }
+
+    private var usageSheet: some View {
+        let bars = usageBars
+        return VStack(alignment: .leading, spacing: 18) {
+            Text("usage").font(mono(13, bold: true))
+            if bars.isEmpty {
+                Text("no usage bars on screen right now")
+                    .font(mono(11)).foregroundStyle(.secondary)
+            } else {
+                ForEach(bars) { bar in usageRow(bar) }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .presentationDetents([.height(CGFloat(90 + max(1, bars.count) * 58))])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func usageRow(_ bar: UsageBar) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(bar.title).font(mono(11))
+                Spacer()
+                if let reset = bar.reset {
+                    Text("resets in \(reset)").font(mono(10)).foregroundStyle(.secondary)
+                }
+            }
+            HStack(spacing: 8) {
+                Capsule().fill(Color.primary.opacity(0.08))
+                    .frame(height: 8)
+                    .overlay(alignment: .leading) {
+                        GeometryReader { g in
+                            Capsule()
+                                .fill(bar.pct >= 90 ? knifeOrange : knifeAccent)
+                                .frame(width: max(8, g.size.width * CGFloat(bar.pct) / 100))
+                        }
+                    }
+                Text("\(bar.pct)%").font(mono(11, bold: true))
+                    .frame(width: 40, alignment: .trailing)
             }
         }
     }
@@ -198,6 +251,42 @@ struct SessionDetailView: View {
 
 private func uiColor(_ c: TermTheme.RGB, alpha: CGFloat = 1) -> UIColor {
     UIColor(red: CGFloat(c.r) / 255, green: CGFloat(c.g) / 255, blue: CGFloat(c.b) / 255, alpha: alpha)
+}
+
+// The Mac's statusline draws usage-limit bars like "5h ████░░░░░░ 42% (2h30m)"
+// in the terminal footer. They ride along in the mirrored screen, so the phone
+// can lift them back out and render native progress bars.
+struct UsageBar: Identifiable {
+    let label: String
+    let pct: Int
+    let reset: String?
+    var id: String { label }
+
+    var title: String {
+        switch label {
+        case "5h": return "session · 5 hour window"
+        case "wk": return "week · all models"
+        default: return "week · \(label)"
+        }
+    }
+
+    static func parse(_ styled: Data) -> [UsageBar] {
+        guard let screen = StyledScreen.decode(styled) else { return [] }
+        let pattern = /(\S+) ([█░]{10}) (\d{1,3})%(?: \(([^)]+)\))?/
+        var byLabel: [String: UsageBar] = [:]
+        var order: [String] = []
+        for line in screen.lines {
+            let text = line.map(\.t).joined()
+            for m in text.matches(of: pattern) {
+                let label = String(m.1)
+                let bar = UsageBar(label: label, pct: min(100, Int(m.3) ?? 0),
+                                   reset: m.4.map(String.init))
+                if byLabel[label] == nil { order.append(label) }
+                byLabel[label] = bar
+            }
+        }
+        return order.compactMap { byLabel[$0] }
+    }
 }
 
 struct MirrorTextView: UIViewRepresentable {
