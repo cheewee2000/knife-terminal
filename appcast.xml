@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Knife Terminal</title>
+    <link>https://github.com/cheewee2000/knife-terminal</link>
+    <description>Updates for Knife Terminal</description>
+    <language>en</language>
+    <item>
+      <title>Knife Terminal 0.9.33</title>
+      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v0.9.33</link>
+      <sparkle:version>0.9.33</sparkle:version>
+      <sparkle:shortVersionString>0.9.33</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+        <p>Sparkle auto-updates, MIT license, and a native macOS 26 icon (Icon Composer bundle).</p>
+      ]]></description>
+      <enclosure
+        url="https://github.com/cheewee2000/knife-terminal/releases/download/v0.9.33/Knife-Terminal-0.9.33.zip"
+        sparkle:edSignature="kuG71Zh8JwS26W/0WnZfjc3/XETKZrWmMtaexK+8A70uaeIppfljwektYuUB0pi2rymenmCAyM9ToCQQzAGsDQ=="
+        length="4097693"
+        type="application/octet-stream"/>
+    </item>
+  </channel>
+</rss>
