@@ -21,8 +21,10 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
-        application.registerForRemoteNotifications()
+        if !DemoData.enabled {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+            application.registerForRemoteNotifications()
+        }
         return true
     }
 

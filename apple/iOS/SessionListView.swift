@@ -11,6 +11,7 @@ let knifeOrange = Color(red: 0xE3 / 255.0, green: 0x5A / 255.0, blue: 0x1E / 255
 struct SessionListView: View {
     @EnvironmentObject var store: MirrorStore
     @State private var query = ""
+    @State private var path: [String] = []
 
     private var q: String { query.trimmingCharacters(in: .whitespaces).lowercased() }
 
@@ -27,7 +28,7 @@ struct SessionListView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 Section {
                     if store.tabs.isEmpty {
@@ -97,6 +98,11 @@ struct SessionListView: View {
                 }
             }
             .refreshable { await store.refresh() }
+        }
+        .onAppear {
+            if DemoData.enabled, DemoData.openFirstTab, let first = DemoData.tabs.first {
+                path = [first.id]
+            }
         }
     }
 }

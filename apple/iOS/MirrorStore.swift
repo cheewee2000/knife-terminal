@@ -17,6 +17,12 @@ final class MirrorStore: ObservableObject {
     func startup() async {
         guard !started else { return }
         started = true
+        if DemoData.enabled {
+            tabs = DemoData.tabs
+            projects = DemoData.projects
+            lastSync = Date()
+            return
+        }
         iCloudAvailable = await cloud.accountAvailable()
         guard iCloudAvailable else { return }
         await ensureSubscriptions()
@@ -37,6 +43,7 @@ final class MirrorStore: ObservableObject {
     }
 
     func refresh() async {
+        guard !DemoData.enabled else { return }
         guard iCloudAvailable else {
             iCloudAvailable = await cloud.accountAvailable()
             guard iCloudAvailable else { return }

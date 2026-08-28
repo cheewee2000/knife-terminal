@@ -43,6 +43,15 @@ public struct MirroredTab: Identifiable, Sendable {
     public var styled: Data
     public var chat: Data
     public var updatedAt: Date
+
+    public init(id: String, tabId: Int, title: String, emoji: String, cwd: String?,
+                order: Int, cols: Int, rows: Int, working: Bool, attention: Bool,
+                styled: Data, chat: Data, updatedAt: Date) {
+        self.id = id; self.tabId = tabId; self.title = title; self.emoji = emoji
+        self.cwd = cwd; self.order = order; self.cols = cols; self.rows = rows
+        self.working = working; self.attention = attention
+        self.styled = styled; self.chat = chat; self.updatedAt = updatedAt
+    }
 }
 
 public struct RemoteInput: Sendable {

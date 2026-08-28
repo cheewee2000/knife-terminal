@@ -33,7 +33,13 @@ struct SessionDetailView: View {
         }
         .navigationTitle(tab.map { "\($0.emoji) \($0.title)" } ?? "")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { if let tab { store.markSeen(tab) } }
+        .onAppear {
+            if let tab { store.markSeen(tab) }
+            if DemoData.enabled {
+                if DemoData.showTerminal { showTerminal = true }
+                if DemoData.showUsage { showUsage = true }
+            }
+        }
         .onChange(of: tab?.attention ?? false) { _, waiting in
             if waiting, let tab { store.markSeen(tab) } // arrived while already viewing
         }
