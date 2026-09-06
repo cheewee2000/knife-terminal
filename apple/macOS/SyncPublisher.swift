@@ -43,7 +43,11 @@ final class SyncPublisher {
         do {
             try await cloud.ensureZone()
             try await cloud.clearStaleTabs()
-            try await cloud.clearOldAlerts()
+            // one-time: re-walk the whole zone so leaked Alert records get purged
+            if !UserDefaults.standard.bool(forKey: "knife.purgedAlerts") {
+                cloud.resetChangeToken()
+                UserDefaults.standard.set(true, forKey: "knife.purgedAlerts")
+            }
         } catch {
             NSLog("knife sync: setup failed (will retry): \(error)")
             return
@@ -79,7 +83,7 @@ final class SyncPublisher {
     func tabClosed(_ id: Int) {
         guard enabled else { return }
         dirty.remove(id)
-        Task { try? await cloud.deleteTabs([id]) }
+        Task { try? await cloud.deleteTabs([id]) } // failure logged by CloudSync
     }
 
     func publishAlert(tabTitle: String, message: String) {
@@ -136,10 +140,14 @@ final class SyncPublisher {
         Task { await consumeInputs() }
     }
 
+    private var consuming = false
     func consumeInputs() async {
-        guard enabled else { return }
-        guard let delta = try? await cloud.fetchChanges(),
-              !delta.inputs.isEmpty || !delta.opens.isEmpty || !delta.closes.isEmpty || !delta.seens.isEmpty
+        guard enabled, !consuming else { return } // poll + push overlap; one fetch at a time
+        consuming = true
+        defer { consuming = false }
+        guard let delta = try? await cloud.fetchChanges() else { return } // failure already logged by CloudSync
+        if !delta.garbage.isEmpty { Task { try? await cloud.deleteRecords(delta.garbage) } }
+        guard !delta.inputs.isEmpty || !delta.opens.isEmpty || !delta.closes.isEmpty || !delta.seens.isEmpty
         else { return }
         for input in delta.inputs {
             guard let tab = AppModel.shared.tab(input.tabId) else { continue }

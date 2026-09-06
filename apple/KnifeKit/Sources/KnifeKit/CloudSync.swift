@@ -29,7 +29,7 @@ public struct TabSnapshot: Sendable {
     }
 }
 
-public struct MirroredTab: Identifiable, Sendable {
+public struct MirroredTab: Identifiable, Sendable, Codable {
     public let id: String            // record name
     public var tabId: Int
     public var title: String
@@ -99,6 +99,7 @@ public struct ZoneDelta: Sendable {
     public var opens: [RemoteOpen] = []
     public var closes: [RemoteClose] = []
     public var seens: [RemoteSeen] = []
+    public var garbage: [CKRecord.ID] = []     // Alert records: push already fired, nobody reads them
 }
 
 public final class CloudSync: @unchecked Sendable {
@@ -108,6 +109,38 @@ public final class CloudSync: @unchecked Sendable {
     public let zoneID = CKRecordZone.ID(zoneName: "KnifeZone", ownerName: CKCurrentUserDefaultName)
     private let role: String // "mac" | "ios" — namespaces tokens + subscription ids
     private let defaults = UserDefaults.standard
+    // Setup (zone + subscriptions) is redone once per process — cheap, idempotent
+    // upserts. Persisting "done" flags broke sync when the container environment
+    // changed (Development → Production) and the flags outlived the data.
+    private var setupDone: Set<String> = []
+
+    /// Sync diagnostics: NSLog + ~/Library/Logs/knife-sync.log (Mac) or the app
+    /// sandbox's Library/Logs (iOS). NSLog from the Mac app is invisible in the
+    /// unified log on some machines, so the file is the reliable trail.
+    public static func log(_ msg: String) {
+        let line = "\(ISO8601DateFormatter().string(from: Date())) \(msg)\n"
+        NSLog("knife sync: %@", msg)
+        guard let lib = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first else { return }
+        let dir = lib.appendingPathComponent("Logs")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = dir.appendingPathComponent("knife-sync.log")
+        if let h = try? FileHandle(forWritingTo: url) {
+            h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close()
+        } else {
+            try? Data(line.utf8).write(to: url)
+        }
+    }
+
+    /// Network/server hiccups: keep tokens and retry later. Anything else is a
+    /// real protocol error worth resetting cached state over.
+    public static func isTransient(_ error: Error) -> Bool {
+        guard let ck = error as? CKError else { return true } // URLError etc.
+        switch ck.code {
+        case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited,
+             .zoneBusy, .notAuthenticated, .accountTemporarilyUnavailable: return true
+        default: return false
+        }
+    }
 
     public init(role: String) {
         self.role = role
@@ -122,12 +155,11 @@ public final class CloudSync: @unchecked Sendable {
     // ─── Setup ───
 
     public func ensureZone(force: Bool = false) async throws {
-        let key = "knife.zoneCreated.\(role)"
-        if !force, defaults.bool(forKey: key) { return }
+        if !force, setupDone.contains("zone") { return }
         let res = try await db.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)], deleting: [])
         // per-zone failures don't throw at the top level — surface them
         for (_, r) in res.saveResults { if case .failure(let e) = r { throw e } }
-        defaults.set(true, forKey: key)
+        setupDone.insert("zone")
     }
 
     /// True if the error is (or wraps, via partialFailure) a missing-zone error.
@@ -142,7 +174,7 @@ public final class CloudSync: @unchecked Sendable {
 
     /// Recreate the zone after a server-side zoneNotFound and forget the change token.
     private func recoverMissingZone() async throws {
-        defaults.set(false, forKey: "knife.zoneCreated.\(role)")
+        Self.log("zone missing — recreating, change token dropped")
         changeToken = nil
         try await ensureZone(force: true)
     }
@@ -150,19 +182,19 @@ public final class CloudSync: @unchecked Sendable {
     /// Silent push on any change in the zone (both sides).
     public func ensureDatabaseSubscription() async throws {
         let id = "knife-db-\(role)"
-        if defaults.bool(forKey: "knife.sub.\(id)") { return }
+        if setupDone.contains(id) { return }
         let sub = CKDatabaseSubscription(subscriptionID: id)
         let info = CKSubscription.NotificationInfo()
         info.shouldSendContentAvailable = true
         sub.notificationInfo = info
         _ = try await db.modifySubscriptions(saving: [sub], deleting: [])
-        defaults.set(true, forKey: "knife.sub.\(id)")
+        setupDone.insert(id)
     }
 
     /// Visible push when the Mac creates an Alert record (iOS only).
     public func ensureAlertSubscription() async throws {
         let id = "knife-alerts"
-        if defaults.bool(forKey: "knife.sub.\(id)") { return }
+        if setupDone.contains(id) { return }
         let sub = CKQuerySubscription(recordType: "Alert", predicate: NSPredicate(value: true),
                                       subscriptionID: id, options: .firesOnRecordCreation)
         sub.zoneID = zoneID
@@ -172,7 +204,7 @@ public final class CloudSync: @unchecked Sendable {
         info.soundName = "default"
         sub.notificationInfo = info
         _ = try await db.modifySubscriptions(saving: [sub], deleting: [])
-        defaults.set(true, forKey: "knife.sub.\(id)")
+        setupDone.insert(id)
     }
 
     // ─── Mac: publish ───
@@ -234,6 +266,10 @@ public final class CloudSync: @unchecked Sendable {
         try await modify(save: [r], delete: nil)
     }
 
+    /// The Alert record exists only to fire the phone's query subscription
+    /// (the push payload carries the text). Creating it is the event; it is
+    /// deleted right away so the zone doesn't fill with thousands of dead
+    /// alerts — which made every from-scratch fetch crawl through them all.
     public func publishAlert(tabTitle: String, message: String) async throws {
         let r = CKRecord(recordType: "Alert",
                          recordID: CKRecord.ID(recordName: "alert-\(UUID().uuidString)", zoneID: zoneID))
@@ -241,19 +277,7 @@ public final class CloudSync: @unchecked Sendable {
         r["message"] = message as CKRecordValue
         r["ts"] = Date() as CKRecordValue
         try await modify(save: [r], delete: nil)
-        var alerts = defaults.stringArray(forKey: "knife.alerts") ?? []
-        alerts.append(r.recordID.recordName)
-        // keep the backlog bounded; older ones get cleaned on next launch
-        if alerts.count > 50 { alerts.removeFirst(alerts.count - 50) }
-        defaults.set(alerts, forKey: "knife.alerts")
-    }
-
-    public func clearOldAlerts() async throws {
-        let names = defaults.stringArray(forKey: "knife.alerts") ?? []
-        guard !names.isEmpty else { return }
-        let ids = names.map { CKRecord.ID(recordName: $0, zoneID: zoneID) }
-        try await modify(save: nil, delete: ids)
-        defaults.set([String](), forKey: "knife.alerts")
+        try await modify(save: nil, delete: [r.recordID])
     }
 
     // ─── iOS: send input ───
@@ -296,7 +320,9 @@ public final class CloudSync: @unchecked Sendable {
 
     public func deleteRecords(_ ids: [CKRecord.ID]) async throws {
         guard !ids.isEmpty else { return }
-        try await modify(save: nil, delete: ids)
+        for chunk in stride(from: 0, to: ids.count, by: 400) { // CloudKit caps one op at 400 records
+            try await modify(save: nil, delete: Array(ids[chunk..<min(chunk + 400, ids.count)]))
+        }
     }
 
     // ─── Zone-change fetch (both sides) ───
@@ -320,6 +346,7 @@ public final class CloudSync: @unchecked Sendable {
     public func resetChangeToken() { changeToken = nil }
 
     public func fetchChanges() async throws -> ZoneDelta {
+        let t0 = Date()
         var delta = ZoneDelta()
         var more = true
         while more {
@@ -368,6 +395,8 @@ public final class CloudSync: @unchecked Sendable {
                             recordID: record.recordID,
                             tabId: record["tabId"] as? Int ?? 0,
                             ts: record["ts"] as? Date ?? .distantPast))
+                    case "Alert":
+                        delta.garbage.append(record.recordID)
                     default: break
                     }
                 }
@@ -375,14 +404,24 @@ public final class CloudSync: @unchecked Sendable {
                     deletions.filter { $0.hasPrefix("tab-") })
                 changeToken = token
                 more = moreComing
-            } catch let e as CKError where e.code == .changeTokenExpired {
-                changeToken = nil
             } catch where Self.isZoneNotFound(error) {
                 try await recoverMissingZone()
                 return delta // zone is empty right after creation; nothing to fetch
+            } catch where changeToken != nil && !Self.isTransient(error) {
+                // expired token, or one minted by another container environment:
+                // start over from scratch (a second failure throws below)
+                Self.log("fetch failed with token, resyncing from scratch: \(error)")
+                changeToken = nil
+            } catch {
+                Self.log("fetch failed: \(error)")
+                throw error
             }
         }
         delta.inputs.sort { $0.ts < $1.ts }
+        let ms = Int(Date().timeIntervalSince(t0) * 1000)
+        if ms > 2000 || !delta.garbage.isEmpty { // routine fetches run every ~1.5s; only the odd ones are worth a line
+            Self.log("fetched \(delta.tabs.count) tabs, \(delta.deletedTabRecordNames.count) deleted, \(delta.inputs.count) inputs, \(delta.garbage.count) stale alerts in \(ms)ms")
+        }
         return delta
     }
 
@@ -396,13 +435,17 @@ public final class CloudSync: @unchecked Sendable {
             var deletions: [String] = []
             var newToken: CKServerChangeToken?
             var more = false
-            op.recordWasChangedBlock = { _, result in
-                if case .success(let record) = result { mods.append(record) }
+            op.recordWasChangedBlock = { id, result in
+                switch result {
+                case .success(let record): mods.append(record)
+                case .failure(let e): Self.log("record \(id.recordName) failed: \(e)")
+                }
             }
             op.recordWithIDWasDeletedBlock = { id, _ in deletions.append(id.recordName) }
             op.recordZoneFetchResultBlock = { _, result in
-                if case .success(let (token, _, moreComing)) = result {
-                    newToken = token; more = moreComing
+                switch result {
+                case .success(let (token, _, moreComing)): newToken = token; more = moreComing
+                case .failure(let e): Self.log("zone fetch result failed: \(e)")
                 }
             }
             op.fetchRecordZoneChangesResultBlock = { result in
@@ -424,6 +467,9 @@ public final class CloudSync: @unchecked Sendable {
         } catch where Self.isZoneNotFound(error) && !retried {
             try await recoverMissingZone()
             try await modify(save: save, delete: delete, retried: true)
+        } catch {
+            Self.log("modify failed (\(save?.count ?? 0) saves, \(delete?.count ?? 0) deletes): \(error)")
+            throw error
         }
     }
 

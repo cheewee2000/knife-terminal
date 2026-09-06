@@ -27,6 +27,12 @@ struct SessionListView: View {
         return closed.filter { $0.name.lowercased().contains(q) || $0.path.lowercased().contains(q) }
     }
 
+    private var syncStatus: String {
+        let last = store.lastSync.map { "last sync \($0.formatted(date: .omitted, time: .shortened))" } ?? "never synced"
+        if let e = store.syncError { return "\(e) · \(last)" }
+        return last
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             List {
@@ -35,10 +41,6 @@ struct SessionListView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("no live sessions").font(mono(13)).foregroundStyle(.secondary)
                             Text("open Knife Terminal on your Mac").font(mono(11)).foregroundStyle(.tertiary)
-                            if let t = store.lastSync {
-                                Text("last sync \(t.formatted(date: .omitted, time: .standard))")
-                                    .font(mono(10)).foregroundStyle(.tertiary)
-                            }
                         }
                         .padding(.vertical, 4)
                         .listRowSeparator(.hidden)
@@ -72,6 +74,9 @@ struct SessionListView: View {
                 }
                 Section {
                     VStack(spacing: 6) {
+                        Text(syncStatus).font(mono(10))
+                            .foregroundStyle(store.syncError == nil ? AnyShapeStyle(.tertiary) : AnyShapeStyle(knifeOrange))
+                            .multilineTextAlignment(.center)
                         Text(Brand.idLabel).font(mono(10)).foregroundStyle(.tertiary)
                         Link("cwandt.com", destination: URL(string: "https://cwandt.com")!)
                             .font(mono(10)).foregroundStyle(knifeAccent)

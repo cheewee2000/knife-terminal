@@ -51,7 +51,7 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if store.iCloudAvailable {
+            if store.iCloudAvailable || !store.tabs.isEmpty {
                 SessionListView()
             } else {
                 VStack(spacing: 16) {

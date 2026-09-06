@@ -1,6 +1,7 @@
 import SwiftUI
 import CloudKit
 import KnifeKit
+import UserNotifications
 
 @MainActor
 final class MirrorStore: ObservableObject {
@@ -11,8 +12,38 @@ final class MirrorStore: ObservableObject {
     @Published var pendingOpens: Set<String> = []   // paths we've asked the Mac to open
     @Published var iCloudAvailable = true
     @Published var lastSync: Date?
+    @Published var syncError: String?               // last failure, nil once a sync succeeds
+    @Published var offline = false
     private let cloud = CloudSync(role: "ios")
     private var started = false
+    private var pendingInputs: [(tabId: Int, text: String)] = []  // typed while offline; retried on refresh
+
+    // ─── Local cache: last mirrored state survives relaunch + works offline ───
+
+    private struct Cache: Codable {
+        var tabs: [MirroredTab]
+        var projects: [ProjectRef]
+        var lastSync: Date?
+    }
+
+    private var cacheURL: URL {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("mirror.json")
+    }
+
+    @discardableResult
+    private func loadCache() -> Bool {
+        guard let d = try? Data(contentsOf: cacheURL),
+              let c = try? JSONDecoder().decode(Cache.self, from: d) else { return false }
+        tabs = c.tabs; projects = c.projects; lastSync = c.lastSync
+        return true
+    }
+
+    private func saveCache() {
+        let c = Cache(tabs: tabs, projects: projects, lastSync: lastSync)
+        if let d = try? JSONEncoder().encode(c) { try? d.write(to: cacheURL, options: .atomic) }
+    }
 
     func startup() async {
         guard !started else { return }
@@ -23,9 +54,12 @@ final class MirrorStore: ObservableObject {
             lastSync = Date()
             return
         }
-        iCloudAvailable = await cloud.accountAvailable()
-        guard iCloudAvailable else { return }
-        await ensureSubscriptions()
+        // The zone-change token only makes sense relative to the state it was
+        // fetched into. No cache → fetch everything from scratch. (Before the
+        // cache existed the token outlived the in-memory tabs, so a relaunch
+        // only ever showed tabs that changed after the previous run.)
+        if !loadCache() { cloud.resetChangeToken() }
+        CloudSync.log("startup: cached tabs=\(tabs.count)")
         await refresh()
     }
 
@@ -38,20 +72,42 @@ final class MirrorStore: ObservableObject {
             try await cloud.ensureAlertSubscription()
             subsReady = true
         } catch {
-            // container still propagating / offline — retried on next refresh
+            CloudSync.log("ios setup failed (will retry): \(error)")
         }
     }
 
+    /// One fetch at a time. Pushes arrive every ~1.5s while the Mac is busy;
+    /// each used to start its own zone fetch and the overlapping full fetches
+    /// on a fresh install never finished. A push during a fetch queues one more.
+    private var refreshing = false, refreshQueued = false
     func refresh() async {
         guard !DemoData.enabled else { return }
+        if refreshing { refreshQueued = true; return }
+        refreshing = true
+        defer { refreshing = false }
+        repeat { refreshQueued = false; await refreshOnce() } while refreshQueued
+    }
+
+    private func refreshOnce() async {
+        // offline, accountStatus can't be determined — still show the cache
+        let status = try? await cloud.container.accountStatus()
+        iCloudAvailable = status != .noAccount && status != .restricted
         guard iCloudAvailable else {
-            iCloudAvailable = await cloud.accountAvailable()
-            guard iCloudAvailable else { return }
-            await startup()
+            syncError = "not signed into iCloud"
             return
         }
         await ensureSubscriptions()
-        guard let delta = try? await cloud.fetchChanges() else { return }
+        await flushPendingInputs()
+        let delta: ZoneDelta
+        do { delta = try await cloud.fetchChanges() }
+        catch {
+            offline = (error as? CKError).map { [.networkUnavailable, .networkFailure].contains($0.code) } ?? true
+            syncError = offline ? "offline" : "\(error.localizedDescription)"
+            return
+        }
+        offline = false
+        syncError = nil
+        if !delta.garbage.isEmpty { Task { try? await cloud.deleteRecords(delta.garbage) } }
         var byId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         for t in delta.tabs { byId[t.id] = t }
         for name in delta.deletedTabRecordNames { byId.removeValue(forKey: name) }
@@ -59,12 +115,25 @@ final class MirrorStore: ObservableObject {
         if let refs = delta.projects { projects = refs }
         pendingOpens = pendingOpens.filter { path in !tabs.contains { $0.cwd == path } }
         lastSync = Date()
+        saveCache()
         let badge = tabs.filter { $0.attention }.count
         try? await UNUserNotificationCenter.current().setBadgeCount(badge)
     }
 
+    /// Keystrokes go up immediately; if that fails (offline) they wait for the
+    /// next refresh. In-memory only — a relaunch drops them.
+    // ponytail: unpersisted queue, write it into the cache file if lost drafts become a complaint
     func send(_ text: String, to tabId: Int) {
-        Task { try? await cloud.sendInput(tabId: tabId, text: text) }
+        pendingInputs.append((tabId, text))
+        Task { await flushPendingInputs() }
+    }
+
+    private func flushPendingInputs() async {
+        while let next = pendingInputs.first {
+            do { try await cloud.sendInput(tabId: next.tabId, text: next.text) }
+            catch { syncError = "send failed: \(error.localizedDescription)"; return }
+            pendingInputs.removeFirst()
+        }
     }
 
     /// Viewing a tab acknowledges its "waiting for you" flag — cleared locally
@@ -102,5 +171,3 @@ final class MirrorStore: ObservableObject {
         }
     }
 }
-
-import UserNotifications
