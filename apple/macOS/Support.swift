@@ -103,9 +103,16 @@ final class UnixSocketServer {
 enum HooksInstaller {
     static let hookCmd = "[ -n \"$KNIFE_TAB\" ] && { printf '%s ' \"$KNIFE_TAB\"; cat; } | nc -U -w 1 \"$HOME/.knife-terminal.sock\" >/dev/null 2>&1; exit 0"
     static let events = ["Stop", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop", "TaskCompleted", "SessionEnd"]
+    // Codex CLI reads the same hook format from ~/.codex/hooks.json (no Notification/TaskCompleted events)
+    static let codexEvents = ["Stop", "UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop", "SessionEnd"]
     static var settingsPath: String { (NSHomeDirectory() as NSString).appendingPathComponent(".claude/settings.json") }
+    static var codexPath: String { (NSHomeDirectory() as NSString).appendingPathComponent(".codex/hooks.json") }
 
     static func installed() -> Bool {
+        installed(at: settingsPath, events: events) && installed(at: codexPath, events: codexEvents)
+    }
+
+    private static func installed(at settingsPath: String, events: [String]) -> Bool {
         guard let data = FileManager.default.contents(atPath: settingsPath),
               let cfg = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let hooks = cfg["hooks"] as? [String: Any] else { return false }
@@ -120,11 +127,16 @@ enum HooksInstaller {
     static func install() -> Bool {
         if installed() { return true }
         let alert = NSAlert()
-        alert.messageText = "Add Claude Code hooks for attention alerts?"
-        alert.informativeText = "Adds hooks (\(events.joined(separator: ", "))) to \(settingsPath). Each hook pings Knife (via ~/.knife-terminal.sock) so the tab shows a thinking animation while Claude Code works and glows with a chime when it's waiting for you. Nothing else in the file is changed."
+        alert.messageText = "Add Claude Code + Codex hooks for attention alerts?"
+        alert.informativeText = "Adds hooks (\(events.joined(separator: ", "))) to \(settingsPath) and \(codexPath). Each hook pings Knife (via ~/.knife-terminal.sock) so the tab shows a thinking animation while the agent works and glows with a chime when it's waiting for you. Nothing else in the files is changed."
         alert.addButton(withTitle: "Install")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        return write(to: settingsPath, events: events) && write(to: codexPath, events: codexEvents)
+    }
+
+    @MainActor
+    private static func write(to settingsPath: String, events: [String]) -> Bool {
         var cfg: [String: Any] = [:]
         if let data = FileManager.default.contents(atPath: settingsPath),
            let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { cfg = j }

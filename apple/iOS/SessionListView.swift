@@ -64,12 +64,12 @@ struct SessionListView: View {
                 if !closedProjects.isEmpty {
                     Section {
                         ForEach(closedProjects) { p in
-                            ProjectRow(project: p, pending: store.pendingOpens.contains(p.path)) {
-                                store.openProject(p)
+                            ProjectRow(project: p, pending: store.pendingOpens.contains(p.path)) { agent in
+                                store.openProject(p, agent: agent)
                             }
                         }
                     } header: {
-                        Text("projects — tap to open on the Mac").font(mono(10)).foregroundStyle(.secondary)
+                        Text("projects — tap to open on the Mac (Claude, or Codex via open ▾)").font(mono(10)).foregroundStyle(.secondary)
                     }
                 }
                 Section {
@@ -115,23 +115,27 @@ struct SessionListView: View {
 struct ProjectRow: View {
     let project: ProjectRef
     let pending: Bool
-    let open: () -> Void
+    let open: (String) -> Void   // "claude" | "codex"
 
     var body: some View {
-        Button(action: { if !pending { open() } }) {
-            HStack(spacing: 8) {
-                Text(Emoji.forPath(project.path))
-                Text(project.name).font(mono(13)).lineLimit(1)
-                Spacer()
-                if pending {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Text("open").font(mono(11)).foregroundStyle(knifeAccent)
+        HStack(spacing: 8) {
+            Text(Emoji.forPath(project.path))
+            Text(project.name).font(mono(13)).lineLimit(1)
+            Spacer()
+            if pending {
+                ProgressView().controlSize(.small)
+            } else {
+                Menu {
+                    Button("open with Claude Code") { open("claude") }
+                    Button("open with Codex") { open("codex") }
+                } label: {
+                    Text("open ▾").font(mono(11)).foregroundStyle(knifeAccent)
                 }
             }
-            .padding(.vertical, 2)
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .onTapGesture { if !pending { open("claude") } } // row tap = Claude, the default agent
     }
 }
 

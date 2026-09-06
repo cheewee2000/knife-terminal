@@ -147,7 +147,7 @@ final class AppModel: ObservableObject {
         if let cwd = req.cwd { Projects.touch(cwd) }
         let wc = frontWindow() ?? newWindow(withTab: false)
         wc.addTab(TabOptions(cwd: req.cwd, cmd: req.cmd, title: req.title,
-                             restoreCmd: req.cmd == "claude" ? "claude -c" : nil))
+                             restoreCmd: ["claude": "claude -c", "codex": "codex resume --last"][req.cmd ?? ""]))
     }
 
     // ─── Attention: Claude Code hooks ping the socket with the tab id ───

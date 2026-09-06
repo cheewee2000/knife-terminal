@@ -66,6 +66,46 @@ public enum ChatTranscript {
         return out
     }
 
+    /// Codex CLI rollout (~/.codex/sessions/Y/M/D/rollout-*.jsonl). The
+    /// conversation lives in response_item records; event_msg records repeat
+    /// them (agent_message/user_message) and are skipped.
+    public static func parseCodex(jsonlLines: [String]) -> [ChatMessage] {
+        var out: [ChatMessage] = []
+        for line in jsonlLines {
+            guard let data = line.data(using: .utf8),
+                  let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  obj["type"] as? String == "response_item",
+                  let p = obj["payload"] as? [String: Any] else { continue }
+            let ts = obj["timestamp"] as? String ?? ""
+            switch p["type"] as? String {
+            case "message":
+                let blocks = p["content"] as? [[String: Any]] ?? []
+                let text = blocks.compactMap { $0["text"] as? String }.joined(separator: "\n")
+                // imported sessions share one timestamp: fold the text into the id
+                let id = "\(ts)-\(p["role"] as? String ?? "")-\(text.count)-\(text.prefix(24))"
+                if p["role"] as? String == "user" {
+                    if let t = userText(text) { out.append(ChatMessage(id: id, kind: .user, text: t)) }
+                } else if let t = Optional(text.trimmingCharacters(in: .whitespacesAndNewlines)), !t.isEmpty {
+                    out.append(ChatMessage(id: id, kind: .assistant, text: t))
+                }
+            case "function_call", "custom_tool_call", "local_shell_call":
+                let name = p["name"] as? String ?? "shell"
+                var input: [String: Any] = [:]
+                if let args = p["arguments"] as? String, let d = args.data(using: .utf8),
+                   let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] { input = j }
+                if let action = p["action"] as? [String: Any] { input = action } // local_shell_call
+                if var argv = input["command"] as? [String] {
+                    if argv.count >= 3, argv[1] == "-lc" { argv.removeFirst(2) } // ["bash","-lc","…"]
+                    input["command"] = argv.joined(separator: " ")
+                }
+                out.append(ChatMessage(id: p["call_id"] as? String ?? "\(ts)-\(name)", kind: .tool,
+                                       text: toolLabel(name, input)))
+            default: break
+            }
+        }
+        return out
+    }
+
     /// User content is either a plain string or an array of blocks; slash
     /// commands arrive wrapped in XML-ish tags, tool results are plumbing.
     private static func userText(_ content: Any?) -> String? {
@@ -83,6 +123,7 @@ public enum ChatTranscript {
             return t.isEmpty ? nil : t
         }
         if t.hasPrefix("<") { return nil }   // command output, system wrappers
+        if t.hasPrefix("# Context from my IDE") { return nil }   // Codex IDE wrapper
         if t.hasPrefix("[Request interrupted") { return nil }
         return t
     }

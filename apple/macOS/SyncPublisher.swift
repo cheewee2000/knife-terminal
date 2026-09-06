@@ -165,8 +165,14 @@ final class SyncPublisher {
             }
         }
         // phone asked to open a project → new tab running claude, mirrored back
+        // "codex:<path>" picks Codex CLI — the Open record can't grow a cmd
+        // field without a Production CloudKit schema deploy, so it rides in path
         for open in delta.opens where !open.path.isEmpty {
-            AppModel.shared.dispatchOpen(open.path, cmd: "claude")
+            if open.path.hasPrefix("codex:") {
+                AppModel.shared.dispatchOpen(String(open.path.dropFirst(6)), cmd: "codex")
+            } else {
+                AppModel.shared.dispatchOpen(open.path, cmd: "claude")
+            }
         }
         // phone asked to close a tab
         for close in delta.closes {

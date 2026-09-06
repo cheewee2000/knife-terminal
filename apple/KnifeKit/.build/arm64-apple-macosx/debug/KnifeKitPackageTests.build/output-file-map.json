@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKitPackageTests.build/primary.swiftdeps"
+  },
+  "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKitPackageTests.derived/runner.swift": {
+    "dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKitPackageTests.build/runner.d",
+    "object": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKitPackageTests.build/runner.swift.o",
+    "swiftmodule": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKitPackageTests.build/runner~partial.swiftmodule",
+    "swift-dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKitPackageTests.build/runner.swiftdeps",
+    "diagnostics": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKitPackageTests.build/runner.dia"
+  }
+}

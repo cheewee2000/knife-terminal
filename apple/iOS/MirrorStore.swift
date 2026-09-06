@@ -159,10 +159,10 @@ final class MirrorStore: ObservableObject {
 
     /// Ask the Mac to open this project in a new tab (running claude).
     /// The new tab mirrors back through the normal sync within a few seconds.
-    func openProject(_ p: ProjectRef) {
+    func openProject(_ p: ProjectRef, agent: String = "claude") {
         pendingOpens.insert(p.path)
         Task {
-            try? await cloud.sendOpen(path: p.path)
+            try? await cloud.sendOpen(path: agent == "codex" ? "codex:" + p.path : p.path)
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             await refresh()
             try? await Task.sleep(nanoseconds: 8_000_000_000)

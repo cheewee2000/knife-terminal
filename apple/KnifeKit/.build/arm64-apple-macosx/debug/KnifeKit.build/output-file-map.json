@@ -1,0 +1,47 @@
+{
+  "": {
+    "swift-dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/primary.swiftdeps"
+  },
+  "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/Sources/KnifeKit/ChatTranscript.swift": {
+    "dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/ChatTranscript.d",
+    "object": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/ChatTranscript.swift.o",
+    "swiftmodule": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/ChatTranscript~partial.swiftmodule",
+    "swift-dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/ChatTranscript.swiftdeps",
+    "diagnostics": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/ChatTranscript.dia"
+  },
+  "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/Sources/KnifeKit/CloudSync.swift": {
+    "dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/CloudSync.d",
+    "object": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/CloudSync.swift.o",
+    "swiftmodule": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/CloudSync~partial.swiftmodule",
+    "swift-dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/CloudSync.swiftdeps",
+    "diagnostics": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/CloudSync.dia"
+  },
+  "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/Sources/KnifeKit/Emoji.swift": {
+    "dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/Emoji.d",
+    "object": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/Emoji.swift.o",
+    "swiftmodule": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/Emoji~partial.swiftmodule",
+    "swift-dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/Emoji.swiftdeps",
+    "diagnostics": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/Emoji.dia"
+  },
+  "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/Sources/KnifeKit/RingBuffer.swift": {
+    "dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/RingBuffer.d",
+    "object": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/RingBuffer.swift.o",
+    "swiftmodule": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/RingBuffer~partial.swiftmodule",
+    "swift-dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/RingBuffer.swiftdeps",
+    "diagnostics": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/RingBuffer.dia"
+  },
+  "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/Sources/KnifeKit/StyledScreen.swift": {
+    "dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/StyledScreen.d",
+    "object": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/StyledScreen.swift.o",
+    "swiftmodule": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/StyledScreen~partial.swiftmodule",
+    "swift-dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/StyledScreen.swiftdeps",
+    "diagnostics": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/StyledScreen.dia"
+  },
+  "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/Sources/KnifeKit/Theme.swift": {
+    "dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/Theme.d",
+    "object": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/Theme.swift.o",
+    "swiftmodule": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/Theme~partial.swiftmodule",
+    "swift-dependencies": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/Theme.swiftdeps",
+    "diagnostics": "/Users/cwwang/CW&T Dropbox/Che-Wei Wang/My Mac (9.local)/Documents/GitHub/Knife Terminal/apple/KnifeKit/.build/arm64-apple-macosx/debug/KnifeKit.build/Theme.dia"
+  }
+}
