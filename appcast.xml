@@ -6,19 +6,16 @@
     <description>Updates for Knife Terminal</description>
     <language>en</language>
     <item>
-      <title>Knife Terminal 0.9.33</title>
-      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v0.9.33</link>
-      <sparkle:version>0.9.33</sparkle:version>
-      <sparkle:shortVersionString>0.9.33</sparkle:shortVersionString>
+      <title>Knife Terminal 1.0.2</title>
+      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v1.0.2</link>
+      <sparkle:version>1.0.2</sparkle:version>
+      <sparkle:shortVersionString>1.0.2</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[
-        <p>Sparkle auto-updates, MIT license, and a native macOS 26 icon (Icon Composer bundle).</p>
-      ]]></description>
+      <description><![CDATA[<p>Codex CLI (ChatGPT) session mirroring, iOS offline cache and sync fixes, and a one-command notarized release pipeline.</p>]]></description>
       <enclosure
-        url="https://github.com/cheewee2000/knife-terminal/releases/download/v0.9.33/Knife-Terminal-0.9.33.zip"
-        sparkle:edSignature="kuG71Zh8JwS26W/0WnZfjc3/XETKZrWmMtaexK+8A70uaeIppfljwektYuUB0pi2rymenmCAyM9ToCQQzAGsDQ=="
-        length="4097693"
-        type="application/octet-stream"/>
+        url="https://github.com/cheewee2000/knife-terminal/releases/download/v1.0.2/Knife-Terminal-1.0.2.zip"
+        type="application/octet-stream"
+        sparkle:edSignature="v8i+UZOZQnCEq/QjlG0oQyLBTX1XWPldDzRlukr3iNUmgjl6H8vx+2nOT+ciN2M+L+1Mc2IGpSfDRDVdkKNYCg==" length="4152706"/>
     </item>
   </channel>
 </rss>
