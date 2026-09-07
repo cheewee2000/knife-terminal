@@ -3,6 +3,7 @@
 # make mac           build only
 # make ios           build the iOS app for the connected device (install via Xcode/devicectl)
 # make gen           regenerate the Xcode project from apple/project.yml
+# make release       archive, notarize, sign the appcast, publish the GitHub release
 
 APPLE := apple
 DERIVED := $(APPLE)/DerivedData
@@ -27,4 +28,7 @@ ios: gen
 		-derivedDataPath DerivedData -allowProvisioningUpdates \
 		-allowProvisioningDeviceRegistration -skipPackagePluginValidation build
 
-.PHONY: gen mac install-mac ios
+release:
+	./release.sh "$(NOTES)"
+
+.PHONY: gen mac install-mac ios release
