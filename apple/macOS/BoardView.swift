@@ -102,10 +102,16 @@ struct SessionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
-            body_
+            // Same height for every card; long exchanges scroll, newest at the bottom.
+            ScrollView {
+                body_.frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .defaultScrollAnchor(.bottom)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             footer
         }
         .padding(10)
+        .frame(height: 300)
         .background(Color.primary.opacity(0.05))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10)
@@ -155,12 +161,12 @@ struct SessionCard: View {
                     case .user:
                         HStack {
                             Spacer(minLength: 24)
-                            Text(m.text).font(ui(11)).lineLimit(4)
+                            Text(markdown(m.text)).font(ui(11))
                                 .padding(.horizontal, 8).padding(.vertical, 5)
                                 .background(RoundedRectangle(cornerRadius: 8).fill(theme.accentColor.opacity(0.18)))
                         }
                     case .assistant:
-                        Text(m.text).font(ui(11)).lineLimit(10)
+                        Text(markdown(m.text)).font(ui(11))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
                     case .tool:
@@ -189,6 +195,11 @@ struct SessionCard: View {
                 .foregroundStyle(draft.isEmpty ? Color.secondary : theme.accentColor)
                 .disabled(draft.isEmpty)
         }
+    }
+
+    private func markdown(_ text: String) -> AttributedString {
+        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(text)
     }
 
     private func send() {
