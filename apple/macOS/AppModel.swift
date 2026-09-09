@@ -279,8 +279,12 @@ final class AppModel: ObservableObject {
         if !HooksInstaller.installed() { chime() }
     }
 
+    /// Any system sound by name (`defaults write <bundle id> chime Blow`), or
+    /// `none` to leave the sound to your own hooks.
     func chime() {
-        NSSound(contentsOfFile: "/System/Library/Sounds/Glass.aiff", byReference: true)?.play()
+        let name = UserDefaults.standard.string(forKey: "chime") ?? "Glass"
+        guard name != "none" else { return }
+        NSSound(contentsOfFile: "/System/Library/Sounds/\(name).aiff", byReference: true)?.play()
     }
 
     private func publishAlert(id: Int, type: String) {
