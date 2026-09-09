@@ -67,3 +67,4 @@ Zelig (5VY7X6W92A) is a paid team, so both apps run under Zelig ids and Zelig's 
 - [x] Mac: built, installed to /Applications with Zelig container + push entitlements (Xcode auto-provisioning created the App ID + container)
 - [x] iOS: built, installed on EC PRO via devicectl
 - [ ] Eddie: relaunch Knife on the Mac, open Knife on the phone (same Apple ID as the Mac, eddiemc27@mac.com), confirm tabs appear
+- [x] iOS restyle to match the Mac: KnifeStyle.swift (ui()/mono(), TermTheme.current(scheme), RGB→Color), Helvetica Now bundled locally (apple/Fonts/HelveticaNow*, git-excluded), theme backgrounds/accent/attention throughout; built + installed on EC PRO
