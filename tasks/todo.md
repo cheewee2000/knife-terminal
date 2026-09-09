@@ -57,3 +57,13 @@ recent in cwd" — two tabs in the same project both resume the same conversatio
 - [ ] saveSession: cmd = `claude --resume <id>` if known, else `claude -c` if claude is live, else restoreCmd
 - [ ] SavedTab.fixed: keep the project name pinned only for sidebar-opened tabs (legacy files keep old rule)
 - [ ] Build + install
+
+# iOS mirror without CW&T (2026-09-09)
+
+Zelig (5VY7X6W92A) is a paid team, so both apps run under Zelig ids and Zelig's own container:
+- [x] CloudSync.containerID reads KnifeCloudContainer (Info.plist ← KNIFE_CLOUD_CONTAINER build setting), CW&T default
+- [x] Makefile: XCODEBUILD_FLAGS_IOS + `make install-ios` (devicectl) — committed, pushed to the PR branch
+- [x] local.mk (gitignored): com.zelig.knifeterminal / .ios, iCloud.com.zelig.knifeterminal, *.zelig.entitlements (git-excluded), IOS_DEVICE = EC PRO
+- [x] Mac: built, installed to /Applications with Zelig container + push entitlements (Xcode auto-provisioning created the App ID + container)
+- [x] iOS: built, installed on EC PRO via devicectl
+- [ ] Eddie: relaunch Knife on the Mac, open Knife on the phone (same Apple ID as the Mac, eddiemc27@mac.com), confirm tabs appear
