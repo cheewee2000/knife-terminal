@@ -68,3 +68,16 @@ Zelig (5VY7X6W92A) is a paid team, so both apps run under Zelig ids and Zelig's 
 - [x] iOS: built, installed on EC PRO via devicectl
 - [ ] Eddie: relaunch Knife on the Mac, open Knife on the phone (same Apple ID as the Mac, eddiemc27@mac.com), confirm tabs appear
 - [x] iOS restyle to match the Mac: KnifeStyle.swift (ui()/mono(), TermTheme.current(scheme), RGB→Color), Helvetica Now bundled locally (apple/Fonts/HelveticaNow*, git-excluded), theme backgrounds/accent/attention throughout; built + installed on EC PRO
+
+# Session board (2026-09-09)
+
+One screen with every live agent session as a card: status, the last exchange from its
+transcript, and a reply box that types straight into that tab. ⌘⇧B / footer "board" toggles it
+in place of the terminal pane; click a card header to jump into the tab.
+
+- [ ] TabModel.runningAgent ("claude" | "codex" | nil) via the existing pgrep; claudeRunning = runningAgent == "claude"
+- [ ] TranscriptReader.messages(forCwd:sessionId:) — exact ~/.claude/projects/<slug>/<session>.jsonl when the tab's session id is known, else the newest-in-cwd fallback; chatData(forCwd:sessionId:) wraps it; SyncPublisher passes tab.claudeSessionId
+- [ ] KnifeWindowController.showBoard (@Published); AppDelegate View ▸ "Session Board" ⌘⇧B; FooterBar "board" button
+- [ ] ContentView: board replaces TerminalPane when showBoard
+- [ ] BoardView.swift: adaptive grid of SessionCard (needs-input first), 2 s transcript refresh off the main thread, reply field (text, then CR 0.25 s later, like the phone), header tap → activate tab + close board
+- [x] Build + install (signed Debug, BUILD SUCCEEDED) — hands-on check pending Eddie's relaunch

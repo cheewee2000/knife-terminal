@@ -5,6 +5,7 @@ import SwiftUI
 final class KnifeWindowController: NSWindowController, NSWindowDelegate, ObservableObject {
     @Published var tabs: [TabModel] = []
     @Published var activeId: Int?
+    @Published var showBoard = false
     /// The untouched shell a fresh window opens with; replaced by the first real tab.
     var defaultTabId: Int?
 

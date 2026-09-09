@@ -89,6 +89,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let view = NSMenu(title: "View")
         view.addItem(withTitle: "Toggle Sidebar", action: #selector(toggleSidebar), keyEquivalent: "b").target = self
         view.addItem(withTitle: "Search Projects", action: #selector(focusSearch), keyEquivalent: "k").target = self
+        let board = view.addItem(withTitle: "Session Board", action: #selector(toggleBoard), keyEquivalent: "b")
+        board.keyEquivalentModifierMask = [.command, .shift]; board.target = self
         view.addItem(.separator())
         let appearance = NSMenu(title: "Appearance")
         for (title, mode) in [("Auto", ThemeMode.auto), ("Light", .light), ("Dark", .dark)] {
@@ -144,6 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func focusSearch() {
         NotificationCenter.default.post(name: .knifeFocusSearch, object: nil)
     }
+    @objc private func toggleBoard() { front?.showBoard.toggle() }
     @objc private func jumpToTab(_ sender: NSMenuItem) {
         guard let wc = front else { return }
         let i = sender.tag - 1

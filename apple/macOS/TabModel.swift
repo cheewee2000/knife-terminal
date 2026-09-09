@@ -33,31 +33,35 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
 
     var shellPid: pid_t { view.process?.shellPid ?? 0 }
 
-    /// Is a `claude` process alive under this tab's shell right now?
-    var claudeRunning: Bool {
+    /// Agent process alive under this tab's shell right now, if any.
+    var runningAgent: String? {
         let pid = shellPid
-        return pid > 0 && Self.claudeRunning(underShell: pid)
+        return pid > 0 ? Self.runningAgent(underShell: pid) : nil
     }
 
+    var claudeRunning: Bool { runningAgent == "claude" }
+
     /// `pgrep -lfP <shell>` lists direct children as "<pid> <full command>";
-    /// claude runs as a direct child of the shell whether typed or launched by us.
-    nonisolated static func claudeRunning(underShell pid: pid_t) -> Bool {
+    /// agents run as direct children of the shell whether typed or launched by us.
+    nonisolated static func runningAgent(underShell pid: pid_t) -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
         p.arguments = ["-lfP", String(pid)]
         let pipe = Pipe()
         p.standardOutput = pipe
         p.standardError = Pipe()
-        do { try p.run() } catch { return false }
+        do { try p.run() } catch { return nil }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
-        guard let out = String(data: data, encoding: .utf8) else { return false }
-        return out.split(separator: "\n").contains { line in
-            guard let sp = line.firstIndex(of: " ") else { return false }
+        guard let out = String(data: data, encoding: .utf8) else { return nil }
+        for line in out.split(separator: "\n") {
+            guard let sp = line.firstIndex(of: " ") else { continue }
             let cmd = line[line.index(after: sp)...]
             let exe = cmd.split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""
-            return exe == "claude" || exe.hasSuffix("/claude")
+            let name = (exe as NSString).lastPathComponent
+            if name == "claude" || name == "codex" { return name }
         }
+        return nil
     }
 
     /// Current working directory of the shell, for session restore + context files.

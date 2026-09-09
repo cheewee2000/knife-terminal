@@ -9,7 +9,7 @@ extension Notification.Name {
 }
 
 // Chrome type: Helvetica Now Text (system-installed); the terminal grid stays monospace.
-private func ui(_ size: CGFloat, bold: Bool = false) -> Font {
+func ui(_ size: CGFloat, bold: Bool = false) -> Font {
     Font.custom(bold ? "HelveticaNowText-Medium" : "HelveticaNowText-Regular", size: size)
 }
 
@@ -36,8 +36,13 @@ struct ContentView: View {
                                 .onHover { inside in inside ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
                         )
                 }
-                TerminalPane(controller: controller)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if controller.showBoard {
+                    BoardView(controller: controller)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    TerminalPane(controller: controller)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
             FooterBar(controller: controller)
         }
@@ -491,6 +496,7 @@ struct FooterBar: View {
             Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
             HStack(spacing: 12) {
                 footBtn(theme.mode.rawValue) { theme.cycle() }
+                footBtn("board") { controller.showBoard.toggle() }
                 footBtn(hooksOn ? "alerts on" : "alerts off") {
                     _ = HooksInstaller.install(); hooksOn = HooksInstaller.installed()
                 }
