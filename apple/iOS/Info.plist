@@ -22,6 +22,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>KnifeCloudContainer</key>
+	<string>$(KNIFE_CLOUD_CONTAINER)</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>JetBrainsMono-Regular.ttf</string>

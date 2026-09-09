@@ -13,6 +13,10 @@ settings:
     SWIFT_VERSION: "5.9"
     MARKETING_VERSION: "1.0.3"
     CURRENT_PROJECT_VERSION: "1.0.3"  # CFBundleVersion must increase each release — Sparkle compares it
+    # CloudKit container the Mac and iOS apps sync through (read at runtime via
+    # the KnifeCloudContainer Info.plist key). Override with your own team's
+    # container when signing outside CW&T — it must match the entitlements.
+    KNIFE_CLOUD_CONTAINER: iCloud.com.cwandt.knifeterminal
 
 packages:
   SwiftTerm:
@@ -53,6 +57,7 @@ targets:
         ATSApplicationFontsPath: "."
         NSAppleEventsUsageDescription: Knife Terminal opens folders and scripts you send it.
         NSHumanReadableCopyright: CW&T
+        KnifeCloudContainer: $(KNIFE_CLOUD_CONTAINER)
         SUFeedURL: https://raw.githubusercontent.com/cheewee2000/knife-terminal/main/appcast.xml
         SUPublicEDKey: IsZ2LtddRqNHFHsp6U40Gw/A6sWIJO4m5xJYr1r4qic=
         SUEnableAutomaticChecks: true
@@ -109,6 +114,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleName: Knife
         CFBundleDisplayName: Knife
+        KnifeCloudContainer: $(KNIFE_CLOUD_CONTAINER)
         UILaunchScreen: {}
         UIAppFonts:
           - JetBrainsMono-Regular.ttf
