@@ -2,7 +2,7 @@ import SwiftUI
 import KnifeKit
 
 private func mono(_ size: CGFloat, bold: Bool = false) -> Font {
-    Font.custom(bold ? "Space Mono Bold" : "Space Mono", size: size)
+    Font.custom(bold ? "JetBrains Mono Bold" : "JetBrains Mono", size: size)
 }
 
 let knifeAccent = Color(red: 0xB1 / 255.0, green: 0xA5 / 255.0, blue: 0x7E / 255.0)

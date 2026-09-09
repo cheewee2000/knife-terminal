@@ -55,9 +55,9 @@ struct RootView: View {
                 SessionListView()
             } else {
                 VStack(spacing: 16) {
-                    Text("Knife Terminal").font(.custom("Space Mono Bold", size: 13))
+                    Text("Knife Terminal").font(.custom("JetBrains Mono Bold", size: 13))
                     Text("Sign into iCloud in Settings to mirror your Mac's terminal.")
-                        .font(.custom("Space Mono", size: 13))
+                        .font(.custom("JetBrains Mono", size: 13))
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 40)

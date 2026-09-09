@@ -90,6 +90,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         view.addItem(withTitle: "Toggle Sidebar", action: #selector(toggleSidebar), keyEquivalent: "b").target = self
         view.addItem(withTitle: "Search Projects", action: #selector(focusSearch), keyEquivalent: "k").target = self
         view.addItem(.separator())
+        let appearance = NSMenu(title: "Appearance")
+        for (title, mode) in [("Auto", ThemeMode.auto), ("Light", .light), ("Dark", .dark)] {
+            let item = appearance.addItem(withTitle: title, action: #selector(setAppearance(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = mode.rawValue
+        }
+        appearance.addItem(.separator())
+        let cyc = appearance.addItem(withTitle: "Cycle Appearance", action: #selector(cycleAppearance), keyEquivalent: "t")
+        cyc.keyEquivalentModifierMask = [.command, .shift]; cyc.target = self
+        view.addItem(withTitle: "Appearance", action: nil, keyEquivalent: "").submenu = appearance
+        view.addItem(.separator())
         for i in 1...9 {
             let item = view.addItem(withTitle: "Tab \(i)", action: #selector(jumpToTab(_:)), keyEquivalent: "\(i)")
             item.target = self; item.tag = i
@@ -142,4 +153,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func prevTab() { front?.cycle(-1) }
     @objc private func setDefault() { DefaultTerminal.register() }
     @objc private func installHooks() { _ = HooksInstaller.install() }
+
+    @objc private func setAppearance(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let mode = ThemeMode(rawValue: raw) else { return }
+        AppModel.shared.theme.mode = mode
+    }
+    @objc private func cycleAppearance() { AppModel.shared.theme.cycle() }
+
+    // Checkmark the active appearance mode.
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(setAppearance(_:)), let raw = item.representedObject as? String {
+            item.state = AppModel.shared.theme.mode.rawValue == raw ? .on : .off
+        }
+        return true
+    }
 }

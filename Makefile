@@ -8,6 +8,9 @@
 APPLE := apple
 DERIVED := $(APPLE)/DerivedData
 APP := $(DERIVED)/Build/Products/Debug/Knife Terminal.app
+# Per-machine overrides (gitignored), e.g. XCODEBUILD_FLAGS = DEVELOPMENT_TEAM=… CODE_SIGN_ENTITLEMENTS=…
+-include local.mk
+XCODEBUILD_FLAGS ?=
 
 gen:
 	cd $(APPLE) && xcodegen generate
@@ -15,7 +18,7 @@ gen:
 mac: gen
 	cd $(APPLE) && xcodebuild -project KnifeTerminal.xcodeproj -scheme KnifeMac \
 		-configuration Debug -derivedDataPath DerivedData -allowProvisioningUpdates \
-		-allowProvisioningDeviceRegistration -skipPackagePluginValidation build
+		-allowProvisioningDeviceRegistration -skipPackagePluginValidation $(XCODEBUILD_FLAGS) build
 
 install-mac: mac
 	rm -rf "/Applications/Knife Terminal.app"

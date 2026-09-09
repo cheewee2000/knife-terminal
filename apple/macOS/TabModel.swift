@@ -10,6 +10,10 @@ struct TabOptions {
     var restoreCmd: String?
 }
 
+enum TabStatus {
+    case idle, working, ready, needsInput
+}
+
 @MainActor
 final class TabModel: NSObject, ObservableObject, Identifiable {
     let id: Int
@@ -19,6 +23,7 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     @Published var title: String
     @Published var working = false
     @Published var attention = false
+    @Published var status: TabStatus = .idle
     var cols = 80
     var rows = 25
     var lastReportedCwd: String? // OSC 7, when the shell emits it
@@ -75,6 +80,7 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         }
         view.onUserInput = { [weak self] in
             guard let self else { return }
+            self.status = .idle
             if self.working || self.attention {
                 self.working = false; self.attention = false
                 AppModel.shared.tabStateChanged(self)

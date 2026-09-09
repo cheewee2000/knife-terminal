@@ -1,5 +1,6 @@
 import AppKit
 import KnifeKit
+import Security
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -48,9 +49,18 @@ final class AppModel: ObservableObject {
                 AppModel.shared.checkSocket()
             }
         }
-        let publisher = SyncPublisher()
-        sync = publisher
-        publisher.start()
+        // CKContainer(identifier:) traps without the iCloud entitlement, which
+        // ad-hoc/local builds outside the CW&T team can't be provisioned for.
+        if Self.hasCloudKitEntitlement {
+            let publisher = SyncPublisher()
+            sync = publisher
+            publisher.start()
+        }
+    }
+
+    private static var hasCloudKitEntitlement: Bool {
+        guard let task = SecTaskCreateFromSelf(nil) else { return false }
+        return SecTaskCopyValueForEntitlement(task, "com.apple.developer.icloud-services" as CFString, nil) != nil
     }
 
     func checkSocket() { socket?.rebindIfNeeded() }
@@ -205,7 +215,13 @@ final class AppModel: ObservableObject {
                 if mainDone.contains(id) { return } // don't resurrect the dot after Stop
             default: break
             }
-            if let tab, !tab.working { tab.working = true; tabStateChanged(tab) }
+            if let tab {
+                tab.status = .working
+                if !tab.working {
+                    tab.working = true
+                    tabStateChanged(tab)
+                }
+            }
             return
         }
         pendingStop[id]?.cancel(); pendingStop.removeValue(forKey: id)
@@ -217,7 +233,10 @@ final class AppModel: ObservableObject {
         }
         if let tab, tab.working { tab.working = false; tabStateChanged(tab) }
         if type == "SessionEnd" { agents.removeValue(forKey: id); mainDone.remove(id); return }
-        if let tab { markAttention(tab, fromBell: false) }
+        if let tab {
+            tab.status = .needsInput
+            markAttention(tab, fromBell: false)
+        }
         chime()
         publishAlert(id: id, type: type)
     }
@@ -231,6 +250,7 @@ final class AppModel: ObservableObject {
             self.pendingStop.removeValue(forKey: id)
             if let tab = self.tabById[id] {
                 tab.working = false
+                tab.status = .ready
                 self.markAttention(tab, fromBell: false)
                 self.tabStateChanged(tab)
             }

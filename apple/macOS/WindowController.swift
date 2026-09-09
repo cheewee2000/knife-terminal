@@ -41,6 +41,7 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
         activeId = id
         if NSApp.isActive, window?.isKeyWindow ?? false, let t = activeTab, t.attention {
             t.attention = false
+            t.status = t.working ? .working : .idle
         }
         AppModel.shared.saveSessionSoon()
     }
@@ -83,7 +84,10 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        if let t = activeTab, t.attention { t.attention = false }
+        if let t = activeTab, t.attention {
+            t.attention = false
+            t.status = t.working ? .working : .idle
+        }
         AppModel.shared.mostRecentWindow = self
     }
 

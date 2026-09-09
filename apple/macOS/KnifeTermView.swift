@@ -432,16 +432,16 @@ final class KnifeTermView: LocalProcessTerminalView {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    private func refreshLinkOverlay() {
+    func refreshLinkOverlay() {
         wantsLayer = true
         if linkLayer.superlayer !== layer {
             linkLayer.removeFromSuperlayer()
-            linkLayer.strokeColor = NSColor(red: 0xB1 / 255.0, green: 0xA5 / 255.0, blue: 0x7E / 255.0, alpha: 0.9).cgColor
             linkLayer.lineWidth = 1
             linkLayer.fillColor = nil
             linkLayer.zPosition = 10
             layer?.addSublayer(linkLayer)
         }
+        linkLayer.strokeColor = AppModel.shared.theme.accent.withAlphaComponent(0.9).cgColor
         let path = CGMutablePath()
         let (cellW, cellH) = cellSize()
         for link in screenLinks {

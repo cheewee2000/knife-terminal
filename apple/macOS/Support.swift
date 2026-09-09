@@ -198,12 +198,57 @@ struct Project: Identifiable {
     let t: TimeInterval
 }
 
+enum ProjectSection: String, Codable, CaseIterable {
+    case starred, active, dormant, archived
+}
+
+struct ProjectMeta: Codable, Equatable {
+    var starred = false
+    var override: ProjectSection? = nil
+    var name: String? = nil   // custom display name; folder on disk is untouched
+}
+
 enum Projects {
+    struct SidebarMeta: Codable {
+        var byPath: [String: ProjectMeta] = [:]
+        var order: [String: [String]] = [:]
+    }
+
     static func encode(_ p: String) -> String {
         String(p.map { c in c.isLetter || c.isNumber ? c : "-" })
     }
 
     private static let touchKey = "knife.projectOpened"
+    private static let metaKey = "knife.projectMeta"
+
+    static func loadMeta() -> SidebarMeta {
+        guard let data = UserDefaults.standard.data(forKey: metaKey),
+              let meta = try? JSONDecoder().decode(SidebarMeta.self, from: data) else {
+            return SidebarMeta()
+        }
+        return meta
+    }
+
+    static func saveMeta(_ meta: SidebarMeta) {
+        var cleaned = meta
+        let projects = list()
+        let currentPaths = Set(projects.map(\.path))
+        cleaned.byPath = cleaned.byPath.filter {
+            currentPaths.contains($0.key) && $0.value != ProjectMeta()
+        }
+        let members = Dictionary(uniqueKeysWithValues: sectioned(projects, meta: cleaned).map {
+            ($0.0.rawValue, Set($0.1.map(\.path)))
+        })
+        var order: [String: [String]] = [:]
+        for section in ProjectSection.allCases {
+            let key = section.rawValue
+            let live = (cleaned.order[key] ?? []).filter { members[key]?.contains($0) == true }
+            if !live.isEmpty { order[key] = live }
+        }
+        cleaned.order = order
+        guard let data = try? JSONEncoder().encode(cleaned) else { return }
+        UserDefaults.standard.set(data, forKey: metaKey)
+    }
 
     /// Remember that a project was just opened from Knife, so it sorts to the
     /// top immediately (transcript mtimes only catch up once Claude writes).
@@ -216,34 +261,80 @@ enum Projects {
         UserDefaults.standard.set(d, forKey: touchKey)
     }
 
+    /// Directories scanned for projects in addition to whatever Claude Code
+    /// has in ~/.claude.json (which only knows dirs `claude` was run in, and
+    /// loses recency once transcripts age out of ~/.claude/projects).
+    static let codeRoots = ["Code/active", "Code/tools", "Code/experiments", "Code/archive"]
+
+    static func autoSection(_ p: Project, now: TimeInterval = Date().timeIntervalSince1970) -> ProjectSection {
+        let archive = NSHomeDirectory() + "/Code/archive/"
+        if p.path.hasPrefix(archive) { return .archived }
+        return p.t >= now - 30 * 24 * 60 * 60 ? .active : .dormant
+    }
+
+    static func sectioned(_ projects: [Project], meta: SidebarMeta) -> [(ProjectSection, [Project])] {
+        var grouped = Dictionary(uniqueKeysWithValues: ProjectSection.allCases.map { ($0, [Project]()) })
+        for p in projects {
+            let saved = meta.byPath[p.path] ?? ProjectMeta()
+            let section = saved.starred ? ProjectSection.starred : (saved.override ?? autoSection(p))
+            grouped[section, default: []].append(p)
+        }
+        return ProjectSection.allCases.map { section in
+            let members = grouped[section, default: []]
+            let byPath = Dictionary(uniqueKeysWithValues: members.map { ($0.path, $0) })
+            var seen = Set<String>()
+            let ordered = (meta.order[section.rawValue] ?? []).compactMap { path -> Project? in
+                guard seen.insert(path).inserted else { return nil }
+                return byPath[path]
+            }
+            let remaining = members.filter { !seen.contains($0.path) }.sorted { $0.t > $1.t }
+            return (section, ordered + remaining)
+        }
+    }
+
     static func list() -> [Project] {
         let home = NSHomeDirectory()
-        guard let data = FileManager.default.contents(atPath: (home as NSString).appendingPathComponent(".claude.json")),
-              let cfg = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let projects = cfg["projects"] as? [String: Any] else { return [] }
-        let projDir = (home as NSString).appendingPathComponent(".claude/projects")
         let fm = FileManager.default
+        let projDir = (home as NSString).appendingPathComponent(".claude/projects")
         let touched = UserDefaults.standard.dictionary(forKey: touchKey) as? [String: Double] ?? [:]
-        return projects.keys
-            .filter { !$0.contains("/.claude-worktrees/") && fm.fileExists(atPath: $0) }
+
+        var paths = Set<String>()
+        if let data = fm.contents(atPath: (home as NSString).appendingPathComponent(".claude.json")),
+           let cfg = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let projects = cfg["projects"] as? [String: Any] {
+            paths.formUnion(projects.keys)
+        }
+        for root in codeRoots {
+            let base = (home as NSString).appendingPathComponent(root)
+            for name in (try? fm.contentsOfDirectory(atPath: base)) ?? [] where !name.hasPrefix(".") {
+                paths.insert((base as NSString).appendingPathComponent(name))
+            }
+        }
+
+        return paths
+            .filter { !$0.contains("/.claude-worktrees/") }
             .compactMap { p -> Project? in
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: p, isDirectory: &isDir), isDir.boolValue else { return nil }
+                // most recent activity: newest transcript in ~/.claude/projects
+                // (appends bump file mtime, not the dir's), falling back to the
+                // project folder's own mtime, or an open from Knife itself
                 let enc = (projDir as NSString).appendingPathComponent(encode(p))
-                guard let attrs = try? fm.attributesOfItem(atPath: enc),
-                      let dirDate = attrs[.modificationDate] as? Date else { return nil }
-                // most recent activity: newest transcript in the dir (appends bump
-                // file mtime, not the dir's), or an open from Knife itself
-                var t = dirDate.timeIntervalSince1970
+                var t: TimeInterval = 0
                 for f in (try? fm.contentsOfDirectory(atPath: enc)) ?? [] {
                     if let a = try? fm.attributesOfItem(atPath: (enc as NSString).appendingPathComponent(f)),
                        let m = a[.modificationDate] as? Date {
                         t = max(t, m.timeIntervalSince1970)
                     }
                 }
+                if t == 0, let a = try? fm.attributesOfItem(atPath: p),
+                   let m = a[.modificationDate] as? Date {
+                    t = m.timeIntervalSince1970
+                }
                 t = max(t, touched[p] ?? 0)
                 return Project(path: p, name: (p as NSString).lastPathComponent, t: t)
             }
             .sorted { $0.t > $1.t }
-            .prefix(30).map { $0 }
     }
 }
 

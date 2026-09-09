@@ -24,8 +24,10 @@
 	<false/>
 	<key>UIAppFonts</key>
 	<array>
-		<string>SpaceMono-Regular.ttf</string>
-		<string>SpaceMono-Bold.ttf</string>
+		<string>JetBrainsMono-Regular.ttf</string>
+		<string>JetBrainsMono-Bold.ttf</string>
+		<string>JetBrainsMono-Italic.ttf</string>
+		<string>JetBrainsMono-BoldItalic.ttf</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

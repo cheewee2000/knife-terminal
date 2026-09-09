@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import SwiftTerm
 import KnifeKit
 
@@ -58,9 +59,14 @@ final class ThemeManager: ObservableObject {
         NSColor(srgbRed: CGFloat(c.r) / 255, green: CGFloat(c.g) / 255, blue: CGFloat(c.b) / 255, alpha: 1)
     }
 
+    var accent: NSColor { nsColor(current.accent) }
+    var attention: NSColor { nsColor(current.attention) }
+    var accentColor: SwiftUI.Color { Color(nsColor: accent) }
+    var attentionColor: SwiftUI.Color { Color(nsColor: attention) }
+
     static func termFont(size: CGFloat) -> NSFont {
-        NSFont(name: "Space Mono", size: size)
-            ?? NSFont(name: "JetBrains Mono", size: size)
+        NSFont(name: "JetBrains Mono", size: size)
+            ?? NSFont(name: "Space Mono", size: size)
             ?? NSFont(name: "Menlo", size: size)
             ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
     }
@@ -79,6 +85,7 @@ final class ThemeManager: ObservableObject {
         terminal.caretColor = nsColor(t.cursor)
         terminal.selectedTextBackgroundColor = terminal.findBarVisible ? findHighlight : selectionTint
         terminal.font = Self.termFont(size: 13)
+        terminal.refreshLinkOverlay()
         terminal.needsDisplay = true
     }
 }

@@ -111,8 +111,10 @@ targets:
         CFBundleDisplayName: Knife
         UILaunchScreen: {}
         UIAppFonts:
-          - SpaceMono-Regular.ttf
-          - SpaceMono-Bold.ttf
+          - JetBrainsMono-Regular.ttf
+          - JetBrainsMono-Bold.ttf
+          - JetBrainsMono-Italic.ttf
+          - JetBrainsMono-BoldItalic.ttf
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown

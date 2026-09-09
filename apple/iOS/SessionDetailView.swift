@@ -3,7 +3,7 @@ import UIKit
 import KnifeKit
 
 private func mono(_ size: CGFloat, bold: Bool = false) -> Font {
-    Font.custom(bold ? "Space Mono Bold" : "Space Mono", size: size)
+    Font.custom(bold ? "JetBrains Mono Bold" : "JetBrains Mono", size: size)
 }
 
 struct SessionDetailView: View {
@@ -348,8 +348,8 @@ final class MirrorTextUIView: UITextView {
         guard bounds.width > 40, let screen = StyledScreen.decode(lastStyled) else { return }
 
         let size: CGFloat = 12
-        let regular = UIFont(name: "Space Mono", size: size) ?? .monospacedSystemFont(ofSize: size, weight: .regular)
-        let boldFont = UIFont(name: "Space Mono Bold", size: size) ?? .monospacedSystemFont(ofSize: size, weight: .bold)
+        let regular = UIFont(name: "JetBrains Mono", size: size) ?? .monospacedSystemFont(ofSize: size, weight: .regular)
+        let boldFont = UIFont(name: "JetBrains Mono Bold", size: size) ?? .monospacedSystemFont(ofSize: size, weight: .bold)
         let cellW = ("W" as NSString).size(withAttributes: [.font: regular]).width
         let usable = bounds.width - textContainerInset.left - textContainerInset.right - 2 * textContainer.lineFragmentPadding
         let cols = max(20, Int(usable / cellW))
