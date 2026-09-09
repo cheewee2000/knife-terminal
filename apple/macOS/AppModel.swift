@@ -188,6 +188,11 @@ final class AppModel: ObservableObject {
         if let data = rest.data(using: .utf8),
            let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             type = (j["notification_type"] as? String) ?? (j["hook_event_name"] as? String) ?? type
+            // remember which conversation lives in this tab so a relaunch can --resume it
+            if let tab = tabById[id], let sid = j["session_id"] as? String, !sid.isEmpty {
+                let next: String? = type == "SessionEnd" ? nil : sid
+                if tab.claudeSessionId != next { tab.claudeSessionId = next; saveSessionSoon() }
+            }
         }
         attention(id: id, type: type)
     }
@@ -290,7 +295,9 @@ final class AppModel: ObservableObject {
 
     // ─── Session persistence (same shape as the Electron session.json) ───
 
-    struct SavedTab: Codable { var title: String?; var cwd: String?; var cmd: String?; var active: Bool? }
+    /// `fixed`: the title is a pinned project name (sidebar tab), not whatever the
+    /// shell last set via OSC. Absent in files written before it existed.
+    struct SavedTab: Codable { var title: String?; var cwd: String?; var cmd: String?; var active: Bool?; var fixed: Bool? }
     struct SavedWindow: Codable { var bounds: Bounds?; var tabs: [SavedTab]
         struct Bounds: Codable { var x: Double; var y: Double; var width: Double; var height: Double } }
     struct SavedSession: Codable { var windows: [SavedWindow] }
@@ -318,7 +325,8 @@ final class AppModel: ObservableObject {
             guard !wc.tabs.isEmpty else { return nil }
             let b = wc.window?.frame ?? .zero
             let tabs = wc.tabs.map { t in
-                SavedTab(title: t.title, cwd: t.currentCwd, cmd: t.opts.restoreCmd, active: t.id == wc.activeId)
+                SavedTab(title: t.title, cwd: t.currentCwd, cmd: Self.restoreCommand(for: t),
+                         active: t.id == wc.activeId, fixed: t.opts.title != nil)
             }
             return SavedWindow(bounds: .init(x: b.origin.x, y: b.origin.y, width: b.width, height: b.height), tabs: tabs)
         }
@@ -329,6 +337,17 @@ final class AppModel: ObservableObject {
             let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted]
             try enc.encode(session).write(to: sessionURL)
         } catch {}
+    }
+
+    /// What to type into the restored shell so the tab comes back doing what it
+    /// was doing. A Claude tab resumes its exact conversation when the hooks
+    /// have told us its id; a Claude tab we only know is running (hooks off, or
+    /// a session older than the hooks) continues the most recent one in its
+    /// cwd; anything else keeps whatever it was opened with.
+    static func restoreCommand(for t: TabModel) -> String? {
+        guard t.claudeRunning else { return t.opts.restoreCmd }
+        if let sid = t.claudeSessionId { return "claude --resume \(sid)" }
+        return t.opts.restoreCmd ?? "claude -c"
     }
 
     private func restoreSession() {
@@ -355,8 +374,9 @@ final class AppModel: ObservableObject {
         for w in session.windows {
             for t in w.tabs where t.cwd != nil {
                 let isShellName = t.title?.range(of: "^shell \\d+$", options: .regularExpression) != nil
+                let fixed = t.fixed ?? (t.cmd != nil) // older files: only sidebar tabs had a cmd
                 let tab = wc.addTab(TabOptions(cwd: t.cwd, cmd: t.cmd,
-                                               title: t.cmd != nil ? t.title : nil,
+                                               title: fixed ? t.title : nil,
                                                shownTitle: isShellName ? nil : t.title,
                                                restoreCmd: t.cmd), activateIt: false)
                 if t.active == true, activeTabId == nil { activeTabId = tab.id }

@@ -27,8 +27,38 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     var cols = 80
     var rows = 25
     var lastReportedCwd: String? // OSC 7, when the shell emits it
+    /// Claude Code session running in this tab, learned from hook payloads
+    /// (every hook carries `session_id`); cleared on SessionEnd.
+    var claudeSessionId: String?
 
     var shellPid: pid_t { view.process?.shellPid ?? 0 }
+
+    /// Is a `claude` process alive under this tab's shell right now?
+    var claudeRunning: Bool {
+        let pid = shellPid
+        return pid > 0 && Self.claudeRunning(underShell: pid)
+    }
+
+    /// `pgrep -lfP <shell>` lists direct children as "<pid> <full command>";
+    /// claude runs as a direct child of the shell whether typed or launched by us.
+    nonisolated static func claudeRunning(underShell pid: pid_t) -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        p.arguments = ["-lfP", String(pid)]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = Pipe()
+        do { try p.run() } catch { return false }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        guard let out = String(data: data, encoding: .utf8) else { return false }
+        return out.split(separator: "\n").contains { line in
+            guard let sp = line.firstIndex(of: " ") else { return false }
+            let cmd = line[line.index(after: sp)...]
+            let exe = cmd.split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""
+            return exe == "claude" || exe.hasSuffix("/claude")
+        }
+    }
 
     /// Current working directory of the shell, for session restore + context files.
     var currentCwd: String? {
