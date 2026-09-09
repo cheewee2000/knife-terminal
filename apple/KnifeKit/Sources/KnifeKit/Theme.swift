@@ -15,35 +15,45 @@ public struct TermTheme: Sendable {
     public let cursorText: RGB
     /// ANSI 0-15: black red green yellow blue magenta cyan white, then bright variants.
     public let ansi: [RGB]
+    /// Chrome highlight (active tab, working pulse, link underlines).
+    public let accent: RGB
+    /// "Claude is waiting for you" signal.
+    public let attention: RGB
 
+    // Ghostty's bundled "Tomorrow" theme — the light sibling of the dark default.
     public static let light = TermTheme(
-        background: RGB(0xffffff), foreground: RGB(0x111111), cursor: RGB(0x111111), cursorText: RGB(0xffffff),
+        background: RGB(0xffffff), foreground: RGB(0x4d4d4c), cursor: RGB(0x4d4d4c), cursorText: RGB(0xffffff),
+        accent: RGB(0x4271ae), attention: RGB(0xf5871f),
         ansi: [
-            RGB(0x111111), RGB(0xd11d1d), RGB(0x2e7d4f), RGB(0xe35a1e),
-            RGB(0x3a3a38), RGB(0xb08a4d), RGB(0x8c8c87), RGB(0xb9b8b3),
-            RGB(0x8a8a8a), RGB(0xd11d1d), RGB(0x2e7d4f), RGB(0xe35a1e),
-            RGB(0x4a4a4a), RGB(0xb08a4d), RGB(0x8c8c87), RGB(0xececea),
+            RGB(0x000000), RGB(0xc82829), RGB(0x718c00), RGB(0xeab700),
+            RGB(0x4271ae), RGB(0x8959a8), RGB(0x3e999f), RGB(0xbfbfbf),
+            RGB(0x000000), RGB(0xc82829), RGB(0x718c00), RGB(0xeab700),
+            RGB(0x4271ae), RGB(0x8959a8), RGB(0x3e999f), RGB(0xffffff),
         ])
 
+    // Ghostty's stock dark look (`ghostty +show-config --default`).
     public static let dark = TermTheme(
-        background: RGB(0x111111), foreground: RGB(0xececea), cursor: RGB(0xececea), cursorText: RGB(0x111111),
+        background: RGB(0x282c34), foreground: RGB(0xffffff), cursor: RGB(0xffffff), cursorText: RGB(0x282c34),
+        accent: RGB(0xb2b9f4), attention: RGB(0xde935f),
         ansi: [
-            RGB(0x1a1a18), RGB(0xe04a4a), RGB(0x4caf7a), RGB(0xf07a45),
-            RGB(0xb9b8b3), RGB(0xc9a567), RGB(0x9c9c97), RGB(0xb9b8b3),
-            RGB(0x6a6a66), RGB(0xe04a4a), RGB(0x4caf7a), RGB(0xf07a45),
-            RGB(0xd6d6d2), RGB(0xc9a567), RGB(0x9c9c97), RGB(0xffffff),
+            RGB(0x1d1f21), RGB(0xcc6666), RGB(0xb5bd68), RGB(0xf0c674),
+            RGB(0x81a2be), RGB(0xb294bb), RGB(0x8abeb7), RGB(0xc5c8c6),
+            RGB(0x666666), RGB(0xd54e53), RGB(0xb9ca4a), RGB(0xe7c547),
+            RGB(0x7aa6da), RGB(0xc397d8), RGB(0x70c0b1), RGB(0xeaeaea),
         ])
 
-    init(background: RGB, foreground: RGB, cursor: RGB, cursorText: RGB, ansi: [RGB]) {
+    init(background: RGB, foreground: RGB, cursor: RGB, cursorText: RGB,
+         accent: RGB, attention: RGB, ansi: [RGB]) {
         self.background = background; self.foreground = foreground
-        self.cursor = cursor; self.cursorText = cursorText; self.ansi = ansi
+        self.cursor = cursor; self.cursorText = cursorText
+        self.accent = accent; self.attention = attention; self.ansi = ansi
     }
 }
 
-// Brand accent from the README (`accent #B1A57E`) and CW&T ink/paper.
+// Ghostty-flavored accents: periwinkle highlight on the stock dark background.
 public enum Brand {
-    public static let accentHex: UInt32 = 0xB1A57E
-    public static let inkHex: UInt32 = 0x1a1a18
-    public static let paperHex: UInt32 = 0xf4f1e9
+    public static let accentHex: UInt32 = 0xB2B9F4
+    public static let inkHex: UInt32 = 0x282c34
+    public static let paperHex: UInt32 = 0xffffff
     public static let idLabel = "CWT_STE3XM1_2607"
 }

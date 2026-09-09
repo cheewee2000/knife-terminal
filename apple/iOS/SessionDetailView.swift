@@ -2,14 +2,11 @@ import SwiftUI
 import UIKit
 import KnifeKit
 
-private func mono(_ size: CGFloat, bold: Bool = false) -> Font {
-    Font.custom(bold ? "Space Mono Bold" : "Space Mono", size: size)
-}
-
 struct SessionDetailView: View {
     let tabRecordName: String
     @EnvironmentObject var store: MirrorStore
     @Environment(\.colorScheme) private var scheme
+    private var theme: TermTheme { .current(scheme) }
     @State private var draft = ""
     @State private var showTerminal = false
     @State private var showUsage = false
@@ -27,12 +24,14 @@ struct SessionDetailView: View {
                     chatView(tab)
                 }
             } else {
-                Text("session closed on the Mac").font(mono(12)).foregroundStyle(.secondary)
+                Text("session closed on the Mac").font(ui(14)).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .navigationTitle(tab.map { "\($0.emoji) \($0.title)" } ?? "")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(theme.background.color, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
         .onAppear {
             if let tab { store.markSeen(tab) }
             if DemoData.enabled {
@@ -45,12 +44,15 @@ struct SessionDetailView: View {
         }
         .toolbar {
             if let tab {
+                ToolbarItem(placement: .principal) {
+                    Text("\(tab.emoji) \(tab.title)").font(ui(15, bold: true)).lineLimit(1)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 10) {
                         if tab.working {
-                            Circle().fill(knifeAccent).frame(width: 7, height: 7)
+                            Circle().fill(theme.accent.color).frame(width: 7, height: 7)
                         } else if tab.attention {
-                            Circle().fill(knifeOrange).frame(width: 7, height: 7)
+                            Circle().fill(theme.attention.color).frame(width: 7, height: 7)
                         }
                         if !messages.isEmpty {
                             Button { showTerminal.toggle() } label: {
@@ -61,7 +63,7 @@ struct SessionDetailView: View {
                         Button { showUsage = true } label: {
                             Image(systemName: "gauge.with.needle").font(.system(size: 13))
                         }
-                        Button { Task { await store.refresh() } } label: { Text("sync").font(mono(11)) }
+                        Button { Task { await store.refresh() } } label: { Text("sync").font(ui(13)) }
                     }
                 }
             }
@@ -78,10 +80,10 @@ struct SessionDetailView: View {
     private var usageSheet: some View {
         let bars = usageBars
         return VStack(alignment: .leading, spacing: 18) {
-            Text("usage").font(mono(13, bold: true))
+            Text("usage").font(ui(15, bold: true))
             if bars.isEmpty {
                 Text("no usage bars on screen right now")
-                    .font(mono(11)).foregroundStyle(.secondary)
+                    .font(ui(13)).foregroundStyle(.secondary)
             } else {
                 ForEach(bars) { bar in usageRow(bar) }
             }
@@ -95,10 +97,10 @@ struct SessionDetailView: View {
     private func usageRow(_ bar: UsageBar) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(bar.title).font(mono(11))
+                Text(bar.title).font(ui(13))
                 Spacer()
                 if let reset = bar.reset {
-                    Text("resets in \(reset)").font(mono(10)).foregroundStyle(.secondary)
+                    Text("resets in \(reset)").font(ui(12)).foregroundStyle(.secondary)
                 }
             }
             HStack(spacing: 8) {
@@ -107,11 +109,11 @@ struct SessionDetailView: View {
                     .overlay(alignment: .leading) {
                         GeometryReader { g in
                             Capsule()
-                                .fill(bar.pct >= 90 ? knifeOrange : knifeAccent)
+                                .fill(bar.pct >= 90 ? theme.attention.color : theme.accent.color)
                                 .frame(width: max(8, g.size.width * CGFloat(bar.pct) / 100))
                         }
                     }
-                Text("\(bar.pct)%").font(mono(11, bold: true))
+                Text("\(bar.pct)%").font(ui(13, bold: true))
                     .frame(width: 40, alignment: .trailing)
             }
         }
@@ -130,6 +132,7 @@ struct SessionDetailView: View {
                     }
                     .padding(.horizontal, 14).padding(.vertical, 12)
                 }
+                .background(theme.background.color)
                 .scrollDismissesKeyboard(.interactively)
                 .defaultScrollAnchor(.bottom)
                 .onChange(of: messages.last?.id ?? "") {
@@ -150,20 +153,20 @@ struct SessionDetailView: View {
             HStack {
                 Spacer(minLength: 48)
                 Text(m.text)
-                    .font(mono(13))
+                    .font(ui(15))
                     .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 16).fill(knifeAccent.opacity(0.22)))
+                    .background(RoundedRectangle(cornerRadius: 16).fill(theme.accent.color.opacity(0.22)))
                     .textSelection(.enabled)
             }
         case .assistant:
             Text(markdown(m.text))
-                .font(mono(13))
+                .font(ui(15))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         case .tool:
             HStack(spacing: 6) {
                 Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
-                Text(m.text).font(mono(11)).lineLimit(1)
+                Text(m.text).font(mono(12)).lineLimit(1)
             }
             .foregroundStyle(.secondary)
         }
@@ -171,8 +174,8 @@ struct SessionDetailView: View {
 
     private var workingRow: some View {
         HStack(spacing: 8) {
-            Circle().fill(knifeAccent).frame(width: 7, height: 7)
-            Text("working…").font(mono(11)).foregroundStyle(.secondary)
+            Circle().fill(theme.accent.color).frame(width: 7, height: 7)
+            Text("working…").font(ui(13)).foregroundStyle(.secondary)
         }
     }
 
@@ -185,7 +188,7 @@ struct SessionDetailView: View {
         HStack(alignment: .bottom, spacing: 8) {
             TextField("Message", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(mono(13))
+                .font(ui(15))
                 .lineLimit(1...5)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
@@ -197,7 +200,7 @@ struct SessionDetailView: View {
             Button { submit(tab) } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 30))
-                    .foregroundStyle(draft.isEmpty ? Color.secondary.opacity(0.5) : knifeAccent)
+                    .foregroundStyle(draft.isEmpty ? Color.secondary.opacity(0.5) : theme.accent.color)
             }
             .buttonStyle(.plain)
             .disabled(draft.isEmpty)
@@ -223,7 +226,7 @@ struct SessionDetailView: View {
         HStack(alignment: .bottom, spacing: 10) {
             TextField("type here, ⏎ sends", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(mono(13))
+                .font(mono(14))
                 .lineLimit(1...4)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
@@ -235,7 +238,7 @@ struct SessionDetailView: View {
                 }
                 .buttonStyle(.plain)
             }
-            Button { submit(tab) } label: { Text("send").font(mono(11, bold: true)) }
+            Button { submit(tab) } label: { Text("send").font(ui(13, bold: true)) }
                 .buttonStyle(.plain)
                 .disabled(draft.isEmpty)
         }
@@ -310,14 +313,14 @@ struct MirrorTextView: UIViewRepresentable {
         tv.contentInset.bottom = 52
         tv.verticalScrollIndicatorInsets.bottom = 52
         tv.textContainerInset = UIEdgeInsets(top: 10, left: 8, bottom: 10, right: 8)
-        tv.linkTextAttributes = [
-            .foregroundColor: UIColor(knifeAccent),
-            .underlineStyle: NSUnderlineStyle.single.rawValue,
-        ]
         return tv
     }
 
     func updateUIView(_ tv: MirrorTextUIView, context: Context) {
+        tv.linkTextAttributes = [
+            .foregroundColor: (dark ? TermTheme.dark : TermTheme.light).accent.uiColor,
+            .underlineStyle: NSUnderlineStyle.single.rawValue,
+        ]
         tv.render(styled: styled, dark: dark)
     }
 }
@@ -348,8 +351,8 @@ final class MirrorTextUIView: UITextView {
         guard bounds.width > 40, let screen = StyledScreen.decode(lastStyled) else { return }
 
         let size: CGFloat = 12
-        let regular = UIFont(name: "Space Mono", size: size) ?? .monospacedSystemFont(ofSize: size, weight: .regular)
-        let boldFont = UIFont(name: "Space Mono Bold", size: size) ?? .monospacedSystemFont(ofSize: size, weight: .bold)
+        let regular = UIFont(name: "JetBrains Mono", size: size) ?? .monospacedSystemFont(ofSize: size, weight: .regular)
+        let boldFont = UIFont(name: "JetBrains Mono Bold", size: size) ?? .monospacedSystemFont(ofSize: size, weight: .bold)
         let cellW = ("W" as NSString).size(withAttributes: [.font: regular]).width
         let usable = bounds.width - textContainerInset.left - textContainerInset.right - 2 * textContainer.lineFragmentPadding
         let cols = max(20, Int(usable / cellW))

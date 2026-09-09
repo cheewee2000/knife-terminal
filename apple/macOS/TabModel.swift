@@ -10,6 +10,10 @@ struct TabOptions {
     var restoreCmd: String?
 }
 
+enum TabStatus {
+    case idle, working, ready, needsInput
+}
+
 @MainActor
 final class TabModel: NSObject, ObservableObject, Identifiable {
     let id: Int
@@ -19,11 +23,46 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     @Published var title: String
     @Published var working = false
     @Published var attention = false
+    @Published var status: TabStatus = .idle
     var cols = 80
     var rows = 25
     var lastReportedCwd: String? // OSC 7, when the shell emits it
+    /// Claude Code session running in this tab, learned from hook payloads
+    /// (every hook carries `session_id`); cleared on SessionEnd.
+    var claudeSessionId: String?
 
     var shellPid: pid_t { view.process?.shellPid ?? 0 }
+
+    /// Agent process alive under this tab's shell right now, if any.
+    var runningAgent: String? {
+        let pid = shellPid
+        return pid > 0 ? Self.runningAgent(underShell: pid) : nil
+    }
+
+    var claudeRunning: Bool { runningAgent == "claude" }
+
+    /// `pgrep -lfP <shell>` lists direct children as "<pid> <full command>";
+    /// agents run as direct children of the shell whether typed or launched by us.
+    nonisolated static func runningAgent(underShell pid: pid_t) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        p.arguments = ["-lfP", String(pid)]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = Pipe()
+        do { try p.run() } catch { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        guard let out = String(data: data, encoding: .utf8) else { return nil }
+        for line in out.split(separator: "\n") {
+            guard let sp = line.firstIndex(of: " ") else { continue }
+            let cmd = line[line.index(after: sp)...]
+            let exe = cmd.split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""
+            let name = (exe as NSString).lastPathComponent
+            if name == "claude" || name == "codex" { return name }
+        }
+        return nil
+    }
 
     /// Current working directory of the shell, for session restore + context files.
     var currentCwd: String? {
@@ -59,11 +98,8 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         view.processDelegate = self
         AppModel.shared.theme.style(terminal: view)
 
-        var env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CLAUDE_CODE_") }
+        var env = Self.shellEnv()
         env["KNIFE_TAB"] = String(id)
-        env["TERM"] = "xterm-256color"
-        env["COLORTERM"] = "truecolor"
-        if env["LANG"] == nil { env["LANG"] = "en_US.UTF-8" }
         let envList = env.map { "\($0.key)=\($0.value)" }
 
         let shell = Self.userShell()
@@ -78,6 +114,7 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         }
         view.onUserInput = { [weak self] in
             guard let self else { return }
+            self.status = .idle
             if self.working || self.attention {
                 self.working = false; self.attention = false
                 AppModel.shared.tabStateChanged(self)
@@ -96,6 +133,24 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     static func userShell() -> String {
         if let pw = getpwuid(getuid()), let sh = pw.pointee.pw_shell, let s = String(validatingUTF8: sh), !s.isEmpty { return s }
         return ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+    }
+
+    /// Environment for spawned shells. The app inherits the environment of
+    /// whatever launched it (Finder, Xcode, another terminal) — launched from
+    /// Ghostty it carries TERM_PROGRAM=ghostty, GHOSTTY_*, and a TERMINFO that
+    /// only has xterm-ghostty entries, and shell integrations keyed on those
+    /// would think they're in Ghostty. Scrub the host's identity and set ours.
+    static func shellEnv() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment.filter {
+            !$0.key.hasPrefix("CLAUDE_CODE_") && !$0.key.hasPrefix("GHOSTTY_")
+        }
+        env["TERM"] = "xterm-256color"
+        env["COLORTERM"] = "truecolor"
+        env["TERM_PROGRAM"] = "KnifeTerminal"
+        env["TERM_PROGRAM_VERSION"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        env["TERMINFO"] = nil
+        if env["LANG"] == nil { env["LANG"] = "en_US.UTF-8" }
+        return env
     }
 
     func terminate() {
