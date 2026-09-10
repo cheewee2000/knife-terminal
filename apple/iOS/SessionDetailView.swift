@@ -10,6 +10,10 @@ struct SessionDetailView: View {
     @State private var draft = ""
     @State private var showTerminal = false
     @State private var showUsage = false
+    @State private var expandedTools: Set<String> = []
+    /// Mirror text size; 0 means "fit the Mac's real width", which is what makes
+    /// landscape show the desktop layout instead of rewrapping it.
+    @AppStorage("knife.mirrorSize") private var mirrorSize: Double = 12
     @FocusState private var composing: Bool
 
     private var tab: MirroredTab? { store.tabs.first { $0.id == tabRecordName } }
@@ -45,7 +49,13 @@ struct SessionDetailView: View {
         .toolbar {
             if let tab {
                 ToolbarItem(placement: .principal) {
-                    Text("\(tab.emoji) \(tab.title)").font(ui(15, bold: true)).lineLimit(1)
+                    VStack(spacing: 0) {
+                        Text("\(tab.emoji) \(tab.title)").font(ui(14, bold: true))
+                            .lineLimit(1).truncationMode(.middle)
+                        if let folder = tab.cwd.map({ ($0 as NSString).lastPathComponent }), !folder.isEmpty {
+                            Text(folder).font(ui(10)).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 10) {
@@ -58,6 +68,18 @@ struct SessionDetailView: View {
                             Button { showTerminal.toggle() } label: {
                                 Image(systemName: showTerminal ? "text.bubble" : "apple.terminal")
                                     .font(.system(size: 13))
+                            }
+                        }
+                        if showTerminal || messages.isEmpty {
+                            Menu {
+                                Picker("text size", selection: $mirrorSize) {
+                                    Text("small").tag(10.0)
+                                    Text("medium").tag(12.0)
+                                    Text("large").tag(14.0)
+                                    Text("fit Mac width").tag(0.0)
+                                }
+                            } label: {
+                                Image(systemName: "textformat.size").font(.system(size: 13))
                             }
                         }
                         Button { showUsage = true } label: {
@@ -164,11 +186,18 @@ struct SessionDetailView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         case .tool:
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
-                Text(m.text).font(mono(12)).lineLimit(1)
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).padding(.top, 3)
+                Text(m.text).font(mono(12))
+                    .lineLimit(expandedTools.contains(m.id) ? nil : 1)  // tap for the rest
+                    .textSelection(.enabled)
             }
             .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if expandedTools.contains(m.id) { expandedTools.remove(m.id) } else { expandedTools.insert(m.id) }
+            }
         }
     }
 
@@ -216,7 +245,8 @@ struct SessionDetailView: View {
         // terminal's own footer (input box + progress bars) instead of
         // squeezing the view; the bar floats above the keyboard.
         ZStack(alignment: .bottom) {
-            MirrorTextView(styled: tab.styled, dark: scheme == .dark)
+            MirrorTextView(styled: tab.styled, dark: scheme == .dark,
+                           size: CGFloat(mirrorSize), macCols: tab.cols)
                 .ignoresSafeArea(.keyboard)
             terminalInputBar(tab)
         }
@@ -301,6 +331,8 @@ struct UsageBar: Identifiable {
 struct MirrorTextView: UIViewRepresentable {
     let styled: Data
     let dark: Bool
+    let size: CGFloat      // 0 = fit the Mac's column count
+    let macCols: Int
 
     func makeUIView(context: Context) -> MirrorTextUIView {
         let tv = MirrorTextUIView()
@@ -321,7 +353,7 @@ struct MirrorTextView: UIViewRepresentable {
             .foregroundColor: (dark ? TermTheme.dark : TermTheme.light).accent.uiColor,
             .underlineStyle: NSUnderlineStyle.single.rawValue,
         ]
-        tv.render(styled: styled, dark: dark)
+        tv.render(styled: styled, dark: dark, size: size, macCols: macCols)
     }
 }
 
@@ -329,6 +361,8 @@ final class MirrorTextUIView: UITextView {
     private var lastStyled = Data()
     private var lastDark: Bool?
     private var lastWidth: CGFloat = 0
+    private var lastSize: CGFloat = 12
+    private var lastMacCols = 80
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -338,10 +372,12 @@ final class MirrorTextUIView: UITextView {
         }
     }
 
-    func render(styled: Data, dark: Bool) {
-        guard styled != lastStyled || dark != lastDark else { return }
+    func render(styled: Data, dark: Bool, size: CGFloat, macCols: Int) {
+        guard styled != lastStyled || dark != lastDark || size != lastSize || macCols != lastMacCols else { return }
         lastStyled = styled
         lastDark = dark
+        lastSize = size
+        lastMacCols = macCols
         rerender()
     }
 
@@ -350,17 +386,27 @@ final class MirrorTextUIView: UITextView {
         backgroundColor = uiColor(theme.background)
         guard bounds.width > 40, let screen = StyledScreen.decode(lastStyled) else { return }
 
-        let size: CGFloat = 12
-        let regular = UIFont(name: "JetBrains Mono", size: size) ?? .monospacedSystemFont(ofSize: size, weight: .regular)
-        let boldFont = UIFont(name: "JetBrains Mono Bold", size: size) ?? .monospacedSystemFont(ofSize: size, weight: .bold)
-        let cellW = ("W" as NSString).size(withAttributes: [.font: regular]).width
         let usable = bounds.width - textContainerInset.left - textContainerInset.right - 2 * textContainer.lineFragmentPadding
+        // "fit Mac width" solves for the size that makes the Mac's own columns
+        // land inside the screen — nothing rewraps, which is what landscape wants.
+        var size = lastSize
+        if size <= 0 {
+            let probe = Self.font(size: 12, bold: false)
+            let cellAt12 = ("W" as NSString).size(withAttributes: [.font: probe]).width
+            size = max(5, min(14, (usable / CGFloat(max(20, lastMacCols))) / (cellAt12 / 12)))
+        }
+        let regular = Self.font(size: size, bold: false)
+        let boldFont = Self.font(size: size, bold: true)
+        let cellW = ("W" as NSString).size(withAttributes: [.font: regular]).width
         let cols = max(20, Int(usable / cellW))
 
-        let para = NSMutableParagraphStyle()
-        para.lineBreakMode = .byCharWrapping
+        // Prose wraps on words; box drawing and rules wrap on characters, so the
+        // desktop's frames keep their shape instead of being re-flowed as words.
+        let prose = NSMutableParagraphStyle(); prose.lineBreakMode = .byWordWrapping
+        let boxes = NSMutableParagraphStyle(); boxes.lineBreakMode = .byCharWrapping
         let out = NSMutableAttributedString()
         for (i, line) in screen.lines.enumerated() {
+            let para = Self.isBoxDrawing(line) ? boxes : prose
             for run in Self.squeeze(line, toCols: cols) {
                 let style = run.s ?? 0
                 var attrs: [NSAttributedString.Key: Any] = [.paragraphStyle: para]
@@ -377,7 +423,7 @@ final class MirrorTextUIView: UITextView {
                 out.append(NSAttributedString(string: run.t, attributes: attrs))
             }
             if i < screen.lines.count - 1 {
-                out.append(NSAttributedString(string: "\n", attributes: [.font: regular, .paragraphStyle: para]))
+                out.append(NSAttributedString(string: "\n", attributes: [.font: regular, .paragraphStyle: prose]))
             }
         }
 
@@ -390,6 +436,18 @@ final class MirrorTextUIView: UITextView {
             layoutIfNeeded()
             let y = max(0, contentSize.height - bounds.height + adjustedContentInset.bottom)
             setContentOffset(CGPoint(x: 0, y: y), animated: false)
+        }
+    }
+
+    static func font(size: CGFloat, bold: Bool) -> UIFont {
+        UIFont(name: bold ? "JetBrains Mono Bold" : "JetBrains Mono", size: size)
+            ?? .monospacedSystemFont(ofSize: size, weight: bold ? .bold : .regular)
+    }
+
+    /// A line carrying box-drawing or block characters is a frame, not a sentence.
+    static func isBoxDrawing(_ line: [TermRun]) -> Bool {
+        line.contains { run in
+            run.t.unicodeScalars.contains { (0x2500...0x259F).contains(Int($0.value)) }
         }
     }
 

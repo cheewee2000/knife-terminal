@@ -81,3 +81,21 @@ in place of the terminal pane; click a card header to jump into the tab.
 - [ ] ContentView: board replaces TerminalPane when showBoard
 - [ ] BoardView.swift: adaptive grid of SessionCard (needs-input first), 2 s transcript refresh off the main thread, reply field (text, then CR 0.25 s later, like the phone), header tap → activate tab + close board
 - [x] Build + install (signed Debug, BUILD SUCCEEDED) — hands-on check pending Eddie's relaunch
+
+# iOS: readability, status grouping, alerts off (2026-09-10)
+
+- [x] No more one-line truncation: session + project titles wrap to two lines; the nav bar
+      shows the full title (middle-truncated) with the project folder beneath it; tool lines
+      in the chat expand on tap
+- [x] Sessions grouped: needs input / working / idle, counts in the headers, attention color
+      on the first — same order as the Mac sidebar and board
+- [x] Each row carries the last exchange (Claude's newest reply, or the tool it's running),
+      decoded once per sync into a snippet map rather than per row on scroll
+- [x] Mirror readability: prose wraps on words, box drawing still on characters; text-size
+      menu (small/medium/large) plus "fit Mac width", which solves for the size that makes
+      the Mac's own column count fit — landscape then shows the desktop layout unwrapped
+- [x] Cleanups: "projects" header is a header again (the sentence moved to a footer), the
+      internal device label is gone from the footer
+- [x] Notifications: visible pushes are opt-in behind a switch, default off — the alert
+      subscription is deleted server-side and the badge cleared when off. Silent sync pushes
+      are untouched, so the mirror stays as fresh as before.

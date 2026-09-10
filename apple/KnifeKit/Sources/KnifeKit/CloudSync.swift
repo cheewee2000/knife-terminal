@@ -215,6 +215,13 @@ public final class CloudSync: @unchecked Sendable {
         setupDone.insert(id)
     }
 
+    /// Stop server-side alert pushes (the phone's "push when a session needs you"
+    /// switch); harmless when no such subscription exists.
+    public func deleteAlertSubscription() async throws {
+        _ = try await db.modifySubscriptions(saving: [], deleting: ["knife-alerts"])
+        setupDone.remove("knife-alerts")
+    }
+
     // ─── Mac: publish ───
 
     private func recordID(forTab tabId: Int) -> CKRecord.ID {

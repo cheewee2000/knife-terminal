@@ -63,13 +63,36 @@ final class MirrorStore: ObservableObject {
         await refresh()
     }
 
+    /// User-visible "needs you" pushes, off unless asked for. The silent
+    /// database subscription that keeps the mirror fresh is separate and stays on.
+    static let alertsKey = "knife.pushAlerts"
+    var alertsOn: Bool { UserDefaults.standard.bool(forKey: Self.alertsKey) }
+
+    func setAlerts(_ on: Bool) {
+        Task {
+            if on {
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+                try? await cloud.ensureAlertSubscription()
+            } else {
+                try? await cloud.deleteAlertSubscription()
+            }
+            await syncBadge()
+        }
+    }
+
+    private func syncBadge() async {
+        let badge = alertsOn ? tabs.filter { $0.attention }.count : 0
+        try? await UNUserNotificationCenter.current().setBadgeCount(badge)
+    }
+
     private var subsReady = false
     private func ensureSubscriptions() async {
         guard !subsReady else { return }
         do {
             try await cloud.ensureZone()
             try await cloud.ensureDatabaseSubscription()
-            try await cloud.ensureAlertSubscription()
+            if alertsOn { try await cloud.ensureAlertSubscription() }
+            else { try? await cloud.deleteAlertSubscription() } // clears one left from a previous run
             subsReady = true
         } catch {
             CloudSync.log("ios setup failed (will retry): \(error)")
@@ -116,8 +139,7 @@ final class MirrorStore: ObservableObject {
         pendingOpens = pendingOpens.filter { path in !tabs.contains { $0.cwd == path } }
         lastSync = Date()
         saveCache()
-        let badge = tabs.filter { $0.attention }.count
-        try? await UNUserNotificationCenter.current().setBadgeCount(badge)
+        await syncBadge()
     }
 
     /// Keystrokes go up immediately; if that fails (offline) they wait for the
@@ -141,8 +163,7 @@ final class MirrorStore: ObservableObject {
     func markSeen(_ tab: MirroredTab) {
         guard tab.attention else { return }
         if let i = tabs.firstIndex(where: { $0.id == tab.id }) { tabs[i].attention = false }
-        let badge = tabs.filter { $0.attention }.count
-        Task { try? await UNUserNotificationCenter.current().setBadgeCount(badge) }
+        Task { await syncBadge() }
         Task { try? await cloud.sendSeen(tabId: tab.tabId) }
     }
 
