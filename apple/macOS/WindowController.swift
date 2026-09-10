@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Combine
 
 @MainActor
 final class KnifeWindowController: NSWindowController, NSWindowDelegate, ObservableObject {
@@ -8,6 +9,9 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
     @Published var showBoard = false
     /// The untouched shell a fresh window opens with; replaced by the first real tab.
     var defaultTabId: Int?
+    /// The sidebar groups tabs by status; a tab's status change has to re-render
+    /// the list itself, not just that row.
+    private var statusWatch: [Int: AnyCancellable] = [:]
 
     var activeTab: TabModel? { tabs.first { $0.id == activeId } }
 
@@ -32,6 +36,8 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
     func addTab(_ opts: TabOptions = TabOptions(), activateIt: Bool = true) -> TabModel {
         let tab = TabModel(id: AppModel.shared.takeTabId(), opts: opts)
         tabs.append(tab)
+        statusWatch[tab.id] = tab.$status.dropFirst().removeDuplicates()
+            .sink { [weak self] _ in self?.objectWillChange.send() }
         AppModel.shared.tabOpened(tab, in: self)
         if activateIt { activate(tab.id) }
         return tab
@@ -50,6 +56,7 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
     func closeTab(_ id: Int, keepAlive: Bool = false) {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         let tab = tabs.remove(at: idx)
+        statusWatch.removeValue(forKey: id)
         if !keepAlive {
             tab.terminate()
             AppModel.shared.tabClosed(tab)

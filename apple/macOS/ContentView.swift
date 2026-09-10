@@ -106,21 +106,16 @@ struct SidebarView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(controller.tabs) { tab in
-                        TabRow(tab: tab, active: tab.id == controller.activeId,
-                               activate: { controller.activate(tab.id) },
-                               close: { controller.closeTab(tab.id) })
-                            .opacity(drag == .tab(tab.id) ? 0.4 : 1.0)
-                            .onDrag {
-                                let id = tab.id
-                                // Deferred: writing state inside onDrag re-renders the row while
-                                // AppKit is opening the drag session, which cancels it.
-                                DispatchQueue.main.async { drag = .tab(id) }
-                                return NSItemProvider(object: String(id) as NSString)
-                            }
-                            .onDrop(of: [.text], delegate: TabReorderDrop(
-                                targetId: tab.id, drag: $drag, controller: controller,
-                                end: endDrag))
+                    // Tabs grouped by status (needs input first); manual order kept within
+                    // a group. Headers only appear once something is non-idle, so a
+                    // window of plain shells looks like a plain list.
+                    let grouped = TabStatus.sidebarOrder.map { status in (status, controller.tabs.filter { $0.status == status }) }
+                    let showHeaders = grouped.contains { $0.0 != .idle && !$0.1.isEmpty }
+                    ForEach(grouped, id: \.0) { status, tabs in
+                        if !tabs.isEmpty {
+                            if showHeaders { tabGroupHeader(status, count: tabs.count) }
+                            ForEach(tabs) { tab in tabRow(tab) }
+                        }
                     }
                     Button(action: { controller.addTab() }) {
                         HStack(spacing: 6) {
@@ -208,6 +203,36 @@ struct SidebarView: View {
     private var filtered: [Project] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         return projects.filter { $0.name.lowercased().contains(q) || $0.path.lowercased().contains(q) }
+    }
+
+    private func tabRow(_ tab: TabModel) -> some View {
+        TabRow(tab: tab, active: tab.id == controller.activeId,
+               activate: { controller.activate(tab.id) },
+               close: { controller.closeTab(tab.id) })
+            .opacity(drag == .tab(tab.id) ? 0.4 : 1.0)
+            .onDrag {
+                let id = tab.id
+                // Deferred: writing state inside onDrag re-renders the row while
+                // AppKit is opening the drag session, which cancels it.
+                DispatchQueue.main.async { drag = .tab(id) }
+                return NSItemProvider(object: String(id) as NSString)
+            }
+            .onDrop(of: [.text], delegate: TabReorderDrop(
+                targetId: tab.id, drag: $drag, controller: controller,
+                end: endDrag))
+    }
+
+    private func tabGroupHeader(_ status: TabStatus, count: Int) -> some View {
+        HStack(spacing: 4) {
+            Text(status.sidebarLabel)
+                .foregroundStyle(status == .needsInput ? theme.attentionColor : Color.secondary)
+            Text("\(count)").foregroundStyle(.tertiary)
+            Spacer(minLength: 0)
+        }
+        .font(ui(10))
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
     }
 
     private func projects(in section: ProjectSection) -> [Project] {

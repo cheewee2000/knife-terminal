@@ -12,6 +12,17 @@ struct TabOptions {
 
 enum TabStatus {
     case idle, working, ready, needsInput
+
+    /// Sidebar grouping: the ones that want you first.
+    static let sidebarOrder: [TabStatus] = [.needsInput, .working, .ready, .idle]
+    var sidebarLabel: String {
+        switch self {
+        case .needsInput: "needs input"
+        case .working: "working"
+        case .ready: "ready"
+        case .idle: "idle"
+        }
+    }
 }
 
 @MainActor
