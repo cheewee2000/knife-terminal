@@ -11,9 +11,10 @@ struct SessionDetailView: View {
     @State private var showTerminal = false
     @State private var showUsage = false
     @State private var expandedTools: Set<String> = []
-    /// Mirror text size; 0 means "fit the Mac's real width", which is what makes
-    /// landscape show the desktop layout instead of rewrapping it.
     @AppStorage("knife.mirrorSize") private var mirrorSize: Double = 12
+    /// Wrapped to the phone, or the Mac's screen at its real width — pan and
+    /// pinch instead of reflowing, so nothing is squeezed out of the picture.
+    @AppStorage("knife.mirrorWrap") private var mirrorWrap = true
     @FocusState private var composing: Bool
 
     private var tab: MirroredTab? { store.tabs.first { $0.id == tabRecordName } }
@@ -72,11 +73,14 @@ struct SessionDetailView: View {
                         }
                         if showTerminal || messages.isEmpty {
                             Menu {
+                                Picker("layout", selection: $mirrorWrap) {
+                                    Text("wrap to phone").tag(true)
+                                    Text("actual size — pinch + pan").tag(false)
+                                }
                                 Picker("text size", selection: $mirrorSize) {
-                                    Text("small").tag(10.0)
+                                    Text("small").tag(9.0)
                                     Text("medium").tag(12.0)
-                                    Text("large").tag(14.0)
-                                    Text("fit Mac width").tag(0.0)
+                                    Text("large").tag(15.0)
                                 }
                             } label: {
                                 Image(systemName: "textformat.size").font(.system(size: 13))
@@ -189,7 +193,7 @@ struct SessionDetailView: View {
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).padding(.top, 3)
                 Text(m.text).font(mono(12))
-                    .lineLimit(expandedTools.contains(m.id) ? nil : 1)  // tap for the rest
+                    .lineLimit(expandedTools.contains(m.id) ? nil : 2)  // tap for the rest
                     .textSelection(.enabled)
             }
             .foregroundStyle(.secondary)
@@ -246,7 +250,7 @@ struct SessionDetailView: View {
         // squeezing the view; the bar floats above the keyboard.
         ZStack(alignment: .bottom) {
             MirrorTextView(styled: tab.styled, dark: scheme == .dark,
-                           size: CGFloat(mirrorSize), macCols: tab.cols)
+                           size: CGFloat(mirrorSize), wrap: mirrorWrap)
                 .ignoresSafeArea(.keyboard)
             terminalInputBar(tab)
         }
@@ -331,15 +335,16 @@ struct UsageBar: Identifiable {
 struct MirrorTextView: UIViewRepresentable {
     let styled: Data
     let dark: Bool
-    let size: CGFloat      // 0 = fit the Mac's column count
-    let macCols: Int
+    let size: CGFloat
+    let wrap: Bool
 
     func makeUIView(context: Context) -> MirrorTextUIView {
         let tv = MirrorTextUIView()
         tv.isEditable = false
         tv.isSelectable = true
         tv.alwaysBounceVertical = true
-        tv.showsHorizontalScrollIndicator = false
+        tv.showsHorizontalScrollIndicator = true
+        tv.startPinchToZoom()
         tv.keyboardDismissMode = .interactive
         // room for the overlaid compose bar so scrolled-to-bottom content clears it
         tv.contentInset.bottom = 52
@@ -353,7 +358,7 @@ struct MirrorTextView: UIViewRepresentable {
             .foregroundColor: (dark ? TermTheme.dark : TermTheme.light).accent.uiColor,
             .underlineStyle: NSUnderlineStyle.single.rawValue,
         ]
-        tv.render(styled: styled, dark: dark, size: size, macCols: macCols)
+        tv.render(styled: styled, dark: dark, size: size, wrap: wrap)
     }
 }
 
@@ -362,7 +367,23 @@ final class MirrorTextUIView: UITextView {
     private var lastDark: Bool?
     private var lastWidth: CGFloat = 0
     private var lastSize: CGFloat = 12
-    private var lastMacCols = 80
+    private var lastWrap = true
+    private var pinchBase: CGFloat = 12
+
+    /// Pinch changes the point size and re-renders, so text stays sharp at any
+    /// zoom (a transform would just blow up the same bitmap).
+    func startPinchToZoom() {
+        addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(pinched(_:))))
+    }
+
+    @objc private func pinched(_ g: UIPinchGestureRecognizer) {
+        if g.state == .began { pinchBase = lastSize }
+        let next = max(4, min(24, pinchBase * g.scale))
+        guard abs(next - lastSize) > 0.15 else { return }
+        lastSize = next
+        UserDefaults.standard.set(Double(next), forKey: "knife.mirrorSize")
+        rerender()
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -372,12 +393,12 @@ final class MirrorTextUIView: UITextView {
         }
     }
 
-    func render(styled: Data, dark: Bool, size: CGFloat, macCols: Int) {
-        guard styled != lastStyled || dark != lastDark || size != lastSize || macCols != lastMacCols else { return }
+    func render(styled: Data, dark: Bool, size: CGFloat, wrap: Bool) {
+        guard styled != lastStyled || dark != lastDark || size != lastSize || wrap != lastWrap else { return }
         lastStyled = styled
         lastDark = dark
         lastSize = size
-        lastMacCols = macCols
+        lastWrap = wrap
         rerender()
     }
 
@@ -387,14 +408,12 @@ final class MirrorTextUIView: UITextView {
         guard bounds.width > 40, let screen = StyledScreen.decode(lastStyled) else { return }
 
         let usable = bounds.width - textContainerInset.left - textContainerInset.right - 2 * textContainer.lineFragmentPadding
-        // "fit Mac width" solves for the size that makes the Mac's own columns
-        // land inside the screen — nothing rewraps, which is what landscape wants.
-        var size = lastSize
-        if size <= 0 {
-            let probe = Self.font(size: 12, bold: false)
-            let cellAt12 = ("W" as NSString).size(withAttributes: [.font: probe]).width
-            size = max(5, min(14, (usable / CGFloat(max(20, lastMacCols))) / (cellAt12 / 12)))
-        }
+        // Actual size: let the container run as wide as the Mac's screen and scroll
+        // sideways. Wrapped: the container tracks the phone and lines are folded.
+        textContainer.widthTracksTextView = lastWrap
+        let tall = CGFloat.greatestFiniteMagnitude
+        textContainer.size = CGSize(width: lastWrap ? usable : 100_000, height: tall)
+        let size = lastSize
         let regular = Self.font(size: size, bold: false)
         let boldFont = Self.font(size: size, bold: true)
         let cellW = ("W" as NSString).size(withAttributes: [.font: regular]).width
@@ -402,12 +421,15 @@ final class MirrorTextUIView: UITextView {
 
         // Prose wraps on words; box drawing and rules wrap on characters, so the
         // desktop's frames keep their shape instead of being re-flowed as words.
-        let prose = NSMutableParagraphStyle(); prose.lineBreakMode = .byWordWrapping
-        let boxes = NSMutableParagraphStyle(); boxes.lineBreakMode = .byCharWrapping
+        // At actual size nothing wraps at all — that's the point of the mode.
+        let prose = NSMutableParagraphStyle(); prose.lineBreakMode = lastWrap ? .byWordWrapping : .byClipping
+        let boxes = NSMutableParagraphStyle(); boxes.lineBreakMode = lastWrap ? .byCharWrapping : .byClipping
         let out = NSMutableAttributedString()
         for (i, line) in screen.lines.enumerated() {
             let para = Self.isBoxDrawing(line) ? boxes : prose
-            for run in Self.squeeze(line, toCols: cols) {
+            // Squeezing rules and padding is a fit-the-phone trick; at actual size
+            // the line is shown exactly as the Mac drew it.
+            for run in (lastWrap ? Self.squeeze(line, toCols: cols) : line) {
                 let style = run.s ?? 0
                 var attrs: [NSAttributedString.Key: Any] = [.paragraphStyle: para]
                 attrs[.font] = style & StyledScreen.styleBold != 0 ? boldFont : regular
