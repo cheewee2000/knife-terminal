@@ -82,7 +82,22 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         return Self.cwdOf(pid: pid) ?? lastReportedCwd
     }
 
+    /// The kernel knows the shell's cwd; asking it costs microseconds, where
+    /// spawning lsof costs ~100ms — and the board probes every tab every tick.
     nonisolated static func cwdOf(pid: pid_t) -> String? {
+        var info = proc_vnodepathinfo()
+        let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        if proc_pidinfo(pid, Int32(PROC_PIDVNODEPATHINFO), 0, &info, size) == size {
+            var path = info.pvi_cdir.vip_path
+            let s = withUnsafeBytes(of: &path) { raw in
+                raw.baseAddress.map { String(cString: $0.assumingMemoryBound(to: CChar.self)) } ?? ""
+            }
+            if !s.isEmpty { return s }
+        }
+        return cwdViaLsof(pid: pid)
+    }
+
+    nonisolated static func cwdViaLsof(pid: pid_t) -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
         p.arguments = ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]

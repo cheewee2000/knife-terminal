@@ -65,15 +65,18 @@ struct BoardView: View {
     private func refresh() {
         guard !refreshing else { return }
         refreshing = true
-        // Snapshot on the main actor; pgrep + transcript reads happen off it.
-        // OSC 7 / the launch cwd is enough here — `currentCwd` runs lsof per tab.
+        // Snapshot on the main actor; the pid lookups and transcript reads happen
+        // off it. The shell's real cwd is the one that matters: a tab opened with
+        // ⌘T has no launch cwd at all, and `cd`-ing doesn't change the one it was
+        // opened with, so both would leave the card blank.
         let snap = controller.tabs.map {
-            (id: $0.id, pid: $0.shellPid, cwd: $0.lastReportedCwd ?? $0.opts.cwd, session: $0.claudeSessionId)
+            (id: $0.id, pid: $0.shellPid, fallback: $0.lastReportedCwd ?? $0.opts.cwd, session: $0.claudeSessionId)
         }
         DispatchQueue.global(qos: .userInitiated).async {
             let fresh = snap.compactMap { t -> BoardCardData? in
                 guard t.pid > 0, let agent = TabModel.runningAgent(underShell: t.pid) else { return nil }
-                let all = TranscriptReader.messages(forCwd: t.cwd, sessionId: t.session)
+                let cwd = TabModel.cwdOf(pid: t.pid) ?? t.fallback
+                let all = TranscriptReader.messages(forCwd: cwd, sessionId: t.session)
                 return BoardCardData(tabId: t.id, agent: agent, messages: Self.excerpt(all))
             }
             DispatchQueue.main.async {
