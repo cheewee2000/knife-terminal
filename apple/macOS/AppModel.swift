@@ -1,5 +1,6 @@
 import AppKit
 import KnifeKit
+import Security
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -45,12 +46,22 @@ final class AppModel: ObservableObject {
         saveTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { _ in
             Task { @MainActor in
                 AppModel.shared.saveSession()
+                for wc in AppModel.shared.windows { for t in wc.tabs { t.refreshGroup() } } // the 24h boundary
                 AppModel.shared.checkSocket()
             }
         }
-        let publisher = SyncPublisher()
-        sync = publisher
-        publisher.start()
+        // CKContainer(identifier:) traps without the iCloud entitlement, which
+        // ad-hoc/local builds outside the CW&T team can't be provisioned for.
+        if Self.hasCloudKitEntitlement {
+            let publisher = SyncPublisher()
+            sync = publisher
+            publisher.start()
+        }
+    }
+
+    private static var hasCloudKitEntitlement: Bool {
+        guard let task = SecTaskCreateFromSelf(nil) else { return false }
+        return SecTaskCopyValueForEntitlement(task, "com.apple.developer.icloud-services" as CFString, nil) != nil
     }
 
     func checkSocket() { socket?.rebindIfNeeded() }
@@ -147,7 +158,8 @@ final class AppModel: ObservableObject {
         if let cwd = req.cwd { Projects.touch(cwd) }
         let wc = frontWindow() ?? newWindow(withTab: false)
         wc.addTab(TabOptions(cwd: req.cwd, cmd: req.cmd, title: req.title,
-                             restoreCmd: ["claude": "claude -c", "codex": "codex resume --last"][req.cmd ?? ""]))
+                             restoreCmd: ["claude": "claude -c", "codex": "codex resume --last"][req.cmd ?? ""],
+                             lastActivity: Date()))
     }
 
     // ─── Attention: Claude Code hooks ping the socket with the tab id ───
@@ -178,6 +190,11 @@ final class AppModel: ObservableObject {
         if let data = rest.data(using: .utf8),
            let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             type = (j["notification_type"] as? String) ?? (j["hook_event_name"] as? String) ?? type
+            // remember which conversation lives in this tab so a relaunch can --resume it
+            if let tab = tabById[id], let sid = j["session_id"] as? String, !sid.isEmpty {
+                let next: String? = type == "SessionEnd" ? nil : sid
+                if tab.claudeSessionId != next { tab.claudeSessionId = next; saveSessionSoon() }
+            }
         }
         attention(id: id, type: type)
     }
@@ -186,6 +203,7 @@ final class AppModel: ObservableObject {
     /// only chimes when no sub-agents are live, after a short quiet window.
     private func attention(id: Int, type: String) {
         let tab = tabById[id]
+        tab?.lastActivity = Date()
         if Self.workingEvents.contains(type) {
             pendingStop[id]?.cancel(); pendingStop.removeValue(forKey: id)
             switch type {
@@ -205,7 +223,13 @@ final class AppModel: ObservableObject {
                 if mainDone.contains(id) { return } // don't resurrect the dot after Stop
             default: break
             }
-            if let tab, !tab.working { tab.working = true; tabStateChanged(tab) }
+            if let tab {
+                tab.status = .working
+                if !tab.working {
+                    tab.working = true
+                    tabStateChanged(tab)
+                }
+            }
             return
         }
         pendingStop[id]?.cancel(); pendingStop.removeValue(forKey: id)
@@ -217,7 +241,10 @@ final class AppModel: ObservableObject {
         }
         if let tab, tab.working { tab.working = false; tabStateChanged(tab) }
         if type == "SessionEnd" { agents.removeValue(forKey: id); mainDone.remove(id); return }
-        if let tab { markAttention(tab, fromBell: false) }
+        if let tab {
+            tab.status = .needsInput
+            markAttention(tab, fromBell: false)
+        }
         chime()
         publishAlert(id: id, type: type)
     }
@@ -231,6 +258,7 @@ final class AppModel: ObservableObject {
             self.pendingStop.removeValue(forKey: id)
             if let tab = self.tabById[id] {
                 tab.working = false
+                tab.status = .ready
                 self.markAttention(tab, fromBell: false)
                 self.tabStateChanged(tab)
             }
@@ -254,8 +282,12 @@ final class AppModel: ObservableObject {
         if !HooksInstaller.installed() { chime() }
     }
 
+    /// Any system sound by name (`defaults write <bundle id> chime Blow`), or
+    /// `none` to leave the sound to your own hooks.
     func chime() {
-        NSSound(contentsOfFile: "/System/Library/Sounds/Glass.aiff", byReference: true)?.play()
+        let name = UserDefaults.standard.string(forKey: "chime") ?? "Glass"
+        guard name != "none" else { return }
+        NSSound(contentsOfFile: "/System/Library/Sounds/\(name).aiff", byReference: true)?.play()
     }
 
     private func publishAlert(id: Int, type: String) {
@@ -270,7 +302,10 @@ final class AppModel: ObservableObject {
 
     // ─── Session persistence (same shape as the Electron session.json) ───
 
-    struct SavedTab: Codable { var title: String?; var cwd: String?; var cmd: String?; var active: Bool? }
+    /// `fixed`: the title is a pinned project name (sidebar tab), not whatever the
+    /// shell last set via OSC. Absent in files written before it existed.
+    struct SavedTab: Codable { var title: String?; var cwd: String?; var cmd: String?; var active: Bool?; var fixed: Bool?
+        var lastActive: Double? }  // epoch seconds; restores active vs dormant across relaunches
     struct SavedWindow: Codable { var bounds: Bounds?; var tabs: [SavedTab]
         struct Bounds: Codable { var x: Double; var y: Double; var width: Double; var height: Double } }
     struct SavedSession: Codable { var windows: [SavedWindow] }
@@ -298,7 +333,9 @@ final class AppModel: ObservableObject {
             guard !wc.tabs.isEmpty else { return nil }
             let b = wc.window?.frame ?? .zero
             let tabs = wc.tabs.map { t in
-                SavedTab(title: t.title, cwd: t.currentCwd, cmd: t.opts.restoreCmd, active: t.id == wc.activeId)
+                SavedTab(title: t.title, cwd: t.currentCwd, cmd: Self.restoreCommand(for: t),
+                         active: t.id == wc.activeId, fixed: t.opts.title != nil,
+                         lastActive: t.lastActivity?.timeIntervalSince1970)
             }
             return SavedWindow(bounds: .init(x: b.origin.x, y: b.origin.y, width: b.width, height: b.height), tabs: tabs)
         }
@@ -309,6 +346,17 @@ final class AppModel: ObservableObject {
             let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted]
             try enc.encode(session).write(to: sessionURL)
         } catch {}
+    }
+
+    /// What to type into the restored shell so the tab comes back doing what it
+    /// was doing. A Claude tab resumes its exact conversation when the hooks
+    /// have told us its id; a Claude tab we only know is running (hooks off, or
+    /// a session older than the hooks) continues the most recent one in its
+    /// cwd; anything else keeps whatever it was opened with.
+    static func restoreCommand(for t: TabModel) -> String? {
+        guard t.claudeRunning else { return t.opts.restoreCmd }
+        if let sid = t.claudeSessionId { return "claude --resume \(sid)" }
+        return t.opts.restoreCmd ?? "claude -c"
     }
 
     private func restoreSession() {
@@ -335,10 +383,13 @@ final class AppModel: ObservableObject {
         for w in session.windows {
             for t in w.tabs where t.cwd != nil {
                 let isShellName = t.title?.range(of: "^shell \\d+$", options: .regularExpression) != nil
+                let fixed = t.fixed ?? (t.cmd != nil) // older files: only sidebar tabs had a cmd
                 let tab = wc.addTab(TabOptions(cwd: t.cwd, cmd: t.cmd,
-                                               title: t.cmd != nil ? t.title : nil,
+                                               title: fixed ? t.title : nil,
                                                shownTitle: isShellName ? nil : t.title,
-                                               restoreCmd: t.cmd), activateIt: false)
+                                               restoreCmd: t.cmd,
+                                               lastActivity: t.lastActive.map(Date.init(timeIntervalSince1970:))),
+                                    activateIt: false)
                 if t.active == true, activeTabId == nil { activeTabId = tab.id }
             }
         }

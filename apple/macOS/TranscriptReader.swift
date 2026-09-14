@@ -10,23 +10,46 @@ enum TranscriptReader {
     private typealias Found = (path: String, mtime: Date, codex: Bool)
     private static let maxAge: TimeInterval = 86_400 // a session untouched for a day isn't this tab
 
-    static func chatData(forCwd cwd: String?) -> Data? {
-        guard let cwd, !cwd.isEmpty else { return nil }
-        let candidates = [newestClaude(cwd), newestCodex(cwd)].compactMap { $0 }
-        guard let best = candidates.max(by: { $0.mtime < $1.mtime }) else { return nil }
+    static func messages(forCwd cwd: String?, sessionId: String? = nil) -> [ChatMessage] {
+        guard let cwd, !cwd.isEmpty else { return [] }
+        let best: Found?
+        if let id = sessionId, !id.isEmpty {
+            let path = claudeDirectory(cwd) + "/" + id + ".jsonl"
+            best = FileManager.default.fileExists(atPath: path)
+                ? (path, .distantPast, false)
+                : newest(forCwd: cwd)
+        } else {
+            best = newest(forCwd: cwd)
+        }
+        guard let best else { return [] }
         let lines = tailLines(best.path)
         let msgs = (best.codex ? ChatTranscript.parseCodex(jsonlLines: lines)
                                : ChatTranscript.parse(jsonlLines: lines)).suffix(50)
-        return ChatTranscript.encode(Array(msgs))
+        return Array(msgs)
+    }
+
+    static func chatData(forCwd cwd: String?, sessionId: String? = nil) -> Data? {
+        let msgs = messages(forCwd: cwd, sessionId: sessionId)
+        return msgs.isEmpty ? nil : ChatTranscript.encode(msgs) // nil = not an agent tab, as before
     }
 
     private static func mtime(_ path: String) -> Date? {
         (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
     }
 
-    private static func newestClaude(_ cwd: String) -> Found? {
+    private static func claudeDirectory(_ cwd: String) -> String {
         let slug = String(cwd.map { $0.isLetter || $0.isNumber ? $0 : "-" })
-        let dir = NSHomeDirectory() + "/.claude/projects/" + slug
+        return NSHomeDirectory() + "/.claude/projects/" + slug
+    }
+
+    private static func newest(forCwd cwd: String) -> Found? {
+        [newestClaude(cwd), newestCodex(cwd)]
+            .compactMap { $0 }
+            .max(by: { $0.mtime < $1.mtime })
+    }
+
+    private static func newestClaude(_ cwd: String) -> Found? {
+        let dir = claudeDirectory(cwd)
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir) else { return nil }
         var newest: Found?
         for name in names where name.hasSuffix(".jsonl") {

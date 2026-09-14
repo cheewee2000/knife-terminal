@@ -22,7 +22,11 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         if !DemoData.enabled {
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+            // Silent CloudKit pushes keep the mirror fresh and need no permission;
+            // only ask for the visible kind if the alerts switch is on.
+            if UserDefaults.standard.bool(forKey: MirrorStore.alertsKey) {
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+            }
             application.registerForRemoteNotifications()
         }
         return true
@@ -41,7 +45,7 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .sound])
+        completionHandler(UserDefaults.standard.bool(forKey: MirrorStore.alertsKey) ? [.banner, .sound] : [])
     }
 }
 
@@ -55,9 +59,9 @@ struct RootView: View {
                 SessionListView()
             } else {
                 VStack(spacing: 16) {
-                    Text("Knife Terminal").font(.custom("Space Mono Bold", size: 13))
+                    Text("Knife Terminal").font(ui(15, bold: true))
                     Text("Sign into iCloud in Settings to mirror your Mac's terminal.")
-                        .font(.custom("Space Mono", size: 13))
+                        .font(ui(15))
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 40)

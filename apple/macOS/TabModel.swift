@@ -8,6 +8,37 @@ struct TabOptions {
     var title: String?       // fixed title (project name, "man ls", …) — OSC titles don't override it
     var shownTitle: String?   // restored display title
     var restoreCmd: String?
+    var lastActivity: Date?   // restored from the session file, or now for a tab opened to work in
+}
+
+enum TabStatus {
+    case idle, working, ready, needsInput
+}
+
+/// How the sidebar files a tab.
+///   needs input / working / ready — straight from the hooks
+///   active  — anything touched in the last 24 hours (hook event, typing, opening it)
+///   dormant — nothing for a day or more, or a shell nobody has used
+/// Time, not process scanning, decides active vs dormant: it's stable (a row doesn't
+/// flicker while a scan catches up) and it's what "worked on" means.
+enum SidebarGroup: String, CaseIterable {
+    case needsInput = "needs input"
+    case working
+    case ready
+    case active
+    case dormant
+
+    static let activeWindow: TimeInterval = 24 * 60 * 60
+
+    static func of(_ status: TabStatus, lastActivity: Date?, now: Date = Date()) -> SidebarGroup {
+        switch status {
+        case .needsInput: .needsInput
+        case .working: .working
+        case .ready: .ready
+        case .idle:
+            if let t = lastActivity, now.timeIntervalSince(t) < activeWindow { .active } else { .dormant }
+        }
+    }
 }
 
 @MainActor
@@ -19,11 +50,87 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     @Published var title: String
     @Published var working = false
     @Published var attention = false
+    @Published var status: TabStatus = .idle { didSet { refreshGroup() } }
+    /// Last hook event, keystroke, or open. Deliberately not @Published: it moves on
+    /// every keystroke, and only a change of `group` should redraw the sidebar.
+    var lastActivity: Date? { didSet { refreshGroup() } }
+    @Published private(set) var group: SidebarGroup = .dormant
+
+    /// Also called on a timer, so a tab slides to dormant once its day is up.
+    func refreshGroup(now: Date = Date()) {
+        let g = SidebarGroup.of(status, lastActivity: lastActivity, now: now)
+        if g != group { group = g }
+    }
     var cols = 80
     var rows = 25
     var lastReportedCwd: String? // OSC 7, when the shell emits it
+    /// Claude Code session running in this tab, learned from hook payloads
+    /// (every hook carries `session_id`); cleared on SessionEnd.
+    var claudeSessionId: String?
 
     var shellPid: pid_t { view.process?.shellPid ?? 0 }
+
+    /// Agent process alive under this tab's shell right now, if any.
+    var runningAgent: String? {
+        let pid = shellPid
+        return pid > 0 ? Self.runningAgent(underShell: pid) : nil
+    }
+
+    var claudeRunning: Bool { runningAgent == "claude" }
+
+    /// Which of these shells has an agent running under it, in one pass over the
+    /// process table (under a millisecond). A pgrep per tab is a subprocess per
+    /// tab — far too slow for a timer, and the answers wouldn't share an instant.
+    ///
+    /// Identification is by executable path, not process name: Claude Code renames
+    /// itself to its version, so the kernel reports "2.1.270" and only the path
+    /// (~/.local/share/claude/versions/2.1.270) still says what it is.
+    nonisolated static func agentsByShell(_ shells: Set<pid_t>) -> [pid_t: String] {
+        var out: [pid_t: String] = [:]
+        guard !shells.isEmpty else { return out }
+        let cap = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
+        guard cap > 0 else { return out }
+        var pids = [pid_t](repeating: 0, count: Int(cap) / MemoryLayout<pid_t>.size + 64)
+        let got = proc_listpids(UInt32(PROC_ALL_PIDS), 0, &pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+        guard got > 0 else { return out }
+        for pid in pids.prefix(Int(got) / MemoryLayout<pid_t>.size) where pid > 0 {
+            var info = proc_bsdshortinfo()
+            let size = Int32(MemoryLayout<proc_bsdshortinfo>.size)
+            guard proc_pidinfo(pid, Int32(PROC_PIDT_SHORTBSDINFO), 0, &info, size) == size else { continue }
+            let parent = pid_t(info.pbsi_ppid)
+            guard shells.contains(parent), out[parent] == nil else { continue }
+            var buf = [CChar](repeating: 0, count: 4096)
+            guard proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 else { continue }
+            let path = String(cString: buf)
+            let name = (path as NSString).lastPathComponent
+            if name == "claude" || path.contains("/claude/") { out[parent] = "claude" }
+            else if name == "codex" || path.contains("/codex/") { out[parent] = "codex" }
+        }
+        return out
+    }
+
+    /// `pgrep -lfP <shell>` lists direct children as "<pid> <full command>";
+    /// agents run as direct children of the shell whether typed or launched by us.
+    nonisolated static func runningAgent(underShell pid: pid_t) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        p.arguments = ["-lfP", String(pid)]
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = Pipe()
+        do { try p.run() } catch { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        guard let out = String(data: data, encoding: .utf8) else { return nil }
+        for line in out.split(separator: "\n") {
+            guard let sp = line.firstIndex(of: " ") else { continue }
+            let cmd = line[line.index(after: sp)...]
+            let exe = cmd.split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""
+            let name = (exe as NSString).lastPathComponent
+            if name == "claude" || name == "codex" { return name }
+        }
+        return nil
+    }
 
     /// Current working directory of the shell, for session restore + context files.
     var currentCwd: String? {
@@ -32,7 +139,22 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         return Self.cwdOf(pid: pid) ?? lastReportedCwd
     }
 
+    /// The kernel knows the shell's cwd; asking it costs microseconds, where
+    /// spawning lsof costs ~100ms — and the board probes every tab every tick.
     nonisolated static func cwdOf(pid: pid_t) -> String? {
+        var info = proc_vnodepathinfo()
+        let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        if proc_pidinfo(pid, Int32(PROC_PIDVNODEPATHINFO), 0, &info, size) == size {
+            var path = info.pvi_cdir.vip_path
+            let s = withUnsafeBytes(of: &path) { raw in
+                raw.baseAddress.map { String(cString: $0.assumingMemoryBound(to: CChar.self)) } ?? ""
+            }
+            if !s.isEmpty { return s }
+        }
+        return cwdViaLsof(pid: pid)
+    }
+
+    nonisolated static func cwdViaLsof(pid: pid_t) -> String? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
         p.arguments = ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]
@@ -56,14 +178,13 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         self.title = opts.shownTitle ?? opts.title ?? (opts.cwd.map { ($0 as NSString).lastPathComponent } ?? "shell \(id)")
         self.view = KnifeTermView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         super.init()
+        lastActivity = opts.lastActivity
+        refreshGroup() // own-init assignments don't run didSet
         view.processDelegate = self
         AppModel.shared.theme.style(terminal: view)
 
-        var env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CLAUDE_CODE_") }
+        var env = Self.shellEnv()
         env["KNIFE_TAB"] = String(id)
-        env["TERM"] = "xterm-256color"
-        env["COLORTERM"] = "truecolor"
-        if env["LANG"] == nil { env["LANG"] = "en_US.UTF-8" }
         let envList = env.map { "\($0.key)=\($0.value)" }
 
         let shell = Self.userShell()
@@ -76,12 +197,21 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
                 self?.view.send(txt: cmd + "\r")
             }
         }
+        // Typing acknowledges a finished or waiting session. It doesn't mean Claude
+        // stopped — clearing "working" on every key made a busy tab flap between
+        // groups while you typed ahead. Esc and ^C do stop it, and an interrupt
+        // sends no Stop hook, so those clear it.
         view.onUserInput = { [weak self] in
             guard let self else { return }
-            if self.working || self.attention {
-                self.working = false; self.attention = false
-                AppModel.shared.tabStateChanged(self)
-            }
+            self.lastActivity = Date()
+            if self.status != .working { self.status = .idle }
+            if self.attention { self.attention = false; AppModel.shared.tabStateChanged(self) }
+        }
+        view.onInterrupt = { [weak self] in
+            guard let self, self.working || self.status == .working else { return }
+            self.working = false
+            self.status = .idle
+            AppModel.shared.tabStateChanged(self)
         }
         view.onBell = { [weak self] in
             guard let self else { return }
@@ -96,6 +226,24 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     static func userShell() -> String {
         if let pw = getpwuid(getuid()), let sh = pw.pointee.pw_shell, let s = String(validatingUTF8: sh), !s.isEmpty { return s }
         return ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+    }
+
+    /// Environment for spawned shells. The app inherits the environment of
+    /// whatever launched it (Finder, Xcode, another terminal) — launched from
+    /// Ghostty it carries TERM_PROGRAM=ghostty, GHOSTTY_*, and a TERMINFO that
+    /// only has xterm-ghostty entries, and shell integrations keyed on those
+    /// would think they're in Ghostty. Scrub the host's identity and set ours.
+    static func shellEnv() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment.filter {
+            !$0.key.hasPrefix("CLAUDE_CODE_") && !$0.key.hasPrefix("GHOSTTY_")
+        }
+        env["TERM"] = "xterm-256color"
+        env["COLORTERM"] = "truecolor"
+        env["TERM_PROGRAM"] = "KnifeTerminal"
+        env["TERM_PROGRAM_VERSION"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        env["TERMINFO"] = nil
+        if env["LANG"] == nil { env["LANG"] = "en_US.UTF-8" }
+        return env
     }
 
     func terminate() {

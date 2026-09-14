@@ -13,6 +13,7 @@ final class KnifeTermView: LocalProcessTerminalView {
     var onOutput: (() -> Void)?      // raw pty output landed (already in `ring`)
     var onBell: (() -> Void)?
     var onUserInput: (() -> Void)?   // real typing, not ESC[-prefixed reports
+    var onInterrupt: (() -> Void)?   // a lone Esc or ^C — stops the agent without a Stop hook
     let ring = OutputRingBuffer()
     private var findBarWatch: NSKeyValueObservation?
 
@@ -179,6 +180,10 @@ final class KnifeTermView: LocalProcessTerminalView {
         // Focus in/out reports, mouse events, and query responses arrive here
         // too (all ESC-prefixed) — only real typing clears working/attention.
         if data.first != 0x1b { DispatchQueue.main.async { [weak self] in self?.onUserInput?() } }
+        // A bare ESC byte is the key; reports are longer ESC sequences.
+        if data.count == 1, data.first == 0x1b || data.first == 0x03 {
+            DispatchQueue.main.async { [weak self] in self?.onInterrupt?() }
+        }
         super.send(source: source, data: data)
     }
 
@@ -432,16 +437,16 @@ final class KnifeTermView: LocalProcessTerminalView {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
-    private func refreshLinkOverlay() {
+    func refreshLinkOverlay() {
         wantsLayer = true
         if linkLayer.superlayer !== layer {
             linkLayer.removeFromSuperlayer()
-            linkLayer.strokeColor = NSColor(red: 0xB1 / 255.0, green: 0xA5 / 255.0, blue: 0x7E / 255.0, alpha: 0.9).cgColor
             linkLayer.lineWidth = 1
             linkLayer.fillColor = nil
             linkLayer.zPosition = 10
             layer?.addSublayer(linkLayer)
         }
+        linkLayer.strokeColor = AppModel.shared.theme.accent.withAlphaComponent(0.9).cgColor
         let path = CGMutablePath()
         let (cellW, cellH) = cellSize()
         for link in screenLinks {

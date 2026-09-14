@@ -103,7 +103,15 @@ public struct ZoneDelta: Sendable {
 }
 
 public final class CloudSync: @unchecked Sendable {
-    public static let containerID = "iCloud.com.cwandt.knifeterminal"
+    /// The CloudKit container both apps share. CW&T's by default; a build signed
+    /// by another team points at its own via the KnifeCloudContainer Info.plist
+    /// key (fed by the KNIFE_CLOUD_CONTAINER build setting), which has to match
+    /// the container in that build's entitlements.
+    public static let containerID: String = {
+        if let s = Bundle.main.object(forInfoDictionaryKey: "KnifeCloudContainer") as? String,
+           !s.isEmpty, !s.hasPrefix("$(") { return s }
+        return "iCloud.com.cwandt.knifeterminal"
+    }()
     public let container: CKContainer
     public let db: CKDatabase
     public let zoneID = CKRecordZone.ID(zoneName: "KnifeZone", ownerName: CKCurrentUserDefaultName)
@@ -205,6 +213,13 @@ public final class CloudSync: @unchecked Sendable {
         sub.notificationInfo = info
         _ = try await db.modifySubscriptions(saving: [sub], deleting: [])
         setupDone.insert(id)
+    }
+
+    /// Stop server-side alert pushes (the phone's "push when a session needs you"
+    /// switch); harmless when no such subscription exists.
+    public func deleteAlertSubscription() async throws {
+        _ = try await db.modifySubscriptions(saving: [], deleting: ["knife-alerts"])
+        setupDone.remove("knife-alerts")
     }
 
     // ─── Mac: publish ───

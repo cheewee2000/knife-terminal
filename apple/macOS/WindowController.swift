@@ -1,12 +1,17 @@
 import AppKit
 import SwiftUI
+import Combine
 
 @MainActor
 final class KnifeWindowController: NSWindowController, NSWindowDelegate, ObservableObject {
     @Published var tabs: [TabModel] = []
     @Published var activeId: Int?
+    @Published var showBoard = false
     /// The untouched shell a fresh window opens with; replaced by the first real tab.
     var defaultTabId: Int?
+    /// The sidebar groups tabs; a tab changing group has to re-render the list
+    /// itself, not just that row.
+    private var statusWatch: [Int: AnyCancellable] = [:]
 
     var activeTab: TabModel? { tabs.first { $0.id == activeId } }
 
@@ -31,16 +36,21 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
     func addTab(_ opts: TabOptions = TabOptions(), activateIt: Bool = true) -> TabModel {
         let tab = TabModel(id: AppModel.shared.takeTabId(), opts: opts)
         tabs.append(tab)
+        statusWatch[tab.id] = Publishers.Merge(
+            tab.$group.dropFirst().removeDuplicates().map { _ in () },
+            tab.$status.dropFirst().removeDuplicates().map { _ in () })
+            .sink { [weak self] in self?.objectWillChange.send() }
         AppModel.shared.tabOpened(tab, in: self)
         if activateIt { activate(tab.id) }
         return tab
     }
 
     func activate(_ id: Int) {
-        guard tabs.contains(where: { $0.id == id }) else { return }
+        guard let t = tabs.first(where: { $0.id == id }) else { return }
         activeId = id
-        if NSApp.isActive, window?.isKeyWindow ?? false, let t = activeTab, t.attention {
+        if NSApp.isActive, window?.isKeyWindow ?? false, t.attention {
             t.attention = false
+            t.status = t.working ? .working : .idle
         }
         AppModel.shared.saveSessionSoon()
     }
@@ -48,6 +58,7 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
     func closeTab(_ id: Int, keepAlive: Bool = false) {
         guard let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
         let tab = tabs.remove(at: idx)
+        statusWatch.removeValue(forKey: id)
         if !keepAlive {
             tab.terminate()
             AppModel.shared.tabClosed(tab)
@@ -83,7 +94,10 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        if let t = activeTab, t.attention { t.attention = false }
+        if let t = activeTab, t.attention {
+            t.attention = false
+            t.status = t.working ? .working : .idle
+        }
         AppModel.shared.mostRecentWindow = self
     }
 

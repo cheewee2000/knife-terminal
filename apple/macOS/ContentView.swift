@@ -8,8 +8,9 @@ extension Notification.Name {
     static let knifeToggleSidebar = Notification.Name("knife.toggleSidebar")
 }
 
-private func mono(_ size: CGFloat, bold: Bool = false) -> Font {
-    Font.custom(bold ? "Space Mono Bold" : "Space Mono", size: size)
+// Chrome type: Helvetica Now Text (system-installed); the terminal grid stays monospace.
+func ui(_ size: CGFloat, bold: Bool = false) -> Font {
+    Font.custom(bold ? "HelveticaNowText-Medium" : "HelveticaNowText-Regular", size: size)
 }
 
 struct ContentView: View {
@@ -32,11 +33,20 @@ struct ContentView: View {
                                 .contentShape(Rectangle())
                                 .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                                     .onChanged { v in sideWidth = max(160, min(480, v.location.x)) })
-                                .onHover { inside in inside ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
+                                // set(), not push/pop: an unmatched pop when the view redraws mid-hover
+                                // leaves the wrong cursor stuck app-wide
+                                .onContinuousHover { phase in
+                                    if case .active = phase { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
+                                }
                         )
                 }
-                TerminalPane(controller: controller)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if controller.showBoard {
+                    BoardView(controller: controller)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    TerminalPane(controller: controller)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
             FooterBar(controller: controller)
         }
@@ -84,8 +94,16 @@ struct SidebarView: View {
     @ObservedObject var controller: KnifeWindowController
     @ObservedObject var theme = AppModel.shared.theme
     @State private var projects: [Project] = []
+    @State private var meta = Projects.SidebarMeta()
+    @State private var sectioned: [(ProjectSection, [Project])] = []
     @State private var query = ""
-    @State private var draggingTabId: Int?
+    @State private var drag: SidebarDrag?
+    @State private var hoverSection: ProjectSection?
+    @AppStorage("knife.collapsedSections") private var collapsedRaw = ""
+    @State private var renaming: Project?
+    @State private var renameText = ""
+    /// tab id → the group it was in when the pointer arrived over the tab list.
+    @State private var frozen: [Int: SidebarGroup]? = nil
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -93,23 +111,36 @@ struct SidebarView: View {
             Color.clear.frame(height: 38) // room for traffic lights
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 1) {
-                    ForEach(controller.tabs) { tab in
-                        TabRow(tab: tab, active: tab.id == controller.activeId,
-                               activate: { controller.activate(tab.id) },
-                               close: { controller.closeTab(tab.id) })
-                            .opacity(draggingTabId == tab.id ? 0.4 : 1.0)
-                            .onDrag {
-                                draggingTabId = tab.id
-                                return NSItemProvider(object: String(tab.id) as NSString)
+                LazyVStack(alignment: .leading, spacing: 1) {
+                    // Tabs grouped (needs input first); manual order kept within a group.
+                    // Headers only appear once something isn't dormant, so a window of
+                    // plain shells looks like a plain list.
+                    VStack(alignment: .leading, spacing: 1) {
+                        let grouped = SidebarGroup.allCases.map { g in
+                            (g, controller.tabs.filter { shownGroup($0) == g })
+                        }
+                        let showHeaders = grouped.contains { $0.0 != .dormant && !$0.1.isEmpty }
+                        ForEach(grouped, id: \.0) { group, tabs in
+                            if !tabs.isEmpty {
+                                if showHeaders { tabGroupHeader(group, count: tabs.count) }
+                                ForEach(tabs) { tab in tabRow(tab) }
                             }
-                            .onDrop(of: [.text], delegate: TabReorderDrop(
-                                targetId: tab.id, dragging: $draggingTabId, controller: controller))
+                        }
+                    }
+                    // While the pointer is over the tabs, nothing changes group: rows never
+                    // move under a click, and a press isn't turned into a drag by a row
+                    // sliding away. Dots and status words keep updating live.
+                    .onHover { inside in
+                        if inside {
+                            frozen = Dictionary(controller.tabs.map { ($0.id, $0.group) }, uniquingKeysWith: { a, _ in a })
+                        } else {
+                            withAnimation(.easeInOut(duration: 0.2)) { frozen = nil }
+                        }
                     }
                     Button(action: { controller.addTab() }) {
                         HStack(spacing: 6) {
-                            Text("+").font(mono(12))
-                            Text("new tab").font(mono(11))
+                            Text("+").font(ui(12))
+                            Text("new tab").font(ui(11))
                         }
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 10).padding(.vertical, 4)
@@ -121,74 +152,401 @@ struct SidebarView: View {
 
                     TextField("⌘K search projects", text: $query)
                         .textFieldStyle(.plain)
-                        .font(mono(11))
+                        .font(ui(11))
                         .focused($searchFocused)
                         .padding(.horizontal, 10).padding(.bottom, 4)
                         .onSubmit {
-                            if let first = filtered.first { open(project: first) }
+                            if let first = query.trimmingCharacters(in: .whitespaces).isEmpty
+                                ? projects.first : filtered.first {
+                                open(project: first)
+                            }
                         }
                         .onExitCommand { query = ""; searchFocused = false }
 
-                    ForEach(filtered) { p in
-                        Button(action: { open(project: p) }) {
-                            HStack(spacing: 6) {
-                                Text(Emoji.forPath(p.path)).font(.system(size: 12))
-                                Text(p.name).font(mono(11)).lineLimit(1)
-                                Spacer(minLength: 0)
+                    if query.trimmingCharacters(in: .whitespaces).isEmpty {
+                        // Headers are always rendered: revealing them only while dragging
+                        // reflowed the whole list the instant a row was picked up, so the
+                        // row under the cursor was no longer the one you grabbed.
+                        ForEach(ProjectSection.allCases, id: \.self) { section in
+                            let rows = isCollapsed(section) ? [] : projects(in: section)
+                            sectionHeader(section)
+                                .onDrop(of: [.text], delegate: ProjectSectionDrop(
+                                    target: section, drag: $drag,
+                                    hoverSection: $hoverSection,
+                                    liveMove: liveMove(_:into:),
+                                    end: endDrag))
+                            ForEach(rows) { p in
+                                projectRow(p)
+                                    .opacity(drag == .project(p.path) ? 0.4 : 1.0)
+                                    .onDrag {
+                                        let path = p.path
+                                        DispatchQueue.main.async { drag = .project(path) }
+                                        return NSItemProvider(object: "proj:\(path)" as NSString)
+                                    }
+                                    .onDrop(of: [.text], delegate: ProjectRowDrop(
+                                        targetPath: p.path, targetSection: section,
+                                        drag: $drag,
+                                        liveMove: liveMove(_:before:in:),
+                                        end: endDrag))
                             }
-                            .padding(.horizontal, 10).padding(.vertical, 3)
-                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
-                        .help(p.path)
+                    } else {
+                        ForEach(filtered) { p in projectRow(p) }
                     }
                 }
                 .padding(.vertical, 4)
             }
 
         }
-        .onDrop(of: [.text], isTargeted: nil) { _ in draggingTabId = nil; return true }
-        .onAppear { projects = Projects.list() }
+        .onDrop(of: [.text], isTargeted: nil) { _ in
+            endDrag()
+            return true
+        }
+        .onAppear(perform: rebuild)
+        // A hover exit never arrives if you leave the app with the pointer parked on
+        // the tabs; don't leave the list frozen until the mouse moves again.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { n in
+            guard (n.object as? NSWindow) === controller.window else { return }
+            frozen = nil
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { n in
             guard (n.object as? NSWindow) === controller.window else { return }
-            projects = Projects.list()
+            rebuild()
         }
         .onReceive(NotificationCenter.default.publisher(for: .knifeFocusSearch)) { _ in
             if controller.window?.isKeyWindow ?? false { searchFocused = true }
+        }
+        .alert("rename project", isPresented: Binding(
+            get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("name", text: $renameText)
+            Button("save") { commitRename() }
+            Button("cancel", role: .cancel) { renaming = nil }
+        } message: {
+            Text(renaming.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? "")
         }
     }
 
     private var filtered: [Project] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return projects }
         return projects.filter { $0.name.lowercased().contains(q) || $0.path.lowercased().contains(q) }
+    }
+
+    private func tabRow(_ tab: TabModel) -> some View {
+        TabRow(tab: tab, active: tab.id == controller.activeId,
+               activate: { controller.activate(tab.id) },
+               close: { controller.closeTab(tab.id) })
+            .opacity(drag == .tab(tab.id) ? 0.4 : 1.0)
+            .onDrag {
+                let id = tab.id
+                // Deferred: writing state inside onDrag re-renders the row while
+                // AppKit is opening the drag session, which cancels it.
+                DispatchQueue.main.async { drag = .tab(id) }
+                return NSItemProvider(object: String(id) as NSString)
+            }
+            .onDrop(of: [.text], delegate: TabReorderDrop(
+                targetId: tab.id, drag: $drag, controller: controller,
+                sameGroup: sameShownGroup, end: endDrag))
+    }
+
+    /// The group a row is drawn in: frozen while the pointer is over the tab list,
+    /// live otherwise. Drags compare this, so they match what's on screen.
+    private func shownGroup(_ tab: TabModel) -> SidebarGroup { frozen?[tab.id] ?? tab.group }
+
+    private func sameShownGroup(_ a: Int, _ b: Int) -> Bool {
+        guard let ta = controller.tabs.first(where: { $0.id == a }),
+              let tb = controller.tabs.first(where: { $0.id == b }) else { return false }
+        return shownGroup(ta) == shownGroup(tb)
+    }
+
+    private func tabGroupHeader(_ group: SidebarGroup, count: Int) -> some View {
+        HStack(spacing: 4) {
+            Text(group.rawValue)
+                .foregroundStyle(group == .needsInput ? theme.attentionColor : Color.secondary)
+            Text("\(count)").foregroundStyle(.tertiary)
+            Spacer(minLength: 0)
+        }
+        .font(ui(10))
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+    }
+
+    private func projects(in section: ProjectSection) -> [Project] {
+        sectioned.first { $0.0 == section }?.1 ?? []
+    }
+
+    private func projectRow(_ p: Project) -> some View {
+        ProjectRow(project: p, starred: meta.byPath[p.path]?.starred ?? false,
+                   open: { open(project: p) },
+                   toggleStar: { toggleStar(p) },
+                   move: { move(p, to: $0) },
+                   rename: { renameText = p.name; renaming = p })
+    }
+
+    private func sectionHeader(_ section: ProjectSection) -> some View {
+        HStack(spacing: 4) {
+            Text(section == .starred ? "★" : section.rawValue)
+                .foregroundStyle(.secondary)
+            if isCollapsed(section) {
+                Text("▸ \(projects(in: section).count)")
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer(minLength: 0)
+        }
+        .font(ui(10))
+        .padding(.horizontal, 10)
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+        .background(hoverSection == section ? theme.accentColor.opacity(0.15) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture { toggleCollapse(section) }
+    }
+
+    private func isCollapsed(_ section: ProjectSection) -> Bool {
+        collapsedRaw.split(separator: ",").contains(Substring(section.rawValue))
+    }
+
+    private func toggleCollapse(_ section: ProjectSection) {
+        var set = Set(collapsedRaw.split(separator: ",").map(String.init))
+        if !set.insert(section.rawValue).inserted { set.remove(section.rawValue) }
+        collapsedRaw = set.sorted().joined(separator: ",")
+    }
+
+    private func rebuild() {
+        meta = Projects.loadMeta()
+        projects = Projects.list().map { p in
+            guard let n = meta.byPath[p.path]?.name, !n.isEmpty else { return p }
+            return Project(path: p.path, name: n, t: p.t)
+        }
+        sectioned = Projects.sectioned(projects, meta: meta)
+    }
+
+    private func commitRename() {
+        guard let p = renaming else { return }
+        var next = meta
+        var saved = next.byPath[p.path] ?? ProjectMeta()
+        let trimmed = renameText.trimmingCharacters(in: .whitespaces)
+        saved.name = (trimmed.isEmpty || trimmed == (p.path as NSString).lastPathComponent) ? nil : trimmed
+        next.byPath[p.path] = saved
+        Projects.saveMeta(next)
+        renaming = nil
+        rebuild()
     }
 
     private func open(project p: Project) {
         Projects.touch(p.path)
-        controller.addTab(TabOptions(cwd: p.path, cmd: "claude", title: p.name, restoreCmd: "claude -c"))
+        controller.addTab(TabOptions(cwd: p.path, cmd: "claude", title: p.name, restoreCmd: "claude -c",
+                                     lastActivity: Date()))
         query = ""
         searchFocused = false
-        projects = Projects.list()
+        rebuild()
     }
 
+    private func toggleStar(_ p: Project) {
+        var next = meta
+        var saved = next.byPath[p.path] ?? ProjectMeta()
+        saved.starred.toggle()
+        next.byPath[p.path] = saved
+        Projects.saveMeta(next)
+        rebuild()
+    }
+
+    private func move(_ p: Project, to section: ProjectSection) {
+        commitDrop(p.path, into: section, snapshotOrder: nil)
+    }
+
+    /// Ends whatever drag is in flight by persisting the live order the user can
+    /// already see. Every drop target funnels here, so releasing anywhere in the
+    /// sidebar sticks instead of snapping back on the next rebuild.
+    private func endDrag() {
+        hoverSection = nil
+        guard case .project(let path) = drag,
+              let section = sectioned.first(where: { $0.1.contains { $0.path == path } })?.0 else {
+            drag = nil
+            return
+        }
+        commitDrop(path, into: section, snapshotOrder: projects(in: section).map(\.path))
+    }
+
+    /// Hovering a section header parks the row at the top of that section, so a
+    /// header drop lands where it looks like it will instead of by recency.
+    private func liveMove(_ path: String, into section: ProjectSection) {
+        guard let fromSection = sectioned.firstIndex(where: { $0.1.contains { $0.path == path } }),
+              let fromRow = sectioned[fromSection].1.firstIndex(where: { $0.path == path }),
+              let toSection = sectioned.firstIndex(where: { $0.0 == section }),
+              !(fromSection == toSection && fromRow == 0) else { return }
+        let p = sectioned[fromSection].1.remove(at: fromRow)
+        sectioned[toSection].1.insert(p, at: 0)
+    }
+
+    private func liveMove(_ path: String, before targetPath: String, in section: ProjectSection) {
+        guard path != targetPath,
+              let fromSection = sectioned.firstIndex(where: { rows in rows.1.contains { $0.path == path } }),
+              let fromRow = sectioned[fromSection].1.firstIndex(where: { $0.path == path }),
+              let toSection = sectioned.firstIndex(where: { $0.0 == section }),
+              let toRow = sectioned[toSection].1.firstIndex(where: { $0.path == targetPath }) else { return }
+        if fromSection == toSection {
+            sectioned[fromSection].1.move(
+                fromOffsets: IndexSet(integer: fromRow),
+                toOffset: toRow > fromRow ? toRow + 1 : toRow)
+        } else {
+            let p = sectioned[fromSection].1.remove(at: fromRow)
+            sectioned[toSection].1.insert(p, at: toRow)
+        }
+    }
+
+    private func commitDrop(_ path: String, into target: ProjectSection, snapshotOrder: [String]?) {
+        guard let p = projects.first(where: { $0.path == path }) else {
+            drag = nil
+            hoverSection = nil
+            rebuild()
+            return
+        }
+        var next = meta
+        var saved = next.byPath[path] ?? ProjectMeta()
+        if target == .starred {
+            saved.starred = true
+        } else {
+            saved.starred = false
+            saved.override = target == Projects.autoSection(p) ? nil : target
+        }
+        next.byPath[path] = saved
+        for section in ProjectSection.allCases {
+            let key = section.rawValue
+            next.order[key]?.removeAll { $0 == path }
+            if next.order[key]?.isEmpty == true { next.order.removeValue(forKey: key) }
+        }
+        if let snapshotOrder { next.order[target.rawValue] = snapshotOrder }
+        Projects.saveMeta(next)
+        drag = nil
+        hoverSection = nil
+        rebuild()
+    }
+}
+
+private struct ProjectRow: View {
+    let project: Project
+    let starred: Bool
+    let open: () -> Void
+    let toggleStar: () -> Void
+    let move: (ProjectSection) -> Void
+    let rename: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(Emoji.forPath(project.path)).font(.system(size: 12))
+            Text(project.name).font(ui(11)).lineLimit(1)
+            Spacer(minLength: 0)
+            if hovering {
+                Button(action: toggleStar) {
+                    Text(starred ? "★" : "☆").font(ui(11)).foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 3)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: open)
+        .onHover { hovering = $0 }
+        .contextMenu {
+            Button(starred ? "unstar" : "star", action: toggleStar)
+            Button("rename…", action: rename)
+            Divider()
+            Button("move to active") { move(.active) }
+            Button("move to dormant") { move(.dormant) }
+            Button("move to archived") { move(.archived) }
+        }
+        .help(project.path)
+    }
+}
+
+/// What the sidebar is currently dragging. One value rather than two parallel
+/// optionals, so a tab dragged onto a project row (or the reverse) can't be
+/// mistaken for a drag of the target's own kind — both payloads are plain text.
+enum SidebarDrag: Equatable {
+    case tab(Int)
+    case project(String)
 }
 
 /// Live-reorders sidebar tabs: dragging a row over another swaps them as you go.
 private struct TabReorderDrop: DropDelegate {
     let targetId: Int
-    @Binding var dragging: Int?
+    @Binding var drag: SidebarDrag?
     let controller: KnifeWindowController
+    /// Drags only reorder within the group shown on screen: status isn't something you
+    /// can drop a tab into, and a cross-group move reshuffled the list mid-drag.
+    let sameGroup: (Int, Int) -> Bool
+    let end: () -> Void
 
     func dropEntered(info: DropInfo) {
-        guard let from = dragging, from != targetId else { return }
-        DispatchQueue.main.async { controller.moveTab(from, before: targetId) }
+        guard case .tab(let from) = drag, from != targetId else { return }
+        DispatchQueue.main.async {
+            guard sameGroup(from, targetId) else { return }
+            controller.moveTab(from, before: targetId)
+        }
     }
 
-    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: drag == nil ? .forbidden : .move)
+    }
 
     func performDrop(info: DropInfo) -> Bool {
-        DispatchQueue.main.async { dragging = nil }
+        // Also accepts project drags: releasing over the tab list must commit
+        // them rather than leave the row visually moved but unsaved.
+        DispatchQueue.main.async { end() }
+        return true
+    }
+}
+
+private struct ProjectRowDrop: DropDelegate {
+    let targetPath: String
+    let targetSection: ProjectSection
+    @Binding var drag: SidebarDrag?
+    let liveMove: (String, String, ProjectSection) -> Void
+    let end: () -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard case .project(let from) = drag, from != targetPath else { return }
+        DispatchQueue.main.async { liveMove(from, targetPath, targetSection) }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: drag == nil ? .forbidden : .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        DispatchQueue.main.async { end() }
+        return true
+    }
+}
+
+private struct ProjectSectionDrop: DropDelegate {
+    let target: ProjectSection
+    @Binding var drag: SidebarDrag?
+    @Binding var hoverSection: ProjectSection?
+    let liveMove: (String, ProjectSection) -> Void
+    let end: () -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard case .project(let from) = drag else { return }
+        DispatchQueue.main.async {
+            hoverSection = target
+            liveMove(from, target)
+        }
+    }
+
+    func dropExited(info: DropInfo) {
+        guard hoverSection == target else { return }
+        DispatchQueue.main.async { hoverSection = nil }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: drag == nil ? .forbidden : .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        DispatchQueue.main.async { end() }
         return true
     }
 }
@@ -206,6 +564,7 @@ struct FooterBar: View {
             Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
             HStack(spacing: 12) {
                 footBtn(theme.mode.rawValue) { theme.cycle() }
+                footBtn("board") { controller.showBoard.toggle() }
                 footBtn(hooksOn ? "alerts on" : "alerts off") {
                     _ = HooksInstaller.install(); hooksOn = HooksInstaller.installed()
                 }
@@ -220,7 +579,7 @@ struct FooterBar: View {
                     }
                 Spacer()
                 Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
-                    .font(mono(9)).foregroundStyle(.tertiary)
+                    .font(ui(9)).foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
         }
@@ -232,7 +591,7 @@ struct FooterBar: View {
 
     private func footBtn(_ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label).font(mono(10)).foregroundStyle(.secondary)
+            Text(label).font(ui(10)).foregroundStyle(.secondary)
         }
         .buttonStyle(.plain)
     }
@@ -243,11 +602,12 @@ struct TabRow: View {
     let active: Bool
     let activate: () -> Void
     let close: () -> Void
+    @ObservedObject var theme = AppModel.shared.theme
     @State private var hovering = false
     @State private var pulse = false
 
-    private let accent = Color(red: 0xB1 / 255.0, green: 0xA5 / 255.0, blue: 0x7E / 255.0)
-    private let signalOrange = Color(red: 0xE3 / 255.0, green: 0x5A / 255.0, blue: 0x1E / 255.0)
+    private var accent: Color { theme.accentColor }
+    private var signalOrange: Color { theme.attentionColor }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -259,14 +619,18 @@ struct TabRow: View {
                 .onAppear { pulse = isPulsing }
                 .onChange(of: isPulsing) { _, now in pulse = now }
             Text(tab.emoji).font(.system(size: 12))
-            Text(tab.title).font(mono(11, bold: active)).lineLimit(1)
+            Text(tab.title).font(ui(11, bold: active)).lineLimit(1)
                 .foregroundStyle(active ? Color.primary : Color.secondary)
             Spacer(minLength: 0)
             if hovering {
                 Button(action: close) {
-                    Text("×").font(mono(11)).foregroundStyle(.secondary)
+                    Text("×").font(ui(11)).foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+            } else if let word = statusWord {
+                Text(word)
+                    .font(ui(9))
+                    .foregroundStyle(tab.status == .needsInput ? signalOrange : Color.secondary)
             }
         }
         .padding(.horizontal, 10).padding(.vertical, 4)
@@ -280,6 +644,15 @@ struct TabRow: View {
     }
 
     private var isPulsing: Bool { tab.working && !tab.attention }
+
+    private var statusWord: String? {
+        switch tab.status {
+        case .idle: nil
+        case .working: "working…"
+        case .ready: "ready"
+        case .needsInput: "needs input"
+        }
+    }
 }
 
 struct ContextPanel: View {
@@ -293,20 +666,20 @@ struct ContextPanel: View {
         return VStack(alignment: .leading, spacing: 6) {
             Text(scope == "global" ? "loaded into every session"
                  : "loaded by this tab" + (result.cwd.map { " — " + short($0) } ?? ""))
-                .font(mono(10, bold: true))
+                .font(ui(10, bold: true))
             if result.files.isEmpty {
                 Text(scope == "global" ? "no global context files"
                      : (cwd != nil ? "no project context files" : "no shell running in this tab"))
-                    .font(mono(10)).foregroundStyle(.secondary)
+                    .font(ui(10)).foregroundStyle(.secondary)
             }
             ForEach(result.files) { f in
                 Button(action: { NSWorkspace.shared.open(URL(fileURLWithPath: f.path)) }) {
                     HStack(spacing: 8) {
-                        Text((f.path as NSString).lastPathComponent).font(mono(10, bold: true))
-                        Text(short((f.path as NSString).deletingLastPathComponent)).font(mono(9)).foregroundStyle(.secondary).lineLimit(1)
+                        Text((f.path as NSString).lastPathComponent).font(ui(10, bold: true))
+                        Text(short((f.path as NSString).deletingLastPathComponent)).font(ui(9)).foregroundStyle(.secondary).lineLimit(1)
                         Spacer()
                         Text(f.size < 1024 ? "\(f.size)b" : String(format: "%.1fk", Double(f.size) / 1024))
-                            .font(mono(9)).foregroundStyle(.tertiary)
+                            .font(ui(9)).foregroundStyle(.tertiary)
                     }
                     .contentShape(Rectangle())
                 }
