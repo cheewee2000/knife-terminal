@@ -3,18 +3,11 @@ import CloudKit
 import KnifeKit
 
 /// Mac side of the iOS mirror: publishes Tab records (coalesced), consumes
-/// Input records, creates Alert records for push notifications.
-///
-/// Roles (Knife Terminal menu): the **executor** (the Mac mini) publishes its
-/// tabs, runs jobs, and answers the phone; a **client** (the laptop) never
-/// touches Tab/Input/Open records — it publishes its own project list, mirrors
-/// the executor's tabs into `remoteTabs`, and posts job requests.
+/// Input records, creates Alert records for push notifications, and runs the
+/// phone's job requests. One Mac is the executor; run Knife on one Mac.
 @MainActor
-final class SyncPublisher: ObservableObject {
-    static let roleKey = "knife.role"
-    static var isExecutor: Bool { (UserDefaults.standard.string(forKey: roleKey) ?? "executor") == "executor" }
+final class SyncPublisher {
     let cloud = CloudSync(role: "mac")
-    @Published var remoteTabs: [MirroredTab] = []   // client role: the executor's tabs (jobs included)
     private var enabled = false
     var subReady = false
     private var dirty: Set<Int> = []          // tab ids with unpublished output
@@ -50,16 +43,10 @@ final class SyncPublisher: ObservableObject {
         guard await cloud.accountAvailable() else { return }
         do {
             try await cloud.ensureZone()
-            if Self.isExecutor {
-                try await cloud.clearStaleTabs()
-                if !UserDefaults.standard.bool(forKey: "knife.legacyProjectsGone") {
-                    try await cloud.deleteLegacyProjectsRecord()
-                    UserDefaults.standard.set(true, forKey: "knife.legacyProjectsGone")
-                }
-            } else {
-                // a client's tab ids collide with the executor's — never delete or publish them
-                UserDefaults.standard.set([String](), forKey: "knife.publishedTabs")
-                cloud.resetChangeToken() // mirror the executor's tabs from scratch
+            try await cloud.clearStaleTabs()
+            if !UserDefaults.standard.bool(forKey: "knife.legacyProjectsGone") {
+                try await cloud.deleteLegacyProjectsRecord()
+                UserDefaults.standard.set(true, forKey: "knife.legacyProjectsGone")
             }
             // one-time: re-walk the whole zone so leaked Alert records get purged
             if !UserDefaults.standard.bool(forKey: "knife.purgedAlerts") {
@@ -75,15 +62,13 @@ final class SyncPublisher: ObservableObject {
         do { try await cloud.ensureDatabaseSubscription(); subReady = true }
         catch { NSLog("knife sync: db subscription failed (poll still works): \(error)") }
         // publish whatever is already open
-        if Self.isExecutor {
-            for wc in AppModel.shared.windows { for t in wc.tabs { dirty.insert(t.id) } }
-            scheduleFlush(after: 0.5)
-        }
+        for wc in AppModel.shared.windows { for t in wc.tabs { dirty.insert(t.id) } }
+        scheduleFlush(after: 0.5)
         await consumeInputs()
         await publishProjectsIfChanged()
     }
 
-    // ─── Project manifest: this machine's slice (both roles) ───
+    // ─── Project manifest: this machine's slice ───
 
     private var lastProjectsJSON: Data?
     func publishProjectsIfChanged() async {
@@ -95,14 +80,6 @@ final class SyncPublisher: ObservableObject {
         catch { NSLog("knife sync: projects publish failed (will retry): \(error)") }
     }
 
-    /// A request typed here or on the phone. The executor runs it in a job
-    /// tab right away; a client posts it for the executor to pick up.
-    func postJob(_ text: String) {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty else { return }
-        if Self.isExecutor { AppModel.shared.dispatchJob(t); return }
-        Task { try? await cloud.sendJob(t) }
-    }
 
     // ─── Publishing ───
 
@@ -111,18 +88,18 @@ final class SyncPublisher: ObservableObject {
     func tabOutput(_ tab: TabModel) { markDirty(tab.id, urgent: false) }
 
     func tabClosed(_ id: Int) {
-        guard enabled, Self.isExecutor else { return }
+        guard enabled else { return }
         dirty.remove(id)
         Task { try? await cloud.deleteTabs([id]) } // failure logged by CloudSync
     }
 
     func publishAlert(tabTitle: String, message: String) {
-        guard enabled, Self.isExecutor else { return }
+        guard enabled else { return }
         Task { try? await cloud.publishAlert(tabTitle: tabTitle, message: message) }
     }
 
     private func markDirty(_ id: Int, urgent: Bool) {
-        guard enabled, Self.isExecutor else { return }
+        guard enabled else { return }
         dirty.insert(id)
         let elapsed = Date().timeIntervalSince(lastFlush[id] ?? .distantPast)
         scheduleFlush(after: urgent ? 0.1 : max(0.1, minInterval - elapsed))
@@ -181,14 +158,6 @@ final class SyncPublisher: ObservableObject {
             for (name, refs) in delta.projects { Manifest.remoteLists[name] = refs }
             for name in delta.deletedProjectRecordNames { Manifest.remoteLists.removeValue(forKey: name) }
             Manifest.write(local: Manifest.localRefs())
-        }
-        guard Self.isExecutor else {
-            // client: mirror the executor's tabs; leave its Input/Open/Alert records alone
-            var byId = Dictionary(uniqueKeysWithValues: remoteTabs.map { ($0.id, $0) })
-            for t in delta.tabs { byId[t.id] = t }
-            for name in delta.deletedTabRecordNames { byId.removeValue(forKey: name) }
-            remoteTabs = byId.values.sorted { $0.order < $1.order }
-            return
         }
         if !delta.garbage.isEmpty { Task { try? await cloud.deleteRecords(delta.garbage) } }
         guard !delta.inputs.isEmpty || !delta.opens.isEmpty || !delta.closes.isEmpty || !delta.seens.isEmpty

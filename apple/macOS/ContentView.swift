@@ -160,7 +160,7 @@ struct SidebarView: View {
                         .help("on another Mac — opens by cloning it here")
                     }
 
-                    if let sync = AppModel.shared.sync { RemotePane(sync: sync) }
+                    JobBox()
                 }
                 .padding(.vertical, 4)
             }
@@ -202,67 +202,20 @@ struct SidebarView: View {
 
 }
 
-/// Jobs: a request box (routed + run by the executor), and — on a client Mac —
-/// the executor's live sessions, click for the transcript/screen text.
-struct RemotePane: View {
-    @ObservedObject var sync: SyncPublisher
+/// Job request box: routed to a project and run in a job tab (same path as the phone).
+struct JobBox: View {
     @State private var request = ""
-    @State private var shown: MirroredTab?
 
     var body: some View {
         Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1).padding(.vertical, 6)
-        TextField(SyncPublisher.isExecutor ? "ask (routed to a project, run here)" : "ask the executor…", text: $request, axis: .vertical)
+        TextField("ask — routed to a project, run in a job tab", text: $request, axis: .vertical)
             .textFieldStyle(.plain).font(mono(11)).lineLimit(1...4)
             .padding(.horizontal, 10).padding(.bottom, 4)
-            .onSubmit { sync.postJob(request); request = "" }
-        if !SyncPublisher.isExecutor {
-            Text("executor").font(mono(9)).foregroundStyle(.tertiary).padding(.horizontal, 10)
-            if sync.remoteTabs.isEmpty {
-                Text("no sessions — is the executor running?").font(mono(10)).foregroundStyle(.tertiary).padding(.horizontal, 10)
+            .onSubmit {
+                let t = request.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !t.isEmpty { AppModel.shared.dispatchJob(t) }
+                request = ""
             }
-            ForEach(sync.remoteTabs) { t in
-                Button(action: { shown = t }) {
-                    HStack(spacing: 6) {
-                        Circle().fill(t.attention ? Color(red: 0.89, green: 0.35, blue: 0.12) : (t.working ? Color(red: 0.69, green: 0.65, blue: 0.49) : .clear))
-                            .frame(width: 6, height: 6)
-                        Text(t.emoji).font(.system(size: 12))
-                        Text(t.title).font(mono(11)).lineLimit(1)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 10).padding(.vertical, 3)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .popover(isPresented: Binding(get: { shown?.id == t.id }, set: { if !$0 { shown = nil } })) {
-                    RemoteTabText(tab: sync.remoteTabs.first { $0.id == t.id } ?? t)
-                }
-            }
-        }
-    }
-}
-
-struct RemoteTabText: View {
-    let tab: MirroredTab
-
-    private var text: String {
-        if let msgs = ChatTranscript.decode(tab.chat), !msgs.isEmpty {
-            return msgs.map { m in
-                switch m.kind {
-                case .user: return "> " + m.text
-                case .assistant: return m.text
-                case .tool: return "  · " + m.text
-                }
-            }.joined(separator: "\n\n")
-        }
-        return StyledScreen.decode(tab.styled)?.lines.map { $0.map(\.t).joined() }.joined(separator: "\n") ?? ""
-    }
-
-    var body: some View {
-        ScrollView {
-            Text(text).font(mono(11)).textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(12)
-        }
-        .frame(width: 520, height: 480)
     }
 }
 
