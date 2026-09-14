@@ -102,6 +102,8 @@ struct SidebarView: View {
     @AppStorage("knife.collapsedSections") private var collapsedRaw = ""
     @State private var renaming: Project?
     @State private var renameText = ""
+    /// tab id → the group it was in when the pointer arrived over the tab list.
+    @State private var frozen: [Int: SidebarGroup]? = nil
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -113,14 +115,26 @@ struct SidebarView: View {
                     // Tabs grouped (needs input first); manual order kept within a group.
                     // Headers only appear once something isn't dormant, so a window of
                     // plain shells looks like a plain list.
-                    let grouped = SidebarGroup.allCases.map { g in
-                        (g, controller.tabs.filter { controller.displayGroup($0) == g })
+                    VStack(alignment: .leading, spacing: 1) {
+                        let grouped = SidebarGroup.allCases.map { g in
+                            (g, controller.tabs.filter { shownGroup($0) == g })
+                        }
+                        let showHeaders = grouped.contains { $0.0 != .dormant && !$0.1.isEmpty }
+                        ForEach(grouped, id: \.0) { group, tabs in
+                            if !tabs.isEmpty {
+                                if showHeaders { tabGroupHeader(group, count: tabs.count) }
+                                ForEach(tabs) { tab in tabRow(tab) }
+                            }
+                        }
                     }
-                    let showHeaders = grouped.contains { $0.0 != .dormant && !$0.1.isEmpty }
-                    ForEach(grouped, id: \.0) { group, tabs in
-                        if !tabs.isEmpty {
-                            if showHeaders { tabGroupHeader(group, count: tabs.count) }
-                            ForEach(tabs) { tab in tabRow(tab) }
+                    // While the pointer is over the tabs, nothing changes group: rows never
+                    // move under a click, and a press isn't turned into a drag by a row
+                    // sliding away. Dots and status words keep updating live.
+                    .onHover { inside in
+                        if inside {
+                            frozen = Dictionary(controller.tabs.map { ($0.id, $0.group) }, uniquingKeysWith: { a, _ in a })
+                        } else {
+                            withAnimation(.easeInOut(duration: 0.2)) { frozen = nil }
                         }
                     }
                     Button(action: { controller.addTab() }) {
@@ -189,6 +203,12 @@ struct SidebarView: View {
             return true
         }
         .onAppear(perform: rebuild)
+        // A hover exit never arrives if you leave the app with the pointer parked on
+        // the tabs; don't leave the list frozen until the mouse moves again.
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { n in
+            guard (n.object as? NSWindow) === controller.window else { return }
+            frozen = nil
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { n in
             guard (n.object as? NSWindow) === controller.window else { return }
             rebuild()
@@ -225,7 +245,17 @@ struct SidebarView: View {
             }
             .onDrop(of: [.text], delegate: TabReorderDrop(
                 targetId: tab.id, drag: $drag, controller: controller,
-                end: endDrag))
+                sameGroup: sameShownGroup, end: endDrag))
+    }
+
+    /// The group a row is drawn in: frozen while the pointer is over the tab list,
+    /// live otherwise. Drags compare this, so they match what's on screen.
+    private func shownGroup(_ tab: TabModel) -> SidebarGroup { frozen?[tab.id] ?? tab.group }
+
+    private func sameShownGroup(_ a: Int, _ b: Int) -> Bool {
+        guard let ta = controller.tabs.first(where: { $0.id == a }),
+              let tb = controller.tabs.first(where: { $0.id == b }) else { return false }
+        return shownGroup(ta) == shownGroup(tb)
     }
 
     private func tabGroupHeader(_ group: SidebarGroup, count: Int) -> some View {
@@ -444,12 +474,15 @@ private struct TabReorderDrop: DropDelegate {
     let targetId: Int
     @Binding var drag: SidebarDrag?
     let controller: KnifeWindowController
+    /// Drags only reorder within the group shown on screen: status isn't something you
+    /// can drop a tab into, and a cross-group move reshuffled the list mid-drag.
+    let sameGroup: (Int, Int) -> Bool
     let end: () -> Void
 
     func dropEntered(info: DropInfo) {
         guard case .tab(let from) = drag, from != targetId else { return }
         DispatchQueue.main.async {
-            guard controller.sameGroup(from, targetId) else { return }
+            guard sameGroup(from, targetId) else { return }
             controller.moveTab(from, before: targetId)
         }
     }

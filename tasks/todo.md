@@ -126,3 +126,18 @@ Plan:
       (groups, 24h boundary both sides, old session file, lastActive round-trip, interrupt bytes)
 - [ ] Hands-on pass by Eddie: click a ready tab (row should stay put), drag within and across
       groups, type into a working tab, Esc a working tab, hover board cards then move away
+
+## Follow-up: "when clicking on an item in active it doesnt highlight" (2026-09-14)
+
+Cause: the highlight was correct (it marks the clicked tab id) but the row wasn't under the
+pointer anymore. The selection pin from the previous round unpinned the old selection on the
+next click; that tab left "ready", landed in "active", and shifted the rows being clicked by one.
+Hook events on other sessions also reflowed the groups above "active" mid-press.
+
+- [x] Remove the selection pin (WindowController.pinned / displayGroup / sameGroup)
+- [x] Freeze group membership while the pointer is over the tab list; order stays live for drags
+- [x] Unfreeze on hover exit (animated) and on window resign-key (parked pointer never exits)
+- [x] Drag guard compares the group shown on screen, via a closure from the sidebar
+- [x] Build + install
+- [ ] Hands-on by Eddie: open a ready tab, then click a row in active — highlight should be on
+      the row under the pointer; move the pointer off the sidebar and the opened tab slides to active

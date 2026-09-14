@@ -34,9 +34,14 @@ say plainly that it is unverified — don't mark it done.
 Grouping tabs by live status shipped after a clean build and no hands-on pass. Every defect
 was structural and findable by reading the code for these four questions first:
 
-**Does clicking a row change the value it's grouped by?** Activating a ready tab cleared its
-status, so the row left from under the cursor. Pin the selected row's group until the user
-moves on or something real changes it.
+**Does anything move rows while the pointer is on the list?** Activating a ready tab cleared its
+status, so the row left from under the cursor. The first fix pinned the *selected* row's group,
+which only relocated the jump: selecting the next row unpinned the previous one, it slid into the
+group being clicked, and the highlight landed a row away from the pointer ("clicking an item in
+active doesn't highlight"). Freeze group membership while the pointer is over the list instead —
+order stays live so drags still work — and unfreeze on hover exit and on window resign-key.
+A fix for "row moves under the cursor" that keys off *selection* will always move something at
+the moment of the next click.
 
 **Does drag reorder the model the list is actually drawn from?** Drag moved tabs in the flat
 array while rows were drawn grouped, so drops didn't land and the list reshuffled mid-drag.
