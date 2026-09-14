@@ -8,29 +8,35 @@ struct TabOptions {
     var title: String?       // fixed title (project name, "man ls", …) — OSC titles don't override it
     var shownTitle: String?   // restored display title
     var restoreCmd: String?
+    var lastActivity: Date?   // restored from the session file, or now for a tab opened to work in
 }
 
 enum TabStatus {
     case idle, working, ready, needsInput
 }
 
-/// How the sidebar files a tab. `status` alone can't tell "a session I'm in the
-/// middle of" from "a shell doing nothing": opening a ready tab drops it to
-/// .idle, which used to bury it among plain shells. Whether an agent is alive
-/// in the tab is what separates the two.
+/// How the sidebar files a tab.
+///   needs input / working / ready — straight from the hooks
+///   active  — anything touched in the last 24 hours (hook event, typing, opening it)
+///   dormant — nothing for a day or more, or a shell nobody has used
+/// Time, not process scanning, decides active vs dormant: it's stable (a row doesn't
+/// flicker while a scan catches up) and it's what "worked on" means.
 enum SidebarGroup: String, CaseIterable {
     case needsInput = "needs input"
     case working
     case ready
-    case active      // claude/codex is up, just not busy — you're working here
-    case dormant     // no agent: a plain shell
+    case active
+    case dormant
 
-    static func of(_ status: TabStatus, hasAgent: Bool) -> SidebarGroup {
+    static let activeWindow: TimeInterval = 24 * 60 * 60
+
+    static func of(_ status: TabStatus, lastActivity: Date?, now: Date = Date()) -> SidebarGroup {
         switch status {
         case .needsInput: .needsInput
         case .working: .working
         case .ready: .ready
-        case .idle: hasAgent ? .active : .dormant
+        case .idle:
+            if let t = lastActivity, now.timeIntervalSince(t) < activeWindow { .active } else { .dormant }
         }
     }
 }
@@ -44,7 +50,17 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     @Published var title: String
     @Published var working = false
     @Published var attention = false
-    @Published var status: TabStatus = .idle
+    @Published var status: TabStatus = .idle { didSet { refreshGroup() } }
+    /// Last hook event, keystroke, or open. Deliberately not @Published: it moves on
+    /// every keystroke, and only a change of `group` should redraw the sidebar.
+    var lastActivity: Date? { didSet { refreshGroup() } }
+    @Published private(set) var group: SidebarGroup = .dormant
+
+    /// Also called on a timer, so a tab slides to dormant once its day is up.
+    func refreshGroup(now: Date = Date()) {
+        let g = SidebarGroup.of(status, lastActivity: lastActivity, now: now)
+        if g != group { group = g }
+    }
     var cols = 80
     var rows = 25
     var lastReportedCwd: String? // OSC 7, when the shell emits it
@@ -162,6 +178,8 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         self.title = opts.shownTitle ?? opts.title ?? (opts.cwd.map { ($0 as NSString).lastPathComponent } ?? "shell \(id)")
         self.view = KnifeTermView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         super.init()
+        lastActivity = opts.lastActivity
+        refreshGroup() // own-init assignments don't run didSet
         view.processDelegate = self
         AppModel.shared.theme.style(terminal: view)
 
@@ -179,13 +197,21 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
                 self?.view.send(txt: cmd + "\r")
             }
         }
+        // Typing acknowledges a finished or waiting session. It doesn't mean Claude
+        // stopped — clearing "working" on every key made a busy tab flap between
+        // groups while you typed ahead. Esc and ^C do stop it, and an interrupt
+        // sends no Stop hook, so those clear it.
         view.onUserInput = { [weak self] in
             guard let self else { return }
+            self.lastActivity = Date()
+            if self.status != .working { self.status = .idle }
+            if self.attention { self.attention = false; AppModel.shared.tabStateChanged(self) }
+        }
+        view.onInterrupt = { [weak self] in
+            guard let self, self.working || self.status == .working else { return }
+            self.working = false
             self.status = .idle
-            if self.working || self.attention {
-                self.working = false; self.attention = false
-                AppModel.shared.tabStateChanged(self)
-            }
+            AppModel.shared.tabStateChanged(self)
         }
         view.onBell = { [weak self] in
             guard let self else { return }

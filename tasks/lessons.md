@@ -28,3 +28,35 @@ by a function that reads `dragging` back in the same call is a same-tick state r
 was reviewed against the plan and compiled clean, and every one of the five defects above was
 only findable by dragging a row. When a change is interaction-shaped, either drive the real app or
 say plainly that it is unverified — don't mark it done.
+
+## Live-regrouping lists (2026-09-14, sidebar status groups — "its super buggy")
+
+Grouping tabs by live status shipped after a clean build and no hands-on pass. Every defect
+was structural and findable by reading the code for these four questions first:
+
+**Does clicking a row change the value it's grouped by?** Activating a ready tab cleared its
+status, so the row left from under the cursor. Pin the selected row's group until the user
+moves on or something real changes it.
+
+**Does drag reorder the model the list is actually drawn from?** Drag moved tabs in the flat
+array while rows were drawn grouped, so drops didn't land and the list reshuffled mid-drag.
+Constrain the drop to the dragged row's visual group.
+
+**Is membership decided by something slower than the UI?** active/dormant hung off a 3 s
+process scan, so new rows flashed into the wrong group. Prefer a value the app already owns
+(a timestamp) over polling the outside world.
+
+**Does frequent input flip the grouping key?** Every keystroke reset status, so a busy tab
+flapped between groups while typing ahead.
+
+## Technical gotchas from the same round
+
+- **Claude Code renames its process to its version.** The kernel reports "2.1.270", not
+  "claude"; match on the executable path (…/claude/versions/…). A name-based scan silently
+  found zero agents.
+- **A bare Esc never reached onUserInput** (it filters ESC-prefixed bytes to skip terminal
+  reports), and interrupts send no Stop hook. Detect a lone 0x1b / 0x03 separately.
+- **NSCursor push/pop in SwiftUI hover handlers leaks** when views reorder mid-hover. Use
+  onContinuousHover with set().
+- **Test extracted code, not a copy.** Pull the real enum/struct out of the source file into a
+  swift script so the harness can't drift from what ships.

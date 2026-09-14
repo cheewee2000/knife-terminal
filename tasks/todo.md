@@ -99,3 +99,30 @@ in place of the terminal pane; click a card header to jump into the tab.
 - [x] Notifications: visible pushes are opt-in behind a switch, default off — the alert
       subscription is deleted server-side and the badge cleared when off. Silent sync pushes
       are untouched, so the mirror stays as fresh as before.
+
+# Sidebar grouping is buggy + "active" = worked on in the last 24h (2026-09-14)
+
+Eddie: "its super buggy. also active should be projects that have been worked on in the past 24 hours"
+
+Defects found by reading (grouping shipped without driving the app — see lessons.md):
+1. Tab drag across groups: moveTab reorders the flat array but rows are shown grouped, so the
+   row doesn't go where dropped and the list reflows under the cursor mid-drag.
+2. Clicking a ready / needs-input tab resets its status, so the row jumps out from under the
+   cursor into another group. Focusing the window does the same to the current tab.
+3. Every keystroke sets status .idle, so a working tab you type into flaps working ↔ active.
+4. active/dormant hung off a 3 s process scan: new sessions flash dormant → active.
+5. Board cards push/pop the pointing-hand cursor; a card reordering while hovered unbalances
+   the stack and the cursor sticks (same bug on the sidebar resize handle).
+
+Plan:
+- [x] TabModel.lastActivity (hook events, typing, open), persisted in session.json
+- [x] Groups: needs input · working · ready · active (touched < 24h) · dormant — no process scan
+- [x] Selected tab keeps the group it was clicked in until you switch away or its status truly changes
+- [x] Tab drag only reorders within the dragged tab's group
+- [x] Typing clears ready/needs-input but not working unless it's Esc or ^C (interrupts send no Stop hook)
+- [x] Cursor: onContinuousHover + set() instead of push/pop (board cards, resize handle)
+- [x] Projects: active = touched in the last 24h (was 30 days)
+- [x] Build + install (BUILD SUCCEEDED); 14 logic checks pass against the extracted source
+      (groups, 24h boundary both sides, old session file, lastActive round-trip, interrupt bytes)
+- [ ] Hands-on pass by Eddie: click a ready tab (row should stay put), drag within and across
+      groups, type into a working tab, Esc a working tab, hover board cards then move away

@@ -9,9 +9,25 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
     @Published var showBoard = false
     /// The untouched shell a fresh window opens with; replaced by the first real tab.
     var defaultTabId: Int?
-    /// The sidebar groups tabs by status; a tab's status change has to re-render
-    /// the list itself, not just that row.
+    /// The sidebar groups tabs; a tab changing group has to re-render the list
+    /// itself, not just that row.
     private var statusWatch: [Int: AnyCancellable] = [:]
+    /// The tab you just selected stays in the group it was in when you clicked it,
+    /// until you move to another tab or something real happens to it. Otherwise
+    /// clicking a ready tab clears it and the row leaves from under the cursor.
+    @Published private(set) var pinned: (id: Int, group: SidebarGroup, status: TabStatus)?
+
+    func displayGroup(_ tab: TabModel) -> SidebarGroup {
+        if let p = pinned, p.id == tab.id, p.id == activeId, tab.status == p.status { return p.group }
+        return tab.group
+    }
+
+    /// Drags only reorder within a group: status isn't something you can drop a
+    /// tab into, and a cross-group move reshuffled the list under the cursor.
+    func sameGroup(_ a: Int, _ b: Int) -> Bool {
+        guard let ta = tabs.first(where: { $0.id == a }), let tb = tabs.first(where: { $0.id == b }) else { return false }
+        return displayGroup(ta) == displayGroup(tb)
+    }
 
     var activeTab: TabModel? { tabs.first { $0.id == activeId } }
 
@@ -36,20 +52,24 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
     func addTab(_ opts: TabOptions = TabOptions(), activateIt: Bool = true) -> TabModel {
         let tab = TabModel(id: AppModel.shared.takeTabId(), opts: opts)
         tabs.append(tab)
-        statusWatch[tab.id] = tab.$status.dropFirst().removeDuplicates()
-            .sink { [weak self] _ in self?.objectWillChange.send() }
+        statusWatch[tab.id] = Publishers.Merge(
+            tab.$group.dropFirst().removeDuplicates().map { _ in () },
+            tab.$status.dropFirst().removeDuplicates().map { _ in () })
+            .sink { [weak self] in self?.objectWillChange.send() }
         AppModel.shared.tabOpened(tab, in: self)
         if activateIt { activate(tab.id) }
         return tab
     }
 
     func activate(_ id: Int) {
-        guard tabs.contains(where: { $0.id == id }) else { return }
+        guard let t = tabs.first(where: { $0.id == id }) else { return }
+        let groupBefore = displayGroup(t)
         activeId = id
-        if NSApp.isActive, window?.isKeyWindow ?? false, let t = activeTab, t.attention {
+        if NSApp.isActive, window?.isKeyWindow ?? false, t.attention {
             t.attention = false
             t.status = t.working ? .working : .idle
         }
+        pinned = (id, groupBefore, t.status)
         AppModel.shared.saveSessionSoon()
     }
 
@@ -93,8 +113,10 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
 
     func windowDidBecomeKey(_ notification: Notification) {
         if let t = activeTab, t.attention {
+            let groupBefore = displayGroup(t)
             t.attention = false
             t.status = t.working ? .working : .idle
+            pinned = (t.id, groupBefore, t.status)
         }
         AppModel.shared.mostRecentWindow = self
     }

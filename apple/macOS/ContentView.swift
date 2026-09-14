@@ -33,7 +33,11 @@ struct ContentView: View {
                                 .contentShape(Rectangle())
                                 .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                                     .onChanged { v in sideWidth = max(160, min(480, v.location.x)) })
-                                .onHover { inside in inside ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
+                                // set(), not push/pop: an unmatched pop when the view redraws mid-hover
+                                // leaves the wrong cursor stuck app-wide
+                                .onContinuousHover { phase in
+                                    if case .active = phase { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
+                                }
                         )
                 }
                 if controller.showBoard {
@@ -98,9 +102,6 @@ struct SidebarView: View {
     @AppStorage("knife.collapsedSections") private var collapsedRaw = ""
     @State private var renaming: Project?
     @State private var renameText = ""
-    /// tab id → the agent running in it; refreshed on a timer, not per render.
-    @State private var agents: [Int: String] = [:]
-    private let agentTick = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -109,11 +110,11 @@ struct SidebarView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    // Tabs grouped by status (needs input first); manual order kept within
-                    // a group. Headers only appear once something is non-idle, so a
-                    // window of plain shells looks like a plain list.
+                    // Tabs grouped (needs input first); manual order kept within a group.
+                    // Headers only appear once something isn't dormant, so a window of
+                    // plain shells looks like a plain list.
                     let grouped = SidebarGroup.allCases.map { g in
-                        (g, controller.tabs.filter { SidebarGroup.of($0.status, hasAgent: agents[$0.id] != nil) == g })
+                        (g, controller.tabs.filter { controller.displayGroup($0) == g })
                     }
                     let showHeaders = grouped.contains { $0.0 != .dormant && !$0.1.isEmpty }
                     ForEach(grouped, id: \.0) { group, tabs in
@@ -187,8 +188,7 @@ struct SidebarView: View {
             endDrag()
             return true
         }
-        .onAppear { rebuild(); refreshAgents() }
-        .onReceive(agentTick) { _ in refreshAgents() }
+        .onAppear(perform: rebuild)
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { n in
             guard (n.object as? NSWindow) === controller.window else { return }
             rebuild()
@@ -282,17 +282,6 @@ struct SidebarView: View {
         collapsedRaw = set.sorted().joined(separator: ",")
     }
 
-    /// One process-table pass for every tab, off the main thread.
-    private func refreshAgents() {
-        let snap = controller.tabs.map { (id: $0.id, pid: $0.shellPid) }
-        DispatchQueue.global(qos: .utility).async {
-            let byShell = TabModel.agentsByShell(Set(snap.map(\.pid).filter { $0 > 0 }))
-            var out: [Int: String] = [:]
-            for t in snap where t.pid > 0 { out[t.id] = byShell[t.pid] }
-            DispatchQueue.main.async { agents = out.compactMapValues { $0 } }
-        }
-    }
-
     private func rebuild() {
         meta = Projects.loadMeta()
         projects = Projects.list().map { p in
@@ -316,7 +305,8 @@ struct SidebarView: View {
 
     private func open(project p: Project) {
         Projects.touch(p.path)
-        controller.addTab(TabOptions(cwd: p.path, cmd: "claude", title: p.name, restoreCmd: "claude -c"))
+        controller.addTab(TabOptions(cwd: p.path, cmd: "claude", title: p.name, restoreCmd: "claude -c",
+                                     lastActivity: Date()))
         query = ""
         searchFocused = false
         rebuild()
@@ -458,7 +448,10 @@ private struct TabReorderDrop: DropDelegate {
 
     func dropEntered(info: DropInfo) {
         guard case .tab(let from) = drag, from != targetId else { return }
-        DispatchQueue.main.async { controller.moveTab(from, before: targetId) }
+        DispatchQueue.main.async {
+            guard controller.sameGroup(from, targetId) else { return }
+            controller.moveTab(from, before: targetId)
+        }
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {

@@ -142,7 +142,11 @@ struct SessionCard: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: open)
-        .onHover { $0 ? NSCursor.pointingHand.push() : NSCursor.pop() }
+        // set(), not push/pop: cards reorder every tick, and a card that moves while
+        // hovered never pops, which left the pointing hand stuck everywhere
+        .onContinuousHover { phase in
+            if case .active = phase { NSCursor.pointingHand.set() } else { NSCursor.arrow.set() }
+        }
     }
 
     private var statusWord: String {

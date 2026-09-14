@@ -269,7 +269,7 @@ enum Projects {
     static func autoSection(_ p: Project, now: TimeInterval = Date().timeIntervalSince1970) -> ProjectSection {
         let archive = NSHomeDirectory() + "/Code/archive/"
         if p.path.hasPrefix(archive) { return .archived }
-        return p.t >= now - 30 * 24 * 60 * 60 ? .active : .dormant
+        return p.t >= now - 24 * 60 * 60 ? .active : .dormant  // worked on in the last day
     }
 
     static func sectioned(_ projects: [Project], meta: SidebarMeta) -> [(ProjectSection, [Project])] {
