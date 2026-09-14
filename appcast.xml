@@ -6,16 +6,16 @@
     <description>Updates for Knife Terminal</description>
     <language>en</language>
     <item>
-      <title>Knife Terminal 1.1.0</title>
-      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v1.1.0</link>
-      <sparkle:version>1.1.0</sparkle:version>
-      <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
+      <title>Knife Terminal 1.1.1</title>
+      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v1.1.1</link>
+      <sparkle:version>1.1.1</sparkle:version>
+      <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>Jobs: dictate a request on the phone or laptop and the executor Mac routes it to a project and runs it in its own git worktree — one commit pushed to main (or a branch + PR for risky changes), full diff in the notification. Knife Terminal menu → Run Jobs on This Mac picks the executor; other Macs are clients. Projects now carry their git remote and a one-line description for routing. New Project from Folder creates a repo + GitHub remote.</p>]]></description>
+      <description><![CDATA[<p>Sidebar now lists projects from your other Macs (dimmed, tagged clone) — opening one clones it on this Mac. The list refreshes as the manifest syncs.</p>]]></description>
       <enclosure
-        url="https://github.com/cheewee2000/knife-terminal/releases/download/v1.1.0/Knife-Terminal-1.1.0.zip"
+        url="https://github.com/cheewee2000/knife-terminal/releases/download/v1.1.1/Knife-Terminal-1.1.1.zip"
         type="application/octet-stream"
-        sparkle:edSignature="IVp4lcUATN5YpbN92o4Fl3KYXOO4C67dIgvAmVRyk4VR3HBusgqxEInOtUtuL50r4tZKhkZBxenSSaywmk/MAw==" length="4266217"/>
+        sparkle:edSignature="8AirOqK+voRWbmHOFXr//mwN8fYq221WLCre0KFJmuyORq7fopF1kmNn77ZKN3cLrcajWQ8PdXWsLGgTXdUUCw==" length="4277853"/>
     </item>
   </channel>
 </rss>
