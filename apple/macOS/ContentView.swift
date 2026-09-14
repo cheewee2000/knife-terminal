@@ -84,6 +84,7 @@ struct SidebarView: View {
     @ObservedObject var controller: KnifeWindowController
     @ObservedObject var theme = AppModel.shared.theme
     @State private var projects: [Project] = []
+    @State private var elsewhere: [Project] = []   // in the manifest, checked out only on another Mac
     @State private var query = ""
     @State private var draggingTabId: Int?
     @FocusState private var searchFocused: Bool
@@ -142,6 +143,22 @@ struct SidebarView: View {
                         .buttonStyle(.plain)
                         .help(p.path)
                     }
+                    // manifest projects that only exist on another Mac — open = clone here
+                    ForEach(filteredElsewhere) { p in
+                        Button(action: { AppModel.shared.openProject(p.path, cmd: "claude"); query = ""; searchFocused = false }) {
+                            HStack(spacing: 6) {
+                                Text(Emoji.forPath(p.path)).font(.system(size: 12))
+                                Text(p.name).font(mono(11)).lineLimit(1)
+                                Spacer(minLength: 0)
+                                Text("clone").font(mono(9))
+                            }
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 10).padding(.vertical, 3)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("on another Mac — opens by cloning it here")
+                    }
 
                     if let sync = AppModel.shared.sync { RemotePane(sync: sync) }
                 }
@@ -150,20 +167,29 @@ struct SidebarView: View {
 
         }
         .onDrop(of: [.text], isTargeted: nil) { _ in draggingTabId = nil; return true }
-        .onAppear { projects = Projects.list() }
+        .onAppear { reload() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { n in
             guard (n.object as? NSWindow) === controller.window else { return }
-            projects = Projects.list()
+            reload()
         }
+        .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in reload() } // manifest syncs every ~10s
         .onReceive(NotificationCenter.default.publisher(for: .knifeFocusSearch)) { _ in
             if controller.window?.isKeyWindow ?? false { searchFocused = true }
         }
     }
 
-    private var filtered: [Project] {
+    private func reload() {
+        let (local, remote) = Manifest.sidebarProjects()
+        projects = local; elsewhere = remote
+    }
+
+    private var filtered: [Project] { filter(projects) }
+    private var filteredElsewhere: [Project] { filter(elsewhere) }
+
+    private func filter(_ list: [Project]) -> [Project] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return projects }
-        return projects.filter { $0.name.lowercased().contains(q) || $0.path.lowercased().contains(q) }
+        guard !q.isEmpty else { return list }
+        return list.filter { $0.name.lowercased().contains(q) || $0.path.lowercased().contains(q) }
     }
 
     private func open(project p: Project) {
@@ -171,7 +197,7 @@ struct SidebarView: View {
         controller.addTab(TabOptions(cwd: p.path, cmd: "claude", title: p.name, restoreCmd: "claude -c"))
         query = ""
         searchFocused = false
-        projects = Projects.list()
+        reload()
     }
 
 }

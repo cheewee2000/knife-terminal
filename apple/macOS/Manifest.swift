@@ -44,6 +44,18 @@ enum Manifest {
         try? enc.encode(merged).write(to: URL(fileURLWithPath: path), options: .atomic)
     }
 
+    /// Sidebar list: this Mac's projects, then manifest projects that only exist
+    /// on other Macs (opening one clones it). Newest first within each group.
+    static func sidebarProjects() -> (local: [Project], elsewhere: [Project]) {
+        let local = Projects.list()
+        let localRemotes = Set(local.compactMap { remote(of: $0.path) })
+        let elsewhere = merged.filter { ref in
+            guard let r = ref.remote, !localRemotes.contains(r) else { return false }
+            return !FileManager.default.fileExists(atPath: ref.path)
+        }.map { Project(path: $0.path, name: $0.name, t: $0.lastTouched?.timeIntervalSince1970 ?? 0) }
+        return (local, elsewhere)
+    }
+
     /// A path from any machine's entry → this machine's checkout, or nil when
     /// the project only exists elsewhere (caller clones it).
     static func resolve(path: String) -> (local: String?, ref: ProjectRef?) {
