@@ -221,6 +221,15 @@ struct SessionDetailView: View {
 
     private func terminalInputBar(_ tab: MirroredTab) -> some View {
         HStack(alignment: .bottom, spacing: 10) {
+            if tab.title.hasPrefix("job:"), tab.attention { // routing wants a pick: one tap
+                ForEach(1...3, id: \.self) { n in
+                    Button { store.send("\(n)\r", to: tab.tabId) } label: {
+                        Text("\(n)").font(mono(13, bold: true)).frame(width: 28, height: 28)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(knifeAccent.opacity(0.25)))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
             TextField("type here, ⏎ sends", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(mono(13))

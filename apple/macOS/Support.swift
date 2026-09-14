@@ -225,7 +225,7 @@ enum Projects {
         let fm = FileManager.default
         let touched = UserDefaults.standard.dictionary(forKey: touchKey) as? [String: Double] ?? [:]
         return projects.keys
-            .filter { !$0.contains("/.claude-worktrees/") && fm.fileExists(atPath: $0) }
+            .filter { !$0.contains("/.claude-worktrees/") && !$0.contains("/.knife/") && fm.fileExists(atPath: $0) }
             .compactMap { p -> Project? in
                 let enc = (projDir as NSString).appendingPathComponent(encode(p))
                 guard let attrs = try? fm.attributesOfItem(atPath: enc),

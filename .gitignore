@@ -4,3 +4,4 @@ dist/
 apple/DerivedData/
 apple/KnifeTerminal.xcodeproj/
 dist/
+apple/KnifeKit/.build/

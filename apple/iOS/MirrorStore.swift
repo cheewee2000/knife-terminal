@@ -8,7 +8,9 @@ final class MirrorStore: ObservableObject {
     static let shared = MirrorStore()
 
     @Published var tabs: [MirroredTab] = []
-    @Published var projects: [ProjectRef] = []
+    @Published var projectLists: [String: [ProjectRef]] = [:]   // one manifest slice per Mac
+    var projects: [ProjectRef] { ProjectRef.merge(Array(projectLists.values)) }
+    @Published var pendingJob = false
     @Published var pendingOpens: Set<String> = []   // paths we've asked the Mac to open
     @Published var iCloudAvailable = true
     @Published var lastSync: Date?
@@ -22,7 +24,7 @@ final class MirrorStore: ObservableObject {
 
     private struct Cache: Codable {
         var tabs: [MirroredTab]
-        var projects: [ProjectRef]
+        var projectLists: [String: [ProjectRef]]
         var lastSync: Date?
     }
 
@@ -36,12 +38,12 @@ final class MirrorStore: ObservableObject {
     private func loadCache() -> Bool {
         guard let d = try? Data(contentsOf: cacheURL),
               let c = try? JSONDecoder().decode(Cache.self, from: d) else { return false }
-        tabs = c.tabs; projects = c.projects; lastSync = c.lastSync
+        tabs = c.tabs; projectLists = c.projectLists; lastSync = c.lastSync
         return true
     }
 
     private func saveCache() {
-        let c = Cache(tabs: tabs, projects: projects, lastSync: lastSync)
+        let c = Cache(tabs: tabs, projectLists: projectLists, lastSync: lastSync)
         if let d = try? JSONEncoder().encode(c) { try? d.write(to: cacheURL, options: .atomic) }
     }
 
@@ -50,7 +52,7 @@ final class MirrorStore: ObservableObject {
         started = true
         if DemoData.enabled {
             tabs = DemoData.tabs
-            projects = DemoData.projects
+            projectLists = ["demo": DemoData.projects]
             lastSync = Date()
             return
         }
@@ -112,7 +114,8 @@ final class MirrorStore: ObservableObject {
         for t in delta.tabs { byId[t.id] = t }
         for name in delta.deletedTabRecordNames { byId.removeValue(forKey: name) }
         tabs = byId.values.sorted { $0.order < $1.order }
-        if let refs = delta.projects { projects = refs }
+        for (name, refs) in delta.projects { projectLists[name] = refs }
+        for name in delta.deletedProjectRecordNames { projectLists.removeValue(forKey: name) }
         pendingOpens = pendingOpens.filter { path in !tabs.contains { $0.cwd == path } }
         lastSync = Date()
         saveCache()
@@ -154,6 +157,20 @@ final class MirrorStore: ObservableObject {
             try? await cloud.sendClose(tabId: tab.tabId)
             try? await Task.sleep(nanoseconds: 5_000_000_000)
             await refresh()
+        }
+    }
+
+    /// Post a dictated/typed request; the executor routes it to a project and
+    /// runs it in a job tab, which mirrors back here like any session.
+    func postJob(_ text: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        pendingJob = true
+        Task {
+            try? await cloud.sendJob(t)
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            await refresh()
+            pendingJob = false
         }
     }
 

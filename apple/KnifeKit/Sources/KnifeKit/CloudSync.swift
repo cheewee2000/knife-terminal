@@ -61,13 +61,37 @@ public struct RemoteInput: Sendable {
     public let ts: Date
 }
 
-/// One recent Claude Code project on the Mac (from ~/.claude.json).
+/// One project in the cross-machine manifest. Identity is the git remote URL
+/// (the path is whichever machine wrote the entry); `description` and
+/// `lastTouched` are the routing signals. Missing fields decode as nil so
+/// records written by older builds still load.
 public struct ProjectRef: Codable, Sendable, Identifiable, Equatable {
     public var name: String
     public var path: String
-    public var id: String { path }
+    public var remote: String?
+    public var description: String?
+    public var lastTouched: Date?
+    public var id: String { remote ?? path }
 
-    public init(name: String, path: String) { self.name = name; self.path = path }
+    public init(name: String, path: String, remote: String? = nil, description: String? = nil, lastTouched: Date? = nil) {
+        self.name = name; self.path = path; self.remote = remote; self.description = description; self.lastTouched = lastTouched
+    }
+
+    /// Merge per-machine lists into one, keyed by remote (path when there is
+    /// none): the most recently touched entry wins, a description beats none.
+    /// Sorted newest first.
+    public static func merge(_ lists: [[ProjectRef]]) -> [ProjectRef] {
+        var byId: [String: ProjectRef] = [:]
+        for ref in lists.joined() {
+            guard var cur = byId[ref.id] else { byId[ref.id] = ref; continue }
+            if (ref.lastTouched ?? .distantPast) > (cur.lastTouched ?? .distantPast) {
+                cur.name = ref.name; cur.path = ref.path; cur.lastTouched = ref.lastTouched
+            }
+            if cur.description?.isEmpty ?? true, let d = ref.description, !d.isEmpty { cur.description = d }
+            byId[ref.id] = cur
+        }
+        return byId.values.sorted { ($0.lastTouched ?? .distantPast) > ($1.lastTouched ?? .distantPast) }
+    }
 }
 
 /// iOS asked the Mac to open a project in a new tab.
@@ -95,7 +119,8 @@ public struct ZoneDelta: Sendable {
     public var tabs: [MirroredTab] = []
     public var deletedTabRecordNames: [String] = []
     public var inputs: [RemoteInput] = []
-    public var projects: [ProjectRef]? = nil   // nil = projects record unchanged this fetch
+    public var projects: [String: [ProjectRef]] = [:]   // manifest records that changed, by record name ("projects-<machine>")
+    public var deletedProjectRecordNames: [String] = []
     public var opens: [RemoteOpen] = []
     public var closes: [RemoteClose] = []
     public var seens: [RemoteSeen] = []
@@ -257,10 +282,11 @@ public final class CloudSync: @unchecked Sendable {
         defaults.set([String](), forKey: publishedKey)
     }
 
-    /// Publish the Mac's recent-projects list (single record, JSON payload).
-    public func saveProjects(_ refs: [ProjectRef]) async throws {
+    /// Publish this machine's slice of the project manifest (one Projects
+    /// record per machine, JSON payload; readers merge them with ProjectRef.merge).
+    public func saveProjects(_ refs: [ProjectRef], machine: String) async throws {
         let r = CKRecord(recordType: "Projects",
-                         recordID: CKRecord.ID(recordName: "projects", zoneID: zoneID))
+                         recordID: CKRecord.ID(recordName: "projects-" + machine, zoneID: zoneID))
         r["list"] = (try JSONEncoder().encode(refs)) as CKRecordValue
         r["updatedAt"] = Date() as CKRecordValue
         try await modify(save: [r], delete: nil)
@@ -278,6 +304,11 @@ public final class CloudSync: @unchecked Sendable {
         r["ts"] = Date() as CKRecordValue
         try await modify(save: [r], delete: nil)
         try await modify(save: nil, delete: [r.recordID])
+    }
+
+    /// Pre-manifest builds wrote a single "projects" record; the executor drops it once.
+    public func deleteLegacyProjectsRecord() async throws {
+        try await modify(save: nil, delete: [CKRecord.ID(recordName: "projects", zoneID: zoneID)])
     }
 
     // ─── iOS: send input ───
@@ -316,6 +347,14 @@ public final class CloudSync: @unchecked Sendable {
         r["path"] = path as CKRecordValue
         r["ts"] = Date() as CKRecordValue
         try await modify(save: [r], delete: nil)
+    }
+
+    /// Client → executor: a dictated/typed request to route and run. Rides in
+    /// an Open record as "job:<text>" — a new record type would need a
+    /// Production schema deploy, and the executor already consumes Opens.
+    public static let jobPrefix = "job:"
+    public func sendJob(_ text: String) async throws {
+        try await sendOpen(path: Self.jobPrefix + text)
     }
 
     public func deleteRecords(_ ids: [CKRecord.ID]) async throws {
@@ -378,7 +417,7 @@ public final class CloudSync: @unchecked Sendable {
                     case "Projects":
                         if let data = record["list"] as? Data,
                            let refs = try? JSONDecoder().decode([ProjectRef].self, from: data) {
-                            delta.projects = refs
+                            delta.projects[record.recordID.recordName] = refs
                         }
                     case "Open":
                         delta.opens.append(RemoteOpen(
@@ -402,6 +441,8 @@ public final class CloudSync: @unchecked Sendable {
                 }
                 delta.deletedTabRecordNames.append(contentsOf:
                     deletions.filter { $0.hasPrefix("tab-") })
+                delta.deletedProjectRecordNames.append(contentsOf:
+                    deletions.filter { $0.hasPrefix("projects") })
                 changeToken = token
                 more = moreComing
             } catch where Self.isZoneNotFound(error) {

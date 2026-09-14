@@ -150,6 +150,40 @@ final class AppModel: ObservableObject {
                              restoreCmd: ["claude": "claude -c", "codex": "codex resume --last"][req.cmd ?? ""]))
     }
 
+    // ─── Jobs: the executor runs each request in its own tab (knife-job.sh) ───
+
+    private var jobScript: String { Bundle.main.path(forResource: Manifest.scriptName, ofType: "sh") ?? "" }
+
+    func dispatchJob(_ text: String) {
+        let wc = frontWindow() ?? newWindow(withTab: false)
+        wc.addTab(TabOptions(cwd: Manifest.dir + "/jobs",
+                             cmd: "bash \(shellQuote(jobScript)) run \(shellQuote(text))",
+                             title: "job: " + String(text.prefix(40))), activateIt: false)
+    }
+
+    /// Open a project by a path from any machine's manifest entry: this
+    /// machine's checkout when it has one, else clone it first (a lazy clone
+    /// on first use — the manifest carries the remote, not the checkout).
+    func openProject(_ path: String, cmd: String) {
+        let (local, ref) = Manifest.resolve(path: path)
+        if let local { dispatchOpen(local, cmd: cmd); return }
+        guard let remote = ref?.remote else { return }
+        let dir = Manifest.dir + "/projects", name = Manifest.cloneName(remote)
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let wc = frontWindow() ?? newWindow(withTab: false)
+        wc.addTab(TabOptions(cwd: dir, cmd: "git clone \(shellQuote(remote)) \(shellQuote(name)) && cd \(shellQuote(name)) && \(cmd)",
+                             title: name, restoreCmd: cmd == "claude" ? "claude -c" : "codex resume --last"))
+    }
+
+    /// Turn a folder into a project: git init + private GitHub remote, then claude.
+    func adoptFolder(_ dir: String) {
+        Projects.touch(dir)
+        let wc = frontWindow() ?? newWindow(withTab: false)
+        wc.addTab(TabOptions(cwd: dir, cmd: "bash \(shellQuote(jobScript)) adopt . && claude",
+                             title: (dir as NSString).lastPathComponent, restoreCmd: "claude -c"))
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     // ─── Attention: Claude Code hooks ping the socket with the tab id ───
 
     static let workingEvents: Set<String> = ["UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop", "TaskCompleted"]
@@ -169,6 +203,19 @@ final class AppModel: ObservableObject {
                 NSApp.activate(ignoringOtherApps: true)
                 frontWindow()?.window?.makeKeyAndOrderFront(nil)
             }
+            return
+        }
+        // "adopt <dir>" → git init + remote + claude tab; "alert <tab> <msg>" → attention + push (job runner)
+        if trimmed.hasPrefix("adopt ") {
+            adoptFolder(String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines))
+            return
+        }
+        if trimmed.hasPrefix("alert ") {
+            let parts = trimmed.dropFirst(6).split(separator: " ", maxSplits: 1)
+            guard let id = parts.first.flatMap({ Int($0) }), parts.count == 2 else { return }
+            if let tab = tabById[id] { tab.working = false; markAttention(tab, fromBell: false) }
+            chime()
+            sync?.publishAlert(tabTitle: tabById[id]?.title ?? "job", message: String(parts[1]))
             return
         }
         guard let sp = trimmed.firstIndex(where: { $0 == " " || $0 == "\n" }) ?? (Int(trimmed) != nil ? trimmed.endIndex : nil),

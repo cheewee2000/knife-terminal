@@ -57,6 +57,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(withTitle: "Make Default Terminal…", action: #selector(setDefault), keyEquivalent: "").target = self
         appMenu.addItem(withTitle: "Install Claude Code Alert Hooks…", action: #selector(installHooks), keyEquivalent: "").target = self
         appMenu.addItem(.separator())
+        roleItem = appMenu.addItem(withTitle: "Run Jobs on This Mac (Executor)", action: #selector(toggleRole), keyEquivalent: "")
+        roleItem?.target = self
+        roleItem?.state = SyncPublisher.isExecutor ? .on : .off
+        appMenu.addItem(withTitle: "New Project from Folder…", action: #selector(adoptFolder), keyEquivalent: "").target = self
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Knife Terminal", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let hideOthers = appMenu.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
         hideOthers.keyEquivalentModifierMask = [.command, .option]
@@ -113,6 +118,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var front: KnifeWindowController? { AppModel.shared.frontWindow() }
+    private var roleItem: NSMenuItem?
+
+    /// Executor (default, the Mac mini): publishes tabs, runs jobs. Client (laptop):
+    /// posts requests and mirrors the executor. Takes effect on relaunch.
+    @objc private func toggleRole() {
+        let nowExecutor = !SyncPublisher.isExecutor
+        UserDefaults.standard.set(nowExecutor ? "executor" : "client", forKey: SyncPublisher.roleKey)
+        roleItem?.state = nowExecutor ? .on : .off
+        let a = NSAlert()
+        a.messageText = nowExecutor ? "This Mac is now the executor." : "This Mac is now a client."
+        a.informativeText = nowExecutor
+            ? "It will publish its tabs, answer the phone, and run every dispatched job in its own worktree. Only one Mac should be the executor. Relaunch Knife Terminal to apply."
+            : "It stops publishing its tabs and never runs jobs; the sidebar shows the executor's sessions and a box to send it requests. Relaunch Knife Terminal to apply."
+        a.runModal()
+    }
+
+    @objc private func adoptFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true; panel.canChooseFiles = false
+        panel.prompt = "Make Project"
+        panel.message = "git init + private GitHub repo (via gh), then open with Claude"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        AppModel.shared.adoptFolder(url.path)
+    }
 
     @objc private func newTab() {
         if let wc = front { wc.addTab() } else { AppModel.shared.newWindow() }

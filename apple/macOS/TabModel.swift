@@ -93,7 +93,7 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         }
     }
 
-    static func userShell() -> String {
+    nonisolated static func userShell() -> String {
         if let pw = getpwuid(getuid()), let sh = pw.pointee.pw_shell, let s = String(validatingUTF8: sh), !s.isEmpty { return s }
         return ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
     }

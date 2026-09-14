@@ -12,6 +12,7 @@ struct SessionListView: View {
     @EnvironmentObject var store: MirrorStore
     @State private var query = ""
     @State private var path: [String] = []
+    @State private var request = ""
 
     private var q: String { query.trimmingCharacters(in: .whitespaces).lowercased() }
 
@@ -36,6 +37,25 @@ struct SessionListView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
+                Section {
+                    HStack(alignment: .bottom, spacing: 8) {
+                        TextField("dictate or type a request…", text: $request, axis: .vertical)
+                            .font(mono(13)).lineLimit(1...6)
+                            .onSubmit { store.postJob(request); request = "" }
+                        if store.pendingJob {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Button { store.postJob(request); request = "" } label: {
+                                Text("send").font(mono(11, bold: true)).foregroundStyle(request.isEmpty ? .secondary : knifeAccent)
+                            }
+                            .buttonStyle(.plain).disabled(request.isEmpty)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                    .listRowSeparator(.hidden)
+                } header: {
+                    Text("ask — routed to a project, run on the executor").font(mono(10)).foregroundStyle(.secondary)
+                }
                 Section {
                     if store.tabs.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
