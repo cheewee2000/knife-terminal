@@ -6,16 +6,16 @@
     <description>Updates for Knife Terminal</description>
     <language>en</language>
     <item>
-      <title>Knife Terminal 1.1.1</title>
-      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v1.1.1</link>
-      <sparkle:version>1.1.1</sparkle:version>
-      <sparkle:shortVersionString>1.1.1</sparkle:shortVersionString>
+      <title>Knife Terminal 1.1.2</title>
+      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v1.1.2</link>
+      <sparkle:version>1.1.2</sparkle:version>
+      <sparkle:shortVersionString>1.1.2</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>Sidebar now lists projects from your other Macs (dimmed, tagged clone) — opening one clones it on this Mac. The list refreshes as the manifest syncs.</p>]]></description>
+      <description><![CDATA[<p>One executor: the client-Mac mode is gone. The Mac running Knife publishes tabs, answers the phone, and runs jobs; the sidebar's ask box dispatches a job tab directly.</p>]]></description>
       <enclosure
-        url="https://github.com/cheewee2000/knife-terminal/releases/download/v1.1.1/Knife-Terminal-1.1.1.zip"
+        url="https://github.com/cheewee2000/knife-terminal/releases/download/v1.1.2/Knife-Terminal-1.1.2.zip"
         type="application/octet-stream"
-        sparkle:edSignature="8AirOqK+voRWbmHOFXr//mwN8fYq221WLCre0KFJmuyORq7fopF1kmNn77ZKN3cLrcajWQ8PdXWsLGgTXdUUCw==" length="4277853"/>
+        sparkle:edSignature="+YpQdR9GmuVAcfb1HDrQf4WM+KddY2AuBdLI7iMl+i8054jkovqnkWAlN8BgR1SWwLbRac3/X52AJH6HXU2oCg==" length="4237052"/>
     </item>
   </channel>
 </rss>
