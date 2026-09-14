@@ -12,15 +12,25 @@ struct TabOptions {
 
 enum TabStatus {
     case idle, working, ready, needsInput
+}
 
-    /// Sidebar grouping: the ones that want you first.
-    static let sidebarOrder: [TabStatus] = [.needsInput, .working, .ready, .idle]
-    var sidebarLabel: String {
-        switch self {
-        case .needsInput: "needs input"
-        case .working: "working"
-        case .ready: "ready"
-        case .idle: "idle"
+/// How the sidebar files a tab. `status` alone can't tell "a session I'm in the
+/// middle of" from "a shell doing nothing": opening a ready tab drops it to
+/// .idle, which used to bury it among plain shells. Whether an agent is alive
+/// in the tab is what separates the two.
+enum SidebarGroup: String, CaseIterable {
+    case needsInput = "needs input"
+    case working
+    case ready
+    case active      // claude/codex is up, just not busy — you're working here
+    case dormant     // no agent: a plain shell
+
+    static func of(_ status: TabStatus, hasAgent: Bool) -> SidebarGroup {
+        switch status {
+        case .needsInput: .needsInput
+        case .working: .working
+        case .ready: .ready
+        case .idle: hasAgent ? .active : .dormant
         }
     }
 }
@@ -51,6 +61,37 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     }
 
     var claudeRunning: Bool { runningAgent == "claude" }
+
+    /// Which of these shells has an agent running under it, in one pass over the
+    /// process table (under a millisecond). A pgrep per tab is a subprocess per
+    /// tab — far too slow for a timer, and the answers wouldn't share an instant.
+    ///
+    /// Identification is by executable path, not process name: Claude Code renames
+    /// itself to its version, so the kernel reports "2.1.270" and only the path
+    /// (~/.local/share/claude/versions/2.1.270) still says what it is.
+    nonisolated static func agentsByShell(_ shells: Set<pid_t>) -> [pid_t: String] {
+        var out: [pid_t: String] = [:]
+        guard !shells.isEmpty else { return out }
+        let cap = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
+        guard cap > 0 else { return out }
+        var pids = [pid_t](repeating: 0, count: Int(cap) / MemoryLayout<pid_t>.size + 64)
+        let got = proc_listpids(UInt32(PROC_ALL_PIDS), 0, &pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+        guard got > 0 else { return out }
+        for pid in pids.prefix(Int(got) / MemoryLayout<pid_t>.size) where pid > 0 {
+            var info = proc_bsdshortinfo()
+            let size = Int32(MemoryLayout<proc_bsdshortinfo>.size)
+            guard proc_pidinfo(pid, Int32(PROC_PIDT_SHORTBSDINFO), 0, &info, size) == size else { continue }
+            let parent = pid_t(info.pbsi_ppid)
+            guard shells.contains(parent), out[parent] == nil else { continue }
+            var buf = [CChar](repeating: 0, count: 4096)
+            guard proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 else { continue }
+            let path = String(cString: buf)
+            let name = (path as NSString).lastPathComponent
+            if name == "claude" || path.contains("/claude/") { out[parent] = "claude" }
+            else if name == "codex" || path.contains("/codex/") { out[parent] = "codex" }
+        }
+        return out
+    }
 
     /// `pgrep -lfP <shell>` lists direct children as "<pid> <full command>";
     /// agents run as direct children of the shell whether typed or launched by us.

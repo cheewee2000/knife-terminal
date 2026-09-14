@@ -73,8 +73,9 @@ struct BoardView: View {
             (id: $0.id, pid: $0.shellPid, fallback: $0.lastReportedCwd ?? $0.opts.cwd, session: $0.claudeSessionId)
         }
         DispatchQueue.global(qos: .userInitiated).async {
+            let byShell = TabModel.agentsByShell(Set(snap.map(\.pid).filter { $0 > 0 }))
             let fresh = snap.compactMap { t -> BoardCardData? in
-                guard t.pid > 0, let agent = TabModel.runningAgent(underShell: t.pid) else { return nil }
+                guard t.pid > 0, let agent = byShell[t.pid] else { return nil }
                 let cwd = TabModel.cwdOf(pid: t.pid) ?? t.fallback
                 let all = TranscriptReader.messages(forCwd: cwd, sessionId: t.session)
                 return BoardCardData(tabId: t.id, agent: agent, messages: Self.excerpt(all))

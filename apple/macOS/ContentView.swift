@@ -98,6 +98,9 @@ struct SidebarView: View {
     @AppStorage("knife.collapsedSections") private var collapsedRaw = ""
     @State private var renaming: Project?
     @State private var renameText = ""
+    /// tab id → the agent running in it; refreshed on a timer, not per render.
+    @State private var agents: [Int: String] = [:]
+    private let agentTick = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -109,11 +112,13 @@ struct SidebarView: View {
                     // Tabs grouped by status (needs input first); manual order kept within
                     // a group. Headers only appear once something is non-idle, so a
                     // window of plain shells looks like a plain list.
-                    let grouped = TabStatus.sidebarOrder.map { status in (status, controller.tabs.filter { $0.status == status }) }
-                    let showHeaders = grouped.contains { $0.0 != .idle && !$0.1.isEmpty }
-                    ForEach(grouped, id: \.0) { status, tabs in
+                    let grouped = SidebarGroup.allCases.map { g in
+                        (g, controller.tabs.filter { SidebarGroup.of($0.status, hasAgent: agents[$0.id] != nil) == g })
+                    }
+                    let showHeaders = grouped.contains { $0.0 != .dormant && !$0.1.isEmpty }
+                    ForEach(grouped, id: \.0) { group, tabs in
                         if !tabs.isEmpty {
-                            if showHeaders { tabGroupHeader(status, count: tabs.count) }
+                            if showHeaders { tabGroupHeader(group, count: tabs.count) }
                             ForEach(tabs) { tab in tabRow(tab) }
                         }
                     }
@@ -182,7 +187,8 @@ struct SidebarView: View {
             endDrag()
             return true
         }
-        .onAppear(perform: rebuild)
+        .onAppear { rebuild(); refreshAgents() }
+        .onReceive(agentTick) { _ in refreshAgents() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { n in
             guard (n.object as? NSWindow) === controller.window else { return }
             rebuild()
@@ -222,10 +228,10 @@ struct SidebarView: View {
                 end: endDrag))
     }
 
-    private func tabGroupHeader(_ status: TabStatus, count: Int) -> some View {
+    private func tabGroupHeader(_ group: SidebarGroup, count: Int) -> some View {
         HStack(spacing: 4) {
-            Text(status.sidebarLabel)
-                .foregroundStyle(status == .needsInput ? theme.attentionColor : Color.secondary)
+            Text(group.rawValue)
+                .foregroundStyle(group == .needsInput ? theme.attentionColor : Color.secondary)
             Text("\(count)").foregroundStyle(.tertiary)
             Spacer(minLength: 0)
         }
@@ -274,6 +280,17 @@ struct SidebarView: View {
         var set = Set(collapsedRaw.split(separator: ",").map(String.init))
         if !set.insert(section.rawValue).inserted { set.remove(section.rawValue) }
         collapsedRaw = set.sorted().joined(separator: ",")
+    }
+
+    /// One process-table pass for every tab, off the main thread.
+    private func refreshAgents() {
+        let snap = controller.tabs.map { (id: $0.id, pid: $0.shellPid) }
+        DispatchQueue.global(qos: .utility).async {
+            let byShell = TabModel.agentsByShell(Set(snap.map(\.pid).filter { $0 > 0 }))
+            var out: [Int: String] = [:]
+            for t in snap where t.pid > 0 { out[t.id] = byShell[t.pid] }
+            DispatchQueue.main.async { agents = out.compactMapValues { $0 } }
+        }
     }
 
     private func rebuild() {
