@@ -8,10 +8,10 @@ final class UnixSocketServer {
     private var fd: Int32 = -1
     private var boundInode: ino_t = 0
     private var acceptSource: DispatchSourceRead?
-    private let onMessage: (String) -> Void
+    private let onMessage: (String) -> String?   // reply (written back before close), if any
     private let queue = DispatchQueue(label: "knife.socket")
 
-    init(path: String, onMessage: @escaping (String) -> Void) {
+    init(path: String, onMessage: @escaping (String) -> String?) {
         self.path = path
         self.onMessage = onMessage
     }
@@ -83,8 +83,11 @@ final class UnixSocketServer {
                 buf.append(contentsOf: chunk[0..<n])
                 if buf.count > 512 * 1024 { break }
             }
+            if let s = String(data: buf, encoding: .utf8), !s.isEmpty, let reply = self?.onMessage(s) {
+                // client half-closed its write side (python shutdown(SHUT_WR)) and is waiting for this
+                _ = reply.utf8CString.withUnsafeBufferPointer { write(client, $0.baseAddress, $0.count - 1) }
+            }
             close(client)
-            if let s = String(data: buf, encoding: .utf8), !s.isEmpty { self?.onMessage(s) }
         }
     }
 

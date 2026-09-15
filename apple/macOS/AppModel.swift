@@ -33,7 +33,7 @@ final class AppModel: ObservableObject {
 
     func start() {
         socket = UnixSocketServer(path: (NSHomeDirectory() as NSString).appendingPathComponent(".knife-terminal.sock")) { [weak self] msg in
-            Task { @MainActor in self?.handleSocketMessage(msg) }
+            DispatchQueue.main.sync { self?.handleSocketMessage(msg) }   // sync: the reply goes back on the same connection
         }
         socket?.start()
         // App Nap suspends the process when every window is occluded, so socket
@@ -192,8 +192,11 @@ final class AppModel: ObservableObject {
     private var pendingStop: [Int: DispatchWorkItem] = [:]
     private let stopQuiet: TimeInterval = 2.0
 
-    private func handleSocketMessage(_ msg: String) {
+    @discardableResult
+    private func handleSocketMessage(_ msg: String) -> String? {
         let trimmed = msg.trimmingCharacters(in: .whitespacesAndNewlines)
+        // "tab …" → the job overseer driving visible tabs (knife-tab, see knife-job.sh); these reply
+        if trimmed.hasPrefix("tab ") { return handleTabCommand(String(trimmed.dropFirst(4))) }
         // "open <dir>" → new tab in <dir> running claude (Finder "Open with Claude" quick action)
         if trimmed.hasPrefix("open ") {
             let dir = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -203,23 +206,23 @@ final class AppModel: ObservableObject {
                 NSApp.activate(ignoringOtherApps: true)
                 frontWindow()?.window?.makeKeyAndOrderFront(nil)
             }
-            return
+            return nil
         }
         // "adopt <dir>" → git init + remote + claude tab; "alert <tab> <msg>" → attention + push (job runner)
         if trimmed.hasPrefix("adopt ") {
             adoptFolder(String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines))
-            return
+            return nil
         }
         if trimmed.hasPrefix("alert ") {
             let parts = trimmed.dropFirst(6).split(separator: " ", maxSplits: 1)
-            guard let id = parts.first.flatMap({ Int($0) }), parts.count == 2 else { return }
+            guard let id = parts.first.flatMap({ Int($0) }), parts.count == 2 else { return nil }
             if let tab = tabById[id] { tab.working = false; markAttention(tab, fromBell: false) }
             chime()
             sync?.publishAlert(tabTitle: tabById[id]?.title ?? "job", message: String(parts[1]))
-            return
+            return nil
         }
         guard let sp = trimmed.firstIndex(where: { $0 == " " || $0 == "\n" }) ?? (Int(trimmed) != nil ? trimmed.endIndex : nil),
-              let id = Int(trimmed[trimmed.startIndex..<sp]) else { return }
+              let id = Int(trimmed[trimmed.startIndex..<sp]) else { return nil }
         var type = "stop"
         let rest = sp < trimmed.endIndex ? String(trimmed[trimmed.index(after: sp)...]) : ""
         if let data = rest.data(using: .utf8),
@@ -227,6 +230,51 @@ final class AppModel: ObservableObject {
             type = (j["notification_type"] as? String) ?? (j["hook_event_name"] as? String) ?? type
         }
         attention(id: id, type: type)
+        return nil
+    }
+
+    /// Overseer primitives — the same things a person does with a tab:
+    ///   open <dir> / shell <dir>   new tab in <dir> running claude / a plain shell → its id
+    ///   type <id> <text>           text + ⏎ (paste-style, like the phone)
+    ///   key <id> enter|esc|ctrl-c|up|down|tab|1…9
+    ///   read <id>                  the rendered screen, plain text
+    ///   status <id>                working | attention | idle | gone
+    private func handleTabCommand(_ cmd: String) -> String {
+        let parts = cmd.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+        let verb = parts.first ?? ""
+        if verb == "open" || verb == "shell" {
+            let dir = ((parts.dropFirst().joined(separator: " ")) as NSString).expandingTildeInPath
+            var isDir: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: dir, isDirectory: &isDir), isDir.boolValue else { return "error: no such directory" }
+            Projects.touch(dir)
+            let wc = frontWindow() ?? newWindow(withTab: false)
+            let tab = wc.addTab(TabOptions(cwd: dir, cmd: verb == "open" ? "claude" : nil,
+                                           title: (dir as NSString).lastPathComponent,
+                                           restoreCmd: verb == "open" ? "claude -c" : nil))
+            NSApp.activate(ignoringOtherApps: true)
+            return String(tab.id)
+        }
+        guard parts.count >= 2, let id = Int(parts[1]) else { return "error: usage" }
+        guard let tab = tabById[id] else { return verb == "status" ? "gone" : "error: no tab \(id)" }
+        let arg = parts.count > 2 ? parts[2] : ""
+        switch verb {
+        case "type":
+            tab.working = false; tab.attention = false; tabStateChanged(tab)   // like a keypress: stale "waiting" cleared
+            tab.view.send(txt: arg)
+            let view = tab.view
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { view.send(txt: "\r") }
+            return "ok"
+        case "key":
+            let keys = ["enter": "\r", "esc": "\u{1b}", "ctrl-c": "\u{03}", "tab": "\t",
+                        "up": "\u{1b}[A", "down": "\u{1b}[B", "left": "\u{1b}[D", "right": "\u{1b}[C"]
+            guard let seq = keys[arg] ?? (arg.count == 1 ? arg : nil) else { return "error: unknown key" }
+            tab.working = false; tab.attention = false; tabStateChanged(tab)
+            tab.view.send(txt: seq)
+            return "ok"
+        case "read": return tab.view.plainScreen()
+        case "status": return tab.working ? "working" : tab.attention ? "attention" : "idle"
+        default: return "error: unknown command"
+        }
     }
 
     /// Ported from the Electron main process: working events animate; a Stop

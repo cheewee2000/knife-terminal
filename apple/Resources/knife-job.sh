@@ -4,9 +4,10 @@
 # status view. The app (dispatcher) only opens the tab — a hung job hangs this
 # process, never the terminal.
 #
-#   knife-job.sh run "<request>"   route → worktree of last pushed state → claude
-#                                  → one commit → push to main, or branch + PR → diff
+#   knife-job.sh run "<request>"   route → an overseer agent opens the project in a
+#                                  visible tab, runs claude there and types as you would
 #   knife-job.sh adopt <dir>       git init + private GitHub remote for a folder
+#   knife-tab <verb> …             (symlink) the overseer's tab tools — see tab()
 #
 # Reads ~/.knife/manifest.json (written by the app: every machine's projects,
 # merged by git remote). Pings ~/.knife-terminal.sock for pushes.
@@ -14,16 +15,52 @@ set -u
 KNIFE=$HOME/.knife
 MANIFEST=${KNIFE_MANIFEST:-$KNIFE/manifest.json}   # overrides: self-check against a scratch repo
 CLONES=${KNIFE_CLONES:-$KNIFE/projects}
-WORKTREES=${KNIFE_WORKTREES:-$KNIFE/worktrees}
 SOCK=$HOME/.knife-terminal.sock
-mkdir -p "$KNIFE/jobs" "$KNIFE/router" "$CLONES" "$WORKTREES"
+mkdir -p "$KNIFE/jobs" "$KNIFE/router" "$CLONES"
 
 say()   { printf '\n\033[1m%s\033[0m\n' "$*"; }
 fail()  { say "✗ $*"; alert "job failed — $*"; exit 1; }
 alert() { # tab attention + phone push, via the app's socket
   [ -n "${KNIFE_TAB:-}" ] && printf 'alert %s %s' "$KNIFE_TAB" "$*" | nc -U -w 1 "$SOCK" >/dev/null 2>&1
 }
-cwd_osc() { printf '\033]7;file://%s%s\a' "$(hostname)" "$1"; }   # tell the tab where we are (chat mirror follows it)
+
+# ─── knife-tab: the app's "tab …" socket commands, replied to over the same connection ───
+# nc on macOS can't half-close, so python does the round trip. Every action is echoed to
+# this job's tab (/dev/tty) so you can watch the overseer work.
+sock() { python3 -c '
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(10); s.connect(sys.argv[1])
+s.sendall(sys.stdin.buffer.read()); s.shutdown(socket.SHUT_WR)
+out = b""
+while True:
+    c = s.recv(65536)
+    if not c: break
+    out += c
+sys.stdout.write(out.decode(errors="replace"))' "$SOCK"; }
+tab() {
+  local verb=${1:-}; shift 2>/dev/null; set -- "${1:-}" "${2:-}"
+  case "$verb" in
+    open|shell) printf '\033[2m▶ %s %s\033[0m ' "$verb" "$1" >/dev/tty
+                local id; id=$(printf 'tab %s %s' "$verb" "$1" | sock); echo "$id" >/dev/tty; echo "$id"
+                sleep 5   # ponytail: fixed settle for claude's TUI; read the screen if it looks early
+                ;;
+    type)   printf '\033[2m▶ type %s:\033[0m %s\n' "$1" "$2" >/dev/tty; printf 'tab type %s %s' "$1" "$2" | sock; echo ;;
+    key)    printf '\033[2m▶ key %s %s\033[0m\n' "$1" "$2" >/dev/tty; printf 'tab key %s %s' "$1" "$2" | sock; echo ;;
+    read)   printf 'tab read %s' "$1" | sock; echo ;;
+    status) printf 'tab status %s' "$1" | sock; echo ;;
+    wait)   # block until the tab is waiting for input (attention), or idle for 15 s (claude quit), or 30 min
+            local t=0 idle=0 st
+            printf '\033[2m▶ wait %s\033[0m' "$1" >/dev/tty
+            while [ $t -lt 1800 ]; do
+              st=$(printf 'tab status %s' "$1" | sock)
+              case "$st" in attention|gone) break ;; idle) idle=$((idle+2)); [ $idle -ge 15 ] && break ;; *) idle=0 ;; esac
+              sleep 2; t=$((t+2)); [ $((t % 20)) -eq 0 ] && printf '.' >/dev/tty
+            done
+            printf ' %s (%ss)\n' "$st" "$t" >/dev/tty; echo "$st"
+            ;;
+    *) echo "usage: knife-tab open|shell <dir> · type <id> <text> · key <id> <key> · read|status|wait <id>" >&2; return 2 ;;
+  esac
+}
 # Routing/description sessions run under ~/.knife/router so they never bump a
 # project's own recency; stdin closed so pending keystrokes aren't eaten.
 ask() { (cd "$KNIFE/router" && claude -p --model haiku --output-format text "$@" </dev/null); }
@@ -81,7 +118,7 @@ for p in json.load(open(sys.argv[1])):
 }
 
 run() {
-  local text=$1 id JOB r remote conf cands name repo base wt branch summary verdict outcome diff
+  local text=$1 id JOB r remote conf cands name repo summary
   id=$(date +%Y%m%d-%H%M%S)-$RANDOM; JOB=$KNIFE/jobs/$id
   printf '%s\n' "$text" > "$JOB.request"
   say "job $id"; echo "$text"
@@ -107,56 +144,36 @@ run() {
     remote=${names[$((pick-1))]}
   fi
   name=$(name_of "$remote"); name=${name:-$(basename "${remote%.git}")}
-
-  say "$name — preparing worktree"
   repo=$(resolve "$remote") || fail "could not clone $remote"
-  cd "$repo" || fail "no checkout"
-  git fetch -q origin --prune || fail "fetch failed"
-  git symbolic-ref -q refs/remotes/origin/HEAD >/dev/null || git remote set-head origin -a >/dev/null 2>&1
-  base=$(git symbolic-ref -q --short refs/remotes/origin/HEAD); base=${base#origin/}; base=${base:-main}
-  wt=$WORKTREES/$id; branch=knife/$id
-  git worktree add -q -b "$branch" "$wt" "origin/$base" || fail "worktree add failed"
-  cd "$wt" || fail "no worktree"
-  cwd_osc "$wt"
 
-  say "$name — claude working (origin/$base @ $(git rev-parse --short HEAD))"
-  claude -p --dangerously-skip-permissions --output-format text "$text
+  # The overseer: a claude session whose only tool is knife-tab. It opens the project
+  # in a real tab, runs claude there, types the request and answers its questions —
+  # everything it does shows in that tab and is echoed here.
+  say "$name — overseer starting ($repo)"
+  mkdir -p "$KNIFE/bin"; ln -sf "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")" "$KNIFE/bin/knife-tab"
+  (cd "$KNIFE/router" && PATH="$KNIFE/bin:$PATH" claude -p --model sonnet --output-format text \
+    --allowedTools "Bash(knife-tab:*)" "You oversee terminal tabs in Knife Terminal on this Mac, working the way its owner would. Your only tool is the knife-tab command (run it with Bash):
+  knife-tab open <dir>        new tab in <dir> running claude → prints the tab id (waits 5 s for claude to start)
+  knife-tab shell <dir>       new tab in <dir> with a plain shell → tab id
+  knife-tab type <id> <text>  type text into the tab and press enter (quote the text)
+  knife-tab key <id> <key>    press one key: enter, esc, ctrl-c, up, down, tab, or a single character
+  knife-tab read <id>         the tab's current screen
+  knife-tab status <id>       working | attention (claude is waiting for input) | idle | gone
+  knife-tab wait <id>         block until the tab is waiting for input or idle
 
-You are working in a throwaway git worktree of this project, checked out at the last pushed state of $base. Make the change requested above. Do not commit, push, or create branches — the runner does that. When you are done, end your reply with exactly these two lines:
-SUMMARY: <one-line commit message for the change>
-VERDICT: direct
-Use VERDICT: direct for a small, low-risk change that is safe to push straight to $base; use VERDICT: pr for anything large, experimental, or that could break things (it will go to a branch and a pull request)." </dev/null | tee "$JOB.out"
+Task: carry out this request in the project checked out at $repo:
+\"$text\"
 
-  # whatever claude did (even if it committed anyway) becomes exactly one commit on top of origin/$base
-  git reset -q --soft "origin/$base"
-  if [ -z "$(git status --porcelain)" ]; then
-    say "$name — no changes made"; alert "$name — no changes made — $text"
-    cd "$repo" && git worktree remove --force "$wt" && git branch -q -D "$branch"
-    exit 0
-  fi
-  summary=$(grep -m1 '^SUMMARY:' "$JOB.out" | sed 's/^SUMMARY: *//'); summary=${summary:-$text}
-  verdict=$(grep -m1 '^VERDICT:' "$JOB.out" | awk '{print tolower($2)}'); verdict=${verdict:-pr}
-  git add -A && git commit -q -m "$summary" -m "Knife job $id: $text" || fail "commit failed"
+Do it like this:
+1. knife-tab open $repo, then knife-tab read it. If claude shows a question (trust this folder? a menu?), answer it (enter, or the right key) and read again until the claude prompt is ready.
+2. knife-tab type the request into that tab, verbatim, followed by: \"When done, commit with a one-line message and push.\"
+3. knife-tab wait, then knife-tab read. If claude asks a question or wants a permission, answer as the owner would (usually yes / enter). Repeat wait + read until claude is done and has pushed.
+4. Reply with three lines: the tab id, what changed (from what you read on screen), and whether it was pushed. Leave the tab open.
+Never run anything but knife-tab. Never close or kill the tab." </dev/null) | tee "$JOB.out"
 
-  if [ "$verdict" = direct ]; then
-    if git push -q origin "HEAD:$base"; then outcome="pushed to $base @ $(git rev-parse --short HEAD) — revert with: git revert $(git rev-parse --short HEAD)"
-    else say "push to $base rejected — opening a PR instead"; verdict=pr; fi
-  fi
-  if [ "$verdict" = pr ]; then
-    git push -q -u origin "$branch" || fail "push failed"
-    outcome="PR $(gh pr create --base "$base" --head "$branch" --title "$summary" --body "Knife job $id — request: $text" 2>&1 | tail -1)"
-  fi
-
-  diff=$(git show -p --stat --format='%h %s' HEAD)
-  printf '%s\n' "$diff" > "$JOB.diff"
-  say "$name — $outcome"
-  printf '%s\n' "$diff"
-  # ponytail: APNs caps the push payload — the full diff is on screen and in $JOB.diff
-  alert "$name — $outcome
-$(printf '%s' "$diff" | head -c 2500)"
-  cd "$repo" && git worktree remove --force "$wt"
-  [ "$verdict" = direct ] && git branch -q -D "$branch"
-  say "done — $JOB.diff"
+  summary=$(tail -c 2500 "$JOB.out")
+  say "done"
+  alert "$name — $summary"
 }
 
 # ─── adopt: make a folder a project (git repo + private GitHub remote) ───
@@ -168,9 +185,11 @@ adopt() {
   say "$(basename "$PWD") → $(git remote get-url origin)"
 }
 
-[ "${BASH_SOURCE[0]}" = "$0" ] || return 0   # sourced: functions only (self-check below)
+[ "${BASH_SOURCE[0]}" = "$0" ] || return 0   # sourced: functions only
+[ "$(basename "$0")" = knife-tab ] && { tab "$@"; exit $?; }
 case "${1:-}" in
   run)   run "$2" ;;
   adopt) adopt "$2" ;;
-  *)     echo "usage: knife-job.sh run \"<request>\" | adopt <dir>"; exit 2 ;;
+  tab)   shift; tab "$@" ;;
+  *)     echo "usage: knife-job.sh run \"<request>\" | adopt <dir> | tab <verb> …"; exit 2 ;;
 esac

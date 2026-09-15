@@ -183,6 +183,20 @@ final class KnifeTermView: LocalProcessTerminalView {
     }
 
     /// The visible screen as styled runs (colors, bold, …) for the iOS mirror.
+    /// The screen as plain text, trailing blanks trimmed (the overseer reads this).
+    func plainScreen() -> String {
+        let t = getTerminal()
+        var out: [String] = []
+        for row in 0..<t.rows {
+            guard let line = t.getLine(row: row) else { out.append(""); continue }
+            var s = ""
+            for col in 0..<t.cols { let ch = line[col].getCharacter(); s.append(ch == "\u{0}" ? " " : ch) }
+            out.append(String(s.reversed().drop(while: { $0 == " " }).reversed()))
+        }
+        while out.last == "" { out.removeLast() }
+        return out.joined(separator: "\n")
+    }
+
     func styledScreen() -> Data {
         let t = getTerminal()
         var lines: [[TermRun]] = []
