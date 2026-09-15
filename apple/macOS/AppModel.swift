@@ -239,6 +239,7 @@ final class AppModel: ObservableObject {
     ///   key <id> enter|esc|ctrl-c|up|down|tab|1…9
     ///   read <id>                  the rendered screen, plain text
     ///   status <id>                working | attention | idle | gone
+    ///   echo <id> <text>           print a line on the tab's screen (the overseer's log, no tty needed)
     private func handleTabCommand(_ cmd: String) -> String {
         let parts = cmd.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
         let verb = parts.first ?? ""
@@ -272,6 +273,7 @@ final class AppModel: ObservableObject {
             tab.view.send(txt: seq)
             return "ok"
         case "read": return tab.view.plainScreen()
+        case "echo": tab.view.feed(text: "\r\n" + arg); return "ok"
         case "status": return tab.working ? "working" : tab.attention ? "attention" : "idle"
         default: return "error: unknown command"
         }

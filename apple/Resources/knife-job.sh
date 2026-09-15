@@ -25,8 +25,7 @@ alert() { # tab attention + phone push, via the app's socket
 }
 
 # ─── knife-tab: the app's "tab …" socket commands, replied to over the same connection ───
-# nc on macOS can't half-close, so python does the round trip. Every action is echoed to
-# this job's tab (/dev/tty) so you can watch the overseer work.
+# nc on macOS can't half-close, so python does the round trip.
 sock() { python3 -c '
 import socket, sys
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(10); s.connect(sys.argv[1])
@@ -37,33 +36,31 @@ while True:
     if not c: break
     out += c
 sys.stdout.write(out.decode(errors="replace"))' "$SOCK"; }
+# note: the overseer's log line, printed onto the job tab's screen through the app —
+# the overseer's Bash is sandboxed (no /dev/tty), but the socket is reachable
+note() { if [ -n "${KNIFE_TAB:-}" ]; then printf 'tab echo %s \033[2m%s\033[0m' "$KNIFE_TAB" "$*" | sock >/dev/null; else echo "$*" >&2; fi; }
 tab() {
   local verb=${1:-}; shift 2>/dev/null; set -- "${1:-}" "${2:-}"
   case "$verb" in
-    open|shell) printf '\033[2m▶ %s %s\033[0m ' "$verb" "$1" >/dev/tty
-                local id; id=$(printf 'tab %s %s' "$verb" "$1" | sock); echo "$id" >/dev/tty; echo "$id"
+    open|shell) local id; id=$(printf 'tab %s %s' "$verb" "$1" | sock); note "▶ $verb $1 → tab $id"; echo "$id"
                 sleep 5   # ponytail: fixed settle for claude's TUI; read the screen if it looks early
                 ;;
-    type)   printf '\033[2m▶ type %s:\033[0m %s\n' "$1" "$2" >/dev/tty; printf 'tab type %s %s' "$1" "$2" | sock; echo ;;
-    key)    printf '\033[2m▶ key %s %s\033[0m\n' "$1" "$2" >/dev/tty; printf 'tab key %s %s' "$1" "$2" | sock; echo ;;
+    type)   note "▶ type $1: $2"; printf 'tab type %s %s' "$1" "$2" | sock; echo ;;
+    key)    note "▶ key $1 $2"; printf 'tab key %s %s' "$1" "$2" | sock; echo ;;
     read)   printf 'tab read %s' "$1" | sock; echo ;;
     status) printf 'tab status %s' "$1" | sock; echo ;;
     wait)   # block until the tab is waiting for input (attention), or idle for 15 s (claude quit), or 30 min
             local t=0 idle=0 st
-            printf '\033[2m▶ wait %s\033[0m' "$1" >/dev/tty
             while [ $t -lt 1800 ]; do
               st=$(printf 'tab status %s' "$1" | sock)
               case "$st" in attention|gone) break ;; idle) idle=$((idle+2)); [ $idle -ge 15 ] && break ;; *) idle=0 ;; esac
-              sleep 2; t=$((t+2)); [ $((t % 20)) -eq 0 ] && printf '.' >/dev/tty
+              sleep 2; t=$((t+2))
             done
-            printf ' %s (%ss)\n' "$st" "$t" >/dev/tty; echo "$st"
+            note "▶ wait $1 → $st (${t}s)"; echo "$st"
             ;;
     *) echo "usage: knife-tab open|shell <dir> · type <id> <text> · key <id> <key> · read|status|wait <id>" >&2; return 2 ;;
   esac
 }
-# Routing/description sessions run under ~/.knife/router so they never bump a
-# project's own recency; stdin closed so pending keystrokes aren't eaten.
-ask() { (cd "$KNIFE/router" && claude -p --model haiku --output-format text "$@" </dev/null); }
 
 # ─── routing: manifest + request → remote, confidence, top-3 candidates ───
 route() {

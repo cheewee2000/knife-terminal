@@ -23,6 +23,7 @@ final class UnixSocketServer {
         unlink(path)
         fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return }
+        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         var addr = makeAddr()
         let len = socklen_t(MemoryLayout<sockaddr_un>.size)
         let bound = withUnsafePointer(to: &addr) {
@@ -74,6 +75,9 @@ final class UnixSocketServer {
     private func acceptOne() {
         let client = accept(fd, nil, nil)
         guard client >= 0 else { return }
+        // a "tab open" forks a shell while this connection is live — without CLOEXEC the
+        // child inherits it and the client never sees EOF after the reply
+        _ = fcntl(client, F_SETFD, FD_CLOEXEC)
         queue.async { [weak self] in
             var buf = Data()
             var chunk = [UInt8](repeating: 0, count: 4096)
