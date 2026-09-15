@@ -131,7 +131,11 @@ final class MirrorStore: ObservableObject {
         Task { await flushPendingInputs() }
     }
 
+    private var flushing = false
     private func flushPendingInputs() async {
+        guard !flushing else { return }   // send() and refresh() both flush; a second flusher re-sent the head and crashed on removeFirst
+        flushing = true
+        defer { flushing = false }
         while let next = pendingInputs.first {
             do { try await cloud.sendInput(tabId: next.tabId, text: next.text) }
             catch { syncError = "send failed: \(error.localizedDescription)"; return }
