@@ -151,8 +151,8 @@ run() {
   # everything it does shows in that tab and is echoed here.
   say "$name — overseer starting ($repo)"
   mkdir -p "$KNIFE/bin"; ln -sf "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")" "$KNIFE/bin/knife-tab"
-  (cd "$KNIFE/router" && PATH="$KNIFE/bin:$PATH" claude -p --model sonnet --output-format text \
-    --allowedTools "Bash(knife-tab:*)" "You oversee terminal tabs in Knife Terminal on this Mac, working the way its owner would. Your only tool is the knife-tab command (run it with Bash):
+  # prompt first: --allowedTools is variadic and would swallow a trailing positional
+  local prompt="You oversee terminal tabs in Knife Terminal on this Mac, working the way its owner would. Your only tool is the knife-tab command (run it with Bash):
   knife-tab open <dir>        new tab in <dir> running claude → prints the tab id (waits 5 s for claude to start)
   knife-tab shell <dir>       new tab in <dir> with a plain shell → tab id
   knife-tab type <id> <text>  type text into the tab and press enter (quote the text)
@@ -169,7 +169,9 @@ Do it like this:
 2. knife-tab type the request into that tab, verbatim, followed by: \"When done, commit with a one-line message and push.\"
 3. knife-tab wait, then knife-tab read. If claude asks a question or wants a permission, answer as the owner would (usually yes / enter). Repeat wait + read until claude is done and has pushed.
 4. Reply with three lines: the tab id, what changed (from what you read on screen), and whether it was pushed. Leave the tab open.
-Never run anything but knife-tab. Never close or kill the tab." </dev/null) | tee "$JOB.out"
+Never run anything but knife-tab. Never close or kill the tab."
+  (cd "$KNIFE/router" && PATH="$KNIFE/bin:$PATH" claude -p "$prompt" --model sonnet --output-format text \
+    --allowedTools "Bash(knife-tab:*)" </dev/null) | tee "$JOB.out"
 
   summary=$(tail -c 2500 "$JOB.out")
   say "done"
