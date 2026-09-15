@@ -43,6 +43,7 @@ tab() {
   local verb=${1:-}; shift 2>/dev/null; set -- "${1:-}" "${2:-}"
   case "$verb" in
     open|shell) local id; id=$(printf 'tab %s %s' "$verb" "$1" | sock); note "▶ $verb $1 → tab $id"; echo "$id"
+                [ -n "${KNIFE_JOB:-}" ] && echo "$id" >> "$KNIFE_JOB.tabs"   # the runner watches these
                 sleep 5   # ponytail: fixed settle for claude's TUI; read the screen if it looks early
                 ;;
     type)   note "▶ type $1: $2"; printf 'tab type %s %s' "$1" "$2" | sock; echo ;;
@@ -119,7 +120,7 @@ for p in json.load(open(sys.argv[1])):
 }
 
 run() {
-  local text=$1 id JOB r remote conf cands name repo summary
+  local text=$1 id JOB r remote conf cands name repo summary sid
   id=$(date +%Y%m%d-%H%M%S)-$RANDOM; JOB=$KNIFE/jobs/$id
   printf '%s\n' "$text" > "$JOB.request"
   say "job $id"; echo "$text"
@@ -169,14 +170,36 @@ Do it like this:
 1. knife-tab open $repo, then knife-tab read it. If claude shows a question (trust this folder? a menu?), answer it (enter, or the right key) and read again until the claude prompt is ready.
 2. knife-tab type the request into that tab, verbatim, followed by: \"When done, commit with a one-line message and push.\"
 3. knife-tab wait, then knife-tab read. If claude asks a question or wants a permission, answer as the owner would (usually yes / enter). Repeat wait + read until claude is done and has pushed.
-4. Reply with three lines: the tab id, what changed (from what you read on screen), and whether it was pushed. Leave the tab open.
+4. When claude in the tab has finished and pushed, reply with three lines — the tab id, what changed (from what you read on screen), whether it was pushed — and then a last line that is exactly DONE. Leave the tab open.
+If you end a reply without DONE, you are paused: the runner waits until the tab next needs input or goes quiet, then resumes you with its status — so never promise to wait, just end the reply.
 Never run anything but knife-tab. Never close or kill the tab."
-  (cd "$KNIFE/router" && PATH="$KNIFE/bin:$PATH" claude -p "$prompt" --model sonnet --output-format text \
-    --allowedTools "Bash(knife-tab:*)" </dev/null) | tee "$JOB.out"
+
+  # The overseer's turns end whenever it stops calling tools; the runner is the
+  # scheduler: while its last reply isn't DONE and a tab it opened is busy, wait
+  # on that tab here, then resume the same session with the tab's new status.
+  : > "$JOB.tabs"
+  local report sid="" rounds=0 busy id st
+  report=$(overseer "$prompt"); printf '%s\n' "$report" | tee -a "$JOB.out"
+  until grep -qx 'DONE' <<<"$report" || [ $rounds -ge 40 ]; do   # ponytail: 40 naps cap a runaway overseer
+    busy=""
+    for id in $(cat "$JOB.tabs"); do case "$(tab status "$id")" in working|attention) busy=$id ;; esac; done
+    [ -n "$busy" ] || break
+    st=$(tab wait "$busy"); rounds=$((rounds+1))
+    report=$(overseer "Tab $busy is now $st. knife-tab read it and continue from step 3." "$sid"); printf '%s\n' "$report" | tee -a "$JOB.out"
+  done
 
   summary=$(tail -c 2500 "$JOB.out")
   say "done"
   alert "$name — $summary"
+}
+
+# one overseer turn: $1 prompt, $2 session to resume (empty = new) → prints its reply, sets $sid
+overseer() {
+  local out
+  out=$(cd "$KNIFE/jobs" && PATH="$KNIFE/bin:$PATH" KNIFE_JOB="$JOB" claude -p "$1" ${2:+--resume "$2"} --model sonnet \
+        --output-format json --allowedTools "Bash(knife-tab:*)" </dev/null)
+  sid=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("session_id",""))' <<<"$out" 2>/dev/null)
+  python3 -c 'import json,sys; print(json.load(sys.stdin).get("result",""))' <<<"$out" 2>/dev/null || printf '%s\n' "$out"
 }
 
 # ─── adopt: make a folder a project (git repo + private GitHub remote) ───
