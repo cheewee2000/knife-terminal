@@ -62,6 +62,10 @@ tab() {
   esac
 }
 
+# Routing/description sessions run under ~/.knife/router so they never bump a
+# project's own recency; stdin closed so pending keystrokes aren't eaten.
+ask() { (cd "$KNIFE/router" && claude -p --model haiku --output-format text "$@" </dev/null); }
+
 # ─── routing: manifest + request → remote, confidence, top-3 candidates ───
 route() {
   local list
