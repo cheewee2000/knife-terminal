@@ -50,16 +50,26 @@ tab() {
     key)    note "▶ key $1 $2"; printf 'tab key %s %s' "$1" "$2" | sock; echo ;;
     read)   printf 'tab read %s' "$1" | sock; echo ;;
     status) printf 'tab status %s' "$1" | sock; echo ;;
-    wait)   # block until the tab is waiting for input (attention), or idle for 15 s (claude quit), or 30 min
-            local t=0 idle=0 st
+    wait)   # until the tab wants input (attention), quits (idle 15 s), or the screen freezes while
+            # "working" for 45 s (a dialog no hook reports: trust prompt, menu, AskUserQuestion) → stalled
+            local t=0 idle=0 same=0 st h last=""
             while [ $t -lt 1800 ]; do
               st=$(printf 'tab status %s' "$1" | sock)
-              case "$st" in attention|gone) break ;; idle) idle=$((idle+2)); [ $idle -ge 15 ] && break ;; *) idle=0 ;; esac
-              sleep 2; t=$((t+2))
+              case "$st" in attention|gone) break ;; idle) idle=$((idle+3)); [ $idle -ge 15 ] && break ;; *) idle=0 ;; esac
+              h=$(printf 'tab read %s' "$1" | sock | md5); if [ "$h" = "$last" ]; then same=$((same+3)); else same=0; last=$h; fi
+              [ $same -ge 45 ] && { st=stalled; break; }
+              sleep 3; t=$((t+3))
             done
             note "▶ wait $1 → $st (${t}s)"; echo "$st"
             ;;
-    *) echo "usage: knife-tab open|shell <dir> · type <id> <text> · key <id> <key> · read|status|wait <id>" >&2; return 2 ;;
+    ask)    # hand a decision to the owner: phone push + tab glow, then block until they act in the tab
+            note "▶ ask $1: $2"; printf 'alert %s %s' "$1" "$2" | sock >/dev/null
+            local t=0 st
+            while [ $t -lt 28800 ]; do st=$(printf 'tab status %s' "$1" | sock); [ "$st" = attention ] || break; sleep 5; t=$((t+5)); done
+            [ "$st" = attention ] && { note "▶ ask $1 → no answer after 8h"; echo unanswered; return 0; }
+            tab wait "$1"
+            ;;
+    *) echo "usage: knife-tab open|shell <dir> · type <id> <text> · key <id> <keys…> · read|status|wait <id> · ask <id> <question>" >&2; return 2 ;;
   esac
 }
 
@@ -154,22 +164,36 @@ run() {
   say "$name — overseer starting ($repo)"
   mkdir -p "$KNIFE/bin"; ln -sf "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")" "$KNIFE/bin/knife-tab"
   # prompt first: --allowedTools is variadic and would swallow a trailing positional
-  local prompt="You oversee terminal tabs in Knife Terminal on this Mac, working the way its owner would. Your only tool is the knife-tab command (run it with Bash):
-  knife-tab open <dir>        new tab in <dir> running claude → prints the tab id (waits 5 s for claude to start)
-  knife-tab shell <dir>       new tab in <dir> with a plain shell → tab id
-  knife-tab type <id> <text>  type text into the tab and press enter (quote the text)
-  knife-tab key <id> <key>    press one key: enter, esc, ctrl-c, up, down, tab, or a single character
-  knife-tab read <id>         the tab's current screen
-  knife-tab status <id>       working | attention (claude is waiting for input) | idle | gone
-  knife-tab wait <id>         block until the tab is waiting for input or idle
+  local prompt="You oversee terminal tabs in Knife Terminal on this Mac, standing in for its owner. Your only tool is the knife-tab command (run it with Bash):
+  knife-tab open <dir>          new tab in <dir> running claude → prints the tab id (waits 5 s for claude to start)
+  knife-tab shell <dir>         new tab in <dir> with a plain shell → tab id (git, builds, tests the owner would run by hand)
+  knife-tab type <id> <text>    type text into the tab and press enter (quote the text)
+  knife-tab key <id> <keys…>    press keys in order: enter esc tab shift-tab space backspace up down left right ctrl-c ctrl-<x> or a single character
+  knife-tab read <id>           the tab's current screen
+  knife-tab status <id>         working | attention (claude is waiting for input) | idle (nothing running) | gone
+  knife-tab wait <id>           block until the tab wants input, quits, or stalls (screen frozen 45 s: a dialog)
+  knife-tab ask <id> <question> hand a decision to the owner: pushes the question to their phone and blocks until they answer in the tab
 
 Task: carry out this request in the project checked out at $repo:
 \"$text\"
 
 Do it like this:
-1. knife-tab open $repo, then knife-tab read it. If claude shows a question (trust this folder? a menu?), answer it (enter, or the right key) and read again until the claude prompt is ready.
+1. knife-tab open $repo, then knife-tab read it. Clear whatever claude shows before its prompt (trust this folder? → enter; a menu → arrows + enter) and read again until the prompt is ready.
 2. knife-tab type the request into that tab, verbatim, followed by: \"When done, commit with a one-line message and push.\"
-3. knife-tab wait, then knife-tab read. If claude asks a question or wants a permission, answer as the owner would (usually yes / enter). Repeat wait + read until claude is done and has pushed.
+3. knife-tab wait, then knife-tab read, and keep the session moving the way the owner does. The owner's replies are short, lowercase and plain — these are the ones they actually use, type them as written:
+   - claude finished a step and stopped, work remains → type: continue    (after a restart, /compact or a lost thread → type: continue from where you left off)
+   - claude asks 'shall I…' / 'want me to…' and it fits the request → type: yes    (all of several options fit → type: do both  or  apply all)
+   - it is done but has not committed or pushed → type: commit and push    (a versioned app → type: version bump, commit and push)
+   - a failing build or test it gave up on → type: fix
+   - it needs a manual step you cannot do (sign in, plug in, tap on the phone, paste a key) → knife-tab ask the owner; when you are resumed → type: try now
+   - context warnings, or it is slow and repeating itself → type: /compact   then → type: continue from where you left off
+   - quiet a long time, no dialog → type: checking in
+   - a permission prompt → enter (yes); if 'yes, and don't ask again' is offered → down, enter
+   - a plan or approval prompt → approve (enter) unless it plainly contradicts the request
+   - AskUserQuestion or a menu → the '(Recommended)' option if there is one (arrows + enter); none, but the request or your CLAUDE.md conventions decide it → that one; otherwise → knife-tab ask the owner
+   - stalled with nothing visible → key enter once; still stalled → knife-tab ask the owner
+   - a real product decision, credentials, money, or anything destructive (force push, deleting data) → knife-tab ask the owner; never guess
+   Repeat wait + read until claude is done and has pushed.
 4. When claude in the tab has finished and pushed, reply with three lines — the tab id, what changed (from what you read on screen), whether it was pushed — and then a last line that is exactly DONE. Leave the tab open.
 If you end a reply without DONE, you are paused: the runner waits until the tab next needs input or goes quiet, then resumes you with its status — so never promise to wait, just end the reply.
 Never run anything but knife-tab. Never close or kill the tab."

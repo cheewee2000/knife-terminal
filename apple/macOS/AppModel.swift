@@ -236,7 +236,7 @@ final class AppModel: ObservableObject {
     /// Overseer primitives — the same things a person does with a tab:
     ///   open <dir> / shell <dir>   new tab in <dir> running claude / a plain shell → its id
     ///   type <id> <text>           text + ⏎ (paste-style, like the phone)
-    ///   key <id> enter|esc|ctrl-c|up|down|tab|1…9
+    ///   key <id> <keys…>           enter esc tab shift-tab space backspace up/down/left/right ctrl-<a-z> or a character
     ///   read <id>                  the rendered screen, plain text
     ///   status <id>                working | attention | idle | gone
     ///   echo <id> <text>           print a line on the tab's screen (the overseer's log, no tty needed)
@@ -265,12 +265,19 @@ final class AppModel: ObservableObject {
             let view = tab.view
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { view.send(txt: "\r") }
             return "ok"
-        case "key":
-            let keys = ["enter": "\r", "esc": "\u{1b}", "ctrl-c": "\u{03}", "tab": "\t",
-                        "up": "\u{1b}[A", "down": "\u{1b}[B", "left": "\u{1b}[D", "right": "\u{1b}[C"]
-            guard let seq = keys[arg] ?? (arg.count == 1 ? arg : nil) else { return "error: unknown key" }
+        case "key":   // one or more keys, space-separated, ~150 ms apart (menus need the gap)
+            let keys = ["enter": "\r", "esc": "\u{1b}", "tab": "\t", "shift-tab": "\u{1b}[Z", "space": " ",
+                        "backspace": "\u{7f}", "up": "\u{1b}[A", "down": "\u{1b}[B", "left": "\u{1b}[D", "right": "\u{1b}[C"]
+            var seqs: [String] = []
+            for k in arg.split(separator: " ").map(String.init) {
+                if let s = keys[k] { seqs.append(s) }
+                else if k.hasPrefix("ctrl-"), k.count == 6, let a = k.last?.asciiValue, a >= 97, a <= 122 { seqs.append(String(UnicodeScalar(a - 96))) }
+                else if k.count == 1 { seqs.append(k) }
+                else { return "error: unknown key \(k)" }
+            }
             tab.working = false; tab.attention = false; tabStateChanged(tab)
-            tab.view.send(txt: seq)
+            let view = tab.view
+            for (i, seq) in seqs.enumerated() { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15 * Double(i)) { view.send(txt: seq) } }
             return "ok"
         case "read": return tab.view.plainScreen()
         case "echo": tab.view.feed(text: "\r\n" + arg); return "ok"
