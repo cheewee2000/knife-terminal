@@ -196,25 +196,48 @@ Do it like this:
    Repeat wait + read until claude is done and has pushed.
 4. When claude in the tab has finished and pushed, reply with three lines — the tab id, what changed (from what you read on screen), whether it was pushed — and then a last line that is exactly DONE. Leave the tab open.
 If you end a reply without DONE, you are paused: the runner waits until the tab next needs input or goes quiet, then resumes you with its status — so never promise to wait, just end the reply.
+The owner can talk to you at any time, before or after DONE: a resume that starts with 'The owner says:' is them. Do what they say (it overrides the request), using the same tabs, and report back the same way.
 Never run anything but knife-tab. Never close or kill the tab."
 
-  # The overseer's turns end whenever it stops calling tools; the runner is the
-  # scheduler: while its last reply isn't DONE and a tab it opened is busy, wait
-  # on that tab here, then resume the same session with the tab's new status.
-  : > "$JOB.tabs"
-  local report sid="" rounds=0 busy id st
-  report=$(overseer "$prompt"); printf '%s\n' "$report" | tee -a "$JOB.out"
-  until grep -qx 'DONE' <<<"$report" || [ $rounds -ge 40 ]; do   # ponytail: 40 naps cap a runaway overseer
-    busy=""
-    for id in $(cat "$JOB.tabs"); do case "$(tab status "$id")" in working|attention) busy=$id ;; esac; done
-    [ -n "$busy" ] || break
-    st=$(tab wait "$busy"); rounds=$((rounds+1))
-    report=$(overseer "Tab $busy is now $st. knife-tab read it and continue from step 3." "$sid"); printf '%s\n' "$report" | tee -a "$JOB.out"
-  done
+  drive "$prompt"
+}
 
-  summary=$(tail -c 2500 "$JOB.out")
-  say "done"
-  alert "$name — $summary"
+# The overseer's turns end whenever it stops calling tools; the runner is the
+# scheduler: while its last reply isn't DONE and a tab it opened is busy, wait
+# on that tab, then resume the same session with the tab's new status. Anything
+# the owner types into this tab meanwhile (Mac keyboard or the phone's composer)
+# is the overseer's next turn instead, and after DONE the tab stays open as a
+# chat with it. Uses $JOB, $name; $1 = the opening prompt.
+drive() {
+  : > "$JOB.tabs"
+  local report sid="" rounds=0 busy id st line w reported="" chat=""
+  [ -t 0 ] && chat=1   # a keyboard to chat from (not a pipe/self-check); closing the tab HUPs us, so no EOF handling
+  report=$(overseer "$1"); printf '%s\n' "$report" | tee -a "$JOB.out"
+  while :; do
+    busy=""
+    if ! grep -qx 'DONE' <<<"$report" && [ $rounds -lt 40 ]; then   # ponytail: 40 naps cap a runaway overseer
+      for id in $(cat "$JOB.tabs"); do case "$(tab status "$id")" in working|attention) busy=$id ;; esac; done
+    fi
+    if [ -z "$busy" ] && [ -z "$reported" ]; then
+      reported=1; alert "$name — $(tail -c 2500 "$JOB.out")"
+      say "done${chat:+ — type here to keep talking to the overseer}"
+    fi
+    [ -n "$busy" ] || [ -n "$chat" ] || return 0
+    w=""; [ -n "$busy" ] && { tab wait "$busy" > "$JOB.wait" & w=$!; }
+    line=""
+    while [ -n "$chat" ] && { [ -z "$w" ] || kill -0 "$w" 2>/dev/null; }; do
+      IFS= read -r -t 2 line && [ -n "$line" ] && break   # bash 3.2: timeout also returns 1, so no EOF test
+      line=""
+    done
+    if [ -n "$line" ]; then
+      [ -n "$w" ] && { kill "$w" 2>/dev/null; wait "$w" 2>/dev/null; }
+      report=$(overseer "The owner says: $line" "$sid")
+    else
+      wait "$w" 2>/dev/null; st=$(cat "$JOB.wait"); rounds=$((rounds+1))
+      report=$(overseer "Tab $busy is now $st. knife-tab read it and continue from step 3." "$sid")
+    fi
+    printf '%s\n' "$report" | tee -a "$JOB.out"
+  done
 }
 
 # one overseer turn: $1 prompt, $2 session to resume (empty = new) → prints its reply, sets $sid
