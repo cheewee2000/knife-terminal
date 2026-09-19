@@ -50,12 +50,12 @@ tab() {
     key)    note "▶ key $1 $2"; printf 'tab key %s %s' "$1" "$2" | sock; echo ;;
     read)   printf 'tab read %s' "$1" | sock; echo ;;
     status) printf 'tab status %s' "$1" | sock; echo ;;
-    wait)   # until the tab wants input (attention), quits (idle 15 s), or the screen freezes while
+    wait)   # until the tab wants input (attention), hits a usage limit, quits (idle 15 s), or the screen freezes while
             # "working" for 45 s (a dialog no hook reports: trust prompt, menu, AskUserQuestion) → stalled
             local t=0 idle=0 same=0 st h last=""
             while [ $t -lt 1800 ]; do
               st=$(printf 'tab status %s' "$1" | sock)
-              case "$st" in attention|gone) break ;; idle) idle=$((idle+3)); [ $idle -ge 15 ] && break ;; *) idle=0 ;; esac
+              case "$st" in attention|limit|gone) break ;; idle) idle=$((idle+3)); [ $idle -ge 15 ] && break ;; *) idle=0 ;; esac
               h=$(printf 'tab read %s' "$1" | sock | md5); if [ "$h" = "$last" ]; then same=$((same+3)); else same=0; last=$h; fi
               [ $same -ge 45 ] && { st=stalled; break; }
               sleep 3; t=$((t+3))
@@ -170,7 +170,7 @@ run() {
   knife-tab type <id> <text>    type text into the tab and press enter (quote the text)
   knife-tab key <id> <keys…>    press keys in order: enter esc tab shift-tab space backspace up down left right ctrl-c ctrl-<x> or a single character
   knife-tab read <id>           the tab's current screen
-  knife-tab status <id>         working | attention (claude is waiting for input) | idle (nothing running) | gone
+  knife-tab status <id>         working | attention (claude is waiting for input) | limit (stopped on a usage limit) | idle (nothing running) | gone
   knife-tab wait <id>           block until the tab wants input, quits, or stalls (screen frozen 45 s: a dialog)
   knife-tab ask <id> <question> hand a decision to the owner: pushes the question to their phone and blocks until they answer in the tab
 
@@ -234,6 +234,12 @@ drive() {
       report=$(overseer "The owner says: $line" "$sid")
     else
       wait "$w" 2>/dev/null; st=$(cat "$JOB.wait"); rounds=$((rounds+1))
+      if [ "$st" = limit ]; then   # the overseer runs on the same account — resuming it now fails too
+        reported=1; alert "$name — tab $busy hit the usage limit; paused${chat:+, type here to resume once it resets}"
+        say "paused — tab $busy hit the usage limit${chat:+; type here to resume once it resets}"
+        [ -n "$chat" ] || return 0
+        report=""; continue
+      fi
       report=$(overseer "Tab $busy is now $st. knife-tab read it and continue from step 3." "$sid")
     fi
     printf '%s\n' "$report" | tee -a "$JOB.out"

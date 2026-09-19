@@ -182,6 +182,23 @@ final class KnifeTermView: LocalProcessTerminalView {
         super.send(source: source, data: data)
     }
 
+    /// Type a line the way a person does, then Enter. Claude Code reads a fast burst of input as a
+    /// paste — it tags it <pasted_content> for the model ("may not be the user's own words") and takes
+    /// a CR inside it as a newline — so text goes out in 256-character writes 15 ms apart, newlines
+    /// as Ctrl+J, Enter last. (Measured by Origin on 2.1.278: 512 chars per 20 ms stays typed.)
+    func typeLine(_ text: String) {
+        var t = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\t", with: "    ")
+        t = String(String.UnicodeScalarView(t.unicodeScalars.filter { $0 == "\n" || ($0.value >= 0x20 && $0.value != 0x7f) }))
+        if t.hasSuffix("\\") { t += " " }   // a backslash before Enter makes it a newline
+        let chars = Array(t)
+        let chunks = stride(from: 0, to: chars.count, by: 256).map { String(chars[$0..<min($0 + 256, chars.count)]) }
+        for (i, c) in chunks.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.015 * Double(i)) { [weak self] in self?.send(txt: c) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.015 * Double(chunks.count) + 0.25) { [weak self] in self?.send(txt: "\r") }
+    }
+
     /// The visible screen as styled runs (colors, bold, …) for the iOS mirror.
     /// The screen as plain text, trailing blanks trimmed (the overseer reads this).
     func plainScreen() -> String {

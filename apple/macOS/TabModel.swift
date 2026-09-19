@@ -19,6 +19,9 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     @Published var title: String
     @Published var working = false
     @Published var attention = false
+    var limited = false        // the turn ended on a usage limit (StopFailure rate_limit)
+    var sessionId: String?     // claude's session, from its hooks — restore resumes exactly this one
+    var lastReply: String?     // claude's last message at Stop, for the push
     var cols = 80
     var rows = 25
     var lastReportedCwd: String? // OSC 7, when the shell emits it
@@ -78,6 +81,7 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         }
         view.onUserInput = { [weak self] in
             guard let self else { return }
+            self.limited = false
             if self.working || self.attention {
                 self.working = false; self.attention = false
                 AppModel.shared.tabStateChanged(self)
