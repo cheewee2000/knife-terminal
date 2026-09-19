@@ -91,6 +91,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let view = NSMenu(title: "View")
         view.addItem(withTitle: "Toggle Sidebar", action: #selector(toggleSidebar), keyEquivalent: "b").target = self
         view.addItem(withTitle: "Search Projects", action: #selector(focusSearch), keyEquivalent: "k").target = self
+        let git = view.addItem(withTitle: "Toggle Git Panel", action: #selector(toggleGitPanel), keyEquivalent: "b")
+        git.keyEquivalentModifierMask = [.command, .option]; git.target = self
         view.addItem(.separator())
         for i in 1...9 {
             let item = view.addItem(withTitle: "Tab \(i)", action: #selector(jumpToTab(_:)), keyEquivalent: "\(i)")
@@ -139,6 +141,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc private func toggleSidebar() {
         UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "sidebarCollapsed"), forKey: "sidebarCollapsed")
+    }
+    @objc private func toggleGitPanel() {
+        UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "gitPanel"), forKey: "gitPanel")
     }
     @objc private func focusSearch() {
         NotificationCenter.default.post(name: .knifeFocusSearch, object: nil)

@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 import SwiftTerm
 import KnifeKit
 
@@ -164,7 +165,7 @@ final class KnifeTermView: LocalProcessTerminalView {
             self.rescanLinks()
             if let link = self.linkAt(col: col, row: row) {
                 self.lastOpenedEventTimestamp = event.timestamp
-                Self.openLink(link.url, lineRef: link.lineRef)
+                self.openLink(link.url, lineRef: link.lineRef, reveal: event.modifierFlags.contains(.option))
             }
             return event
         }
@@ -444,9 +445,9 @@ final class KnifeTermView: LocalProcessTerminalView {
         }
     }
 
-    /// URLs → browser. Directories → a Finder window. Files → revealed in
-    /// Finder, except a file:line reference, which opens VS Code at that line.
-    private static func openLink(_ url: URL, lineRef: String? = nil) {
+    /// URLs → browser. Directories → a Finder window. Files → Quick Look (⌥-click
+    /// reveals in Finder), except a file:line reference, which opens VS Code at that line.
+    private func openLink(_ url: URL, lineRef: String? = nil, reveal: Bool = false) {
         guard url.isFileURL else { NSWorkspace.shared.open(url); return }
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return }
@@ -458,10 +459,19 @@ final class KnifeTermView: LocalProcessTerminalView {
            let esc = url.path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
            let vscode = URL(string: "vscode://file\(esc):\(lineRef)"),
            NSWorkspace.shared.open(vscode) {
-            return // falls through to Finder if VS Code isn't around
+            return // falls through to Quick Look if VS Code isn't around
         }
-        NSWorkspace.shared.activateFileViewerSelecting([url])
+        if reveal { NSWorkspace.shared.activateFileViewerSelecting([url]); return }
+        previewURL = url
+        guard let panel = QLPreviewPanel.shared() else { return }
+        if panel.isVisible { panel.reloadData() } else { window?.makeFirstResponder(self); panel.makeKeyAndOrderFront(nil) }
     }
+
+    // Quick Look finds its data source through the responder chain — this view, the first responder.
+    private var previewURL: URL?
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { previewURL != nil }
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) { panel.dataSource = self }
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) { panel.dataSource = nil }
 
     private func refreshLinkOverlay() {
         wantsLayer = true
@@ -522,4 +532,9 @@ final class KnifeTermView: LocalProcessTerminalView {
         window?.makeFirstResponder(self)
         return true
     }
+}
+
+extension KnifeTermView: QLPreviewPanelDataSource {
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int { previewURL == nil ? 0 : 1 }
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! { previewURL as NSURL? }
 }

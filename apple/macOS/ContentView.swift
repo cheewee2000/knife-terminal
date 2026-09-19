@@ -8,7 +8,7 @@ extension Notification.Name {
     static let knifeToggleSidebar = Notification.Name("knife.toggleSidebar")
 }
 
-private func mono(_ size: CGFloat, bold: Bool = false) -> Font {
+func mono(_ size: CGFloat, bold: Bool = false) -> Font {
     Font.custom(bold ? "Space Mono Bold" : "Space Mono", size: size)
 }
 
@@ -17,6 +17,7 @@ struct ContentView: View {
     @ObservedObject var theme = AppModel.shared.theme
     @AppStorage("sidebarCollapsed") private var collapsed = false
     @AppStorage("sideWidth") private var sideWidth: Double = 220
+    @AppStorage("gitPanel") private var gitPanel = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,6 +38,10 @@ struct ContentView: View {
                 }
                 TerminalPane(controller: controller)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if gitPanel {
+                    Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1)
+                    GitPanel(controller: controller).frame(width: 280)
+                }
             }
             FooterBar(controller: controller)
         }
@@ -255,6 +260,7 @@ struct FooterBar: View {
                     _ = HooksInstaller.install(); hooksOn = HooksInstaller.installed()
                 }
                 footBtn("set default") { DefaultTerminal.register() }
+                footBtn("git") { UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "gitPanel"), forKey: "gitPanel") }
                 footBtn("global ctx") { ctxScope = ctxScope == "global" ? nil : "global" }
                     .popover(isPresented: Binding(get: { ctxScope == "global" }, set: { if !$0 { ctxScope = nil } })) {
                         ContextPanel(scope: "global", cwd: nil)
