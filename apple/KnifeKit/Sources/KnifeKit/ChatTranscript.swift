@@ -11,9 +11,12 @@ public struct ChatMessage: Codable, Sendable, Identifiable, Equatable {
     public var id: String
     public var kind: Kind
     public var text: String
+    /// Tool calls: the full input under the one-line label (whole command,
+    /// description, todo list) — never an edit's old/new strings or file content.
+    public var detail: String?
 
-    public init(id: String, kind: Kind, text: String) {
-        self.id = id; self.kind = kind; self.text = text
+    public init(id: String, kind: Kind, text: String, detail: String? = nil) {
+        self.id = id; self.kind = kind; self.text = text; self.detail = detail
     }
 }
 
@@ -55,7 +58,9 @@ public enum ChatTranscript {
                         }
                     case "tool_use":
                         if let name = block["name"] as? String {
-                            out.append(ChatMessage(id: id, kind: .tool, text: toolLabel(name, block["input"] as? [String: Any])))
+                            let input = block["input"] as? [String: Any]
+                            out.append(ChatMessage(id: id, kind: .tool, text: toolLabel(name, input),
+                                                   detail: toolDetail(input)))
                         }
                     default: break
                     }
@@ -99,7 +104,7 @@ public enum ChatTranscript {
                     input["command"] = argv.joined(separator: " ")
                 }
                 out.append(ChatMessage(id: p["call_id"] as? String ?? "\(ts)-\(name)", kind: .tool,
-                                       text: toolLabel(name, input)))
+                                       text: toolLabel(name, input), detail: toolDetail(input)))
             default: break
             }
         }
@@ -128,10 +133,31 @@ public enum ChatTranscript {
         return t
     }
 
+    private static let detailKeys = ["description", "command", "file_path", "pattern", "path", "prompt", "url", "query", "skill", "subject"]
+
+    /// Everything the one-line label cut: each known field in full, a todo list
+    /// as a checklist. Edit/Write bodies (old_string, new_string, content) are
+    /// never among the keys. nil when the label already says it all.
+    static func toolDetail(_ input: [String: Any]?) -> String? {
+        guard let input else { return nil }
+        if let todos = input["todos"] as? [[String: Any]] {
+            return todos.map { t in
+                let mark = ["completed": "[x]", "in_progress": "[~]"][t["status"] as? String ?? ""] ?? "[ ]"
+                return "\(mark) \(t["content"] as? String ?? "")"
+            }.joined(separator: "\n")
+        }
+        var parts = detailKeys.compactMap { input[$0] as? String }.filter { !$0.isEmpty }
+        // the label already shows the first field whole unless it was cut
+        if let first = parts.first, first.count <= 90, !first.contains("\n") { parts.removeFirst() }
+        guard !parts.isEmpty else { return nil }
+        let d = parts.joined(separator: "\n")
+        return d.count > 1500 ? String(d.prefix(1500)) + "…" : d
+    }
+
     private static func toolLabel(_ name: String, _ input: [String: Any]?) -> String {
-        let detail = ["description", "command", "file_path", "pattern", "prompt", "url", "query", "skill"]
+        let detail = detailKeys
             .compactMap { input?[$0] as? String }
-            .first?
+            .first { !$0.isEmpty }?
             .replacingOccurrences(of: "\n", with: " ")
         guard var d = detail, !d.isEmpty else { return name }
         if d.count > 90 { d = String(d.prefix(90)) + "…" }

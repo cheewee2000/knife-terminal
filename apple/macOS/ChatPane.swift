@@ -3,12 +3,14 @@ import AppKit
 import KnifeKit
 
 /// The active tab's claude/codex session as chat (footer 'chat', ⌘⌥C): replies in full, every
-/// tool call — edits included — as one line, so diffs never fill the pane. Lines typed in the
-/// composer go to the tab like the phone's. No transcript for the tab → the terminal as usual.
+/// tool call as a line plus its full input (commands, todo lists) — never an edit's diff. The
+/// statusline's usage bars, hidden with the terminal, are drawn natively above the composer.
+/// Lines typed in the composer go to the tab like the phone's. No transcript → the terminal.
 struct ChatPane: View {
     @ObservedObject var controller: KnifeWindowController
     @ObservedObject var tab: TabModel
     @State private var msgs: [ChatMessage] = []
+    @State private var bars: [UsageBar] = []
     @State private var draft = ""
 
     var body: some View {
@@ -21,6 +23,7 @@ struct ChatPane: View {
                 let cwd = tab.currentCwd
                 let data = await Task.detached { TranscriptReader.chatData(forCwd: cwd) }.value
                 msgs = data.flatMap(ChatTranscript.decode) ?? []
+                bars = UsageBar.parse(tab.view.styledScreen())
                 try? await Task.sleep(for: .seconds(1.5))
             }
         }
@@ -43,6 +46,10 @@ struct ChatPane: View {
                 .onChange(of: msgs.last?.id) { proxy.scrollTo("bottom", anchor: .bottom) }
             }
             Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
+            if !bars.isEmpty {
+                HStack(spacing: 20) { ForEach(bars) { usage($0) } }
+                    .padding(.horizontal, 16).padding(.top, 8)
+            }
             TextField("message", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain).font(mono(12)).lineLimit(1...6)
                 .padding(.horizontal, 16).padding(.vertical, 10)
@@ -67,7 +74,25 @@ struct ChatPane: View {
                 interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(m.text))
                 .font(mono(12))
         case .tool:
-            Text("› " + m.text).font(mono(10)).foregroundStyle(.secondary).lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("› " + m.text).font(mono(10)).lineLimit(1)
+                if let d = m.detail { Text(d).font(mono(10)).padding(.leading, 12) }
+            }
+            .foregroundStyle(.secondary)
         }
+    }
+
+    private func usage(_ bar: UsageBar) -> some View {
+        HStack(spacing: 6) {
+            Text(bar.label).font(mono(10))
+            Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 6)
+                .overlay(alignment: .leading) {
+                    GeometryReader { g in
+                        Rectangle().fill(Color.primary).frame(width: g.size.width * CGFloat(bar.pct) / 100)
+                    }
+                }
+            Text("\(bar.pct)%" + (bar.reset.map { " · \($0)" } ?? "")).font(mono(10)).fixedSize()
+        }
+        .help(bar.title)
     }
 }
