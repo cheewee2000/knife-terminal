@@ -78,14 +78,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         edit.addItem(NSMenuItem.separator())
-        // SwiftTerm's TerminalView implements performTextFinderAction(_:), keyed off NSTextFinder.Action tags.
-        let find = edit.addItem(withTitle: "Find…", action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: "f")
-        find.tag = NSTextFinder.Action.showFindInterface.rawValue
-        let findNext = edit.addItem(withTitle: "Find Next", action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: "g")
-        findNext.tag = NSTextFinder.Action.nextMatch.rawValue
-        let findPrev = edit.addItem(withTitle: "Find Previous", action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: "g")
+        // Tags are NSTextFinder.Action values: find() hands them to the chat pane's find bar when
+        // chat is showing, else to SwiftTerm's TerminalView (it implements performTextFinderAction).
+        let find = edit.addItem(withTitle: "Find…", action: #selector(find(_:)), keyEquivalent: "f")
+        find.tag = NSTextFinder.Action.showFindInterface.rawValue; find.target = self
+        let findNext = edit.addItem(withTitle: "Find Next", action: #selector(find(_:)), keyEquivalent: "g")
+        findNext.tag = NSTextFinder.Action.nextMatch.rawValue; findNext.target = self
+        let findPrev = edit.addItem(withTitle: "Find Previous", action: #selector(find(_:)), keyEquivalent: "g")
         findPrev.keyEquivalentModifierMask = [.command, .shift]
-        findPrev.tag = NSTextFinder.Action.previousMatch.rawValue
+        findPrev.tag = NSTextFinder.Action.previousMatch.rawValue; findPrev.target = self
         main.addItem(withTitle: "Edit", action: nil, keyEquivalent: "").submenu = edit
 
         let view = NSMenu(title: "View")
@@ -149,6 +150,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc private func toggleChatView() {
         UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "chatView"), forKey: "chatView")
+    }
+    @objc private func find(_ sender: NSMenuItem) {
+        if let wc = front, wc.chatShowing {
+            NotificationCenter.default.post(name: .knifeChatFind, object: wc, userInfo: ["action": sender.tag])
+        } else {
+            NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: sender)
+        }
     }
     @objc private func focusSearch() {
         NotificationCenter.default.post(name: .knifeFocusSearch, object: nil)

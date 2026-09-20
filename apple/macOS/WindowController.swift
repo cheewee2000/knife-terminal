@@ -5,6 +5,7 @@ import SwiftUI
 final class KnifeWindowController: NSWindowController, NSWindowDelegate, ObservableObject {
     @Published var tabs: [TabModel] = []
     @Published var activeId: Int?
+    var chatShowing = false // ChatPane is up (not its terminal fallback): ⌘F/⌘G go to its find bar
     /// The untouched shell a fresh window opens with; replaced by the first real tab.
     var defaultTabId: Int?
 

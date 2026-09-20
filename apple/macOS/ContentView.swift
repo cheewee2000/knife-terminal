@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 extension Notification.Name {
     static let knifeFocusSearch = Notification.Name("knife.focusSearch")
+    static let knifeChatFind = Notification.Name("knife.chatFind") // object: window controller; userInfo["action"]: NSTextFinder.Action
     static let knifeToggleSidebar = Notification.Name("knife.toggleSidebar")
 }
 
