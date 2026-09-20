@@ -2,8 +2,9 @@ import SwiftUI
 import AppKit
 import KnifeKit
 
-/// The active tab's claude/codex session as chat (footer 'chat', ⌘⌥C): replies in full, every
-/// tool call as a line plus its full input (commands, todo lists) — never an edit's diff. The
+/// The active tab's claude/codex session as chat (footer 'chat', ⌘⌥C): messages in full and in
+/// color; tool calls minimized — a run of them is one dim line, click to open, click a call for
+/// its full input (commands, todo lists), never an edit's diff. The
 /// statusline's usage bars, hidden with the terminal, are drawn natively above the composer,
 /// led by the model + effort of the latest turn.
 /// Replies render as rich text (headings, lists, code, tables), colored by kind.
@@ -17,6 +18,7 @@ struct ChatPane: View {
     @State private var bars: [UsageBar] = []
     @State private var draft = ""
     @State private var finding = false
+    @State private var expanded: Set<String> = [] // opened tool runs (first call's id) and single calls
     @State private var query = ""
     @State private var hit = 0
     @FocusState private var findFocused: Bool
@@ -65,7 +67,7 @@ struct ChatPane: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(msgs) { row($0).id($0.id) }
+                        ForEach(items) { item($0).id($0.id) }
                         if tab.working { Text("working…").font(mono(11)).foregroundStyle(.secondary) }
                         Color.clear.frame(height: 1).id("bottom")
                     }
@@ -110,15 +112,68 @@ struct ChatPane: View {
                 ForEach(Array(ChatMarkdown.blocks(m.text).enumerated()), id: \.offset) { block($0.element, cur) }
             }
         case .tool:
-            let parts = m.text.components(separatedBy: " · ")
+            // minimized: one dim line; click for the full input (a find hit inside opens it)
+            let open = expanded.contains(m.id) || (cur && m.detail?.localizedCaseInsensitiveContains(query) == true)
             VStack(alignment: .leading, spacing: 2) {
-                (plain("› " + parts[0], cur).foregroundColor(ansi(5))
-                 + plain(parts.count > 1 ? " · " + parts.dropFirst().joined(separator: " · ") : "", cur))
-                    .font(mono(10)).lineLimit(1)
-                if let d = m.detail { plain(d, cur).font(mono(10)).padding(.leading, 12) }
+                plain((m.detail == nil ? "› " : open ? "⌄ " : "› ") + m.text, cur).font(mono(10)).lineLimit(1)
+                if open, let d = m.detail { plain(d, cur).font(mono(10)).padding(.leading, 12) }
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(.tertiary)
+            .contentShape(Rectangle())
+            .onTapGesture { toggle(m.id) }
         }
+    }
+
+    // ─── Tool calls fold away: a run of them is one dim line until clicked ───
+
+    private enum Item: Identifiable {
+        case msg(ChatMessage)
+        case tools(String, [ChatMessage]) // run of 2+ calls, keyed by its first call's id
+        var id: String {
+            switch self { case .msg(let m): m.id; case .tools(let id, _): "run-" + id }
+        }
+    }
+
+    private var items: [Item] {
+        var out: [Item] = []
+        var run: [ChatMessage] = []
+        let hitIds = Set(hits)
+        func flush() {
+            guard let first = run.first else { return }
+            if run.count > 1 { out.append(.tools(first.id, run)) }
+            if run.count == 1 || expanded.contains(first.id) || run.contains(where: { hitIds.contains($0.id) }) {
+                out += run.map(Item.msg)
+            }
+            run = []
+        }
+        for m in msgs {
+            if m.kind == .tool { run.append(m) } else { flush(); out.append(.msg(m)) }
+        }
+        flush()
+        return out
+    }
+
+    @ViewBuilder
+    private func item(_ i: Item) -> some View {
+        switch i {
+        case .msg(let m): row(m)
+        case .tools(let id, let run):
+            let open = expanded.contains(id)
+            var counts: [(String, Int)] = []
+            let _ = run.forEach { m in
+                let name = m.text.components(separatedBy: " · ")[0]
+                if let k = counts.firstIndex(where: { $0.0 == name }) { counts[k].1 += 1 } else { counts.append((name, 1)) }
+            }
+            Text((open ? "⌄ " : "› ") + "\(run.count) tools · "
+                 + counts.map { $0.1 > 1 ? "\($0.0) ×\($0.1)" : $0.0 }.joined(separator: ", "))
+                .font(mono(10)).lineLimit(1).foregroundStyle(.tertiary)
+                .contentShape(Rectangle())
+                .onTapGesture { toggle(id) }
+        }
+    }
+
+    private func toggle(_ id: String) {
+        if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
     }
 
     // ─── Rich replies: every kind of text gets the terminal theme's color for it ───
