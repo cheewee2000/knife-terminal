@@ -76,7 +76,11 @@ struct ChatPane: View {
                 }
                 .defaultScrollAnchor(.bottom)
                 .onChange(of: msgs.last?.id) { if currentHit == nil { proxy.scrollTo("bottom", anchor: .bottom) } }
-                .onChange(of: currentHit) { if let id = currentHit { withAnimation { proxy.scrollTo(id, anchor: .center) } } }
+                .onChange(of: currentHit) {
+                    guard let id = currentHit else { return }
+                    reveal(id) // open its run / input first, then scroll once it's laid out
+                    DispatchQueue.main.async { withAnimation { proxy.scrollTo(id, anchor: .center) } }
+                }
             }
             Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
             let model = msgs.last { $0.model != nil }?.model
@@ -112,15 +116,21 @@ struct ChatPane: View {
                 ForEach(Array(ChatMarkdown.blocks(m.text).enumerated()), id: \.offset) { block($0.element, cur) }
             }
         case .tool:
-            // minimized: one dim line; click for the full input (a find hit inside opens it)
-            let open = expanded.contains(m.id) || (cur && m.detail?.localizedCaseInsensitiveContains(query) == true)
+            // minimized: one dim line; click to open the full input, click again to fold it
+            let open = expanded.contains(m.id)
             VStack(alignment: .leading, spacing: 2) {
-                plain((m.detail == nil ? "› " : open ? "⌄ " : "› ") + m.text, cur).font(mono(10)).lineLimit(1)
+                if m.detail == nil {
+                    plain("› " + m.text, cur).font(mono(10)).lineLimit(1)
+                } else {
+                    Button { toggle(m.id) } label: {
+                        plain((open ? "⌄ " : "› ") + m.text, cur).font(mono(10)).lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
                 if open, let d = m.detail { plain(d, cur).font(mono(10)).padding(.leading, 12) }
             }
             .foregroundStyle(.tertiary)
-            .contentShape(Rectangle())
-            .onTapGesture { toggle(m.id) }
         }
     }
 
@@ -137,11 +147,10 @@ struct ChatPane: View {
     private var items: [Item] {
         var out: [Item] = []
         var run: [ChatMessage] = []
-        let hitIds = Set(hits)
         func flush() {
             guard let first = run.first else { return }
             if run.count > 1 { out.append(.tools(first.id, run)) }
-            if run.count == 1 || expanded.contains(first.id) || run.contains(where: { hitIds.contains($0.id) }) {
+            if run.count == 1 || expanded.contains(first.id) {
                 out += run.map(Item.msg)
             }
             run = []
@@ -164,16 +173,30 @@ struct ChatPane: View {
                 let name = m.text.components(separatedBy: " · ")[0]
                 if let k = counts.firstIndex(where: { $0.0 == name }) { counts[k].1 += 1 } else { counts.append((name, 1)) }
             }
-            Text((open ? "⌄ " : "› ") + "\(run.count) tools · "
-                 + counts.map { $0.1 > 1 ? "\($0.0) ×\($0.1)" : $0.0 }.joined(separator: ", "))
-                .font(mono(10)).lineLimit(1).foregroundStyle(.tertiary)
-                .contentShape(Rectangle())
-                .onTapGesture { toggle(id) }
+            Button { toggle(id) } label: {
+                Text((open ? "⌄ " : "› ") + "\(run.count) tools · "
+                     + counts.map { $0.1 > 1 ? "\($0.0) ×\($0.1)" : $0.0 }.joined(separator: ", "))
+                    .font(mono(10)).lineLimit(1).foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
     }
 
     private func toggle(_ id: String) {
         if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
+    }
+
+    /// A find hit on a tool call opens its run (and its input, if that's where the text is) —
+    /// once, into `expanded`, so it folds back like anything clicked open.
+    private func reveal(_ id: String) {
+        guard let i = msgs.firstIndex(where: { $0.id == id }), msgs[i].kind == .tool else { return }
+        var start = i
+        while start > 0, msgs[start - 1].kind == .tool { start -= 1 }
+        var end = i
+        while end + 1 < msgs.count, msgs[end + 1].kind == .tool { end += 1 }
+        if end > start { expanded.insert(msgs[start].id) }
+        if msgs[i].detail?.localizedCaseInsensitiveContains(query) == true { expanded.insert(id) }
     }
 
     // ─── Rich replies: every kind of text gets the terminal theme's color for it ───
