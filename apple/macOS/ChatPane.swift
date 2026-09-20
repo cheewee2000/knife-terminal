@@ -6,7 +6,7 @@ import KnifeKit
 /// color; tool calls minimized — a run of them is one dim line, click to open, click a call for
 /// its full input (commands, todo lists), never an edit's diff. The
 /// statusline's usage bars, hidden with the terminal, are drawn natively above the composer,
-/// led by the model + effort of the latest turn.
+/// led by the model + effort of the latest turn — click it to change either.
 /// Replies render as rich text (headings, lists, code, tables), colored by kind.
 /// ⌘F finds within the session: every hit highlighted, ⌘G / ⌘⇧G step through them.
 /// Lines typed in the composer go to the tab like the phone's. No transcript → the terminal.
@@ -86,7 +86,7 @@ struct ChatPane: View {
             let model = msgs.last { $0.model != nil }?.model
             if !bars.isEmpty || model != nil {
                 HStack(spacing: 20) {
-                    if let model { Text(model).font(mono(10)).foregroundStyle(ansi(5)).fixedSize() }
+                    if let model { modelMenu(model) }
                     ForEach(bars) { usage($0) }
                 }
                 .padding(.horizontal, 16).padding(.top, 8)
@@ -300,6 +300,36 @@ struct ChatPane: View {
     }
 
     private func closeFind() { finding = false; query = ""; findFocused = false }
+
+    /// Click the model · effort to change either: Claude Code takes `/model <alias>` and
+    /// `/effort <level>` typed into the tab; Codex only has its interactive /model picker, so
+    /// that opens in the terminal. The label catches up on the next reply.
+    private func modelMenu(_ label: String) -> some View {
+        let claude = ["fable", "opus", "sonnet", "haiku"].contains { label.contains($0) }
+        return Menu {
+            if claude {
+                Section("model") {
+                    ForEach(["fable", "opus", "sonnet", "haiku"], id: \.self) { m in
+                        Button(m) { tab.view.typeLine("/model " + m) }
+                    }
+                }
+                Section("effort") {
+                    ForEach(["low", "medium", "high", "xhigh", "max", "auto"], id: \.self) { e in
+                        Button(e) { tab.view.typeLine("/effort " + e) }
+                    }
+                }
+            } else {
+                Button("model + effort picker (terminal)") {
+                    tab.view.typeLine("/model")
+                    UserDefaults.standard.set(false, forKey: "chatView")
+                }
+            }
+        } label: {
+            Text(label + " ▾").font(mono(10)).foregroundStyle(ansi(5))
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .help("change model or effort")
+    }
 
     private func usage(_ bar: UsageBar) -> some View {
         HStack(spacing: 6) {
