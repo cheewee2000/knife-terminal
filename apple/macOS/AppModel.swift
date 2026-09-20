@@ -232,6 +232,11 @@ final class AppModel: ObservableObject {
             hook = j
             type = (j["notification_type"] as? String) ?? (j["hook_event_name"] as? String) ?? type
         }
+        if let tab = tabById[id] { // this tab's own transcript, so its chat never shows a sibling tab's session
+            if type == "SessionEnd" { tab.transcriptPath = nil }
+            else if let p = hook["transcript_path"] as? String, !p.isEmpty { tab.transcriptPath = p }
+        }
+        if type == "SessionStart" { return nil } // hooked only to learn the new transcript (/clear, resume)
         if let tab = tabById[id], tab.opts.restoreCmd?.hasPrefix("claude") == true,   // not codex, not a plain shell
            let sid = hook["session_id"] as? String, sid.range(of: "^[A-Za-z0-9-]+$", options: .regularExpression) != nil {
             tab.sessionId = sid

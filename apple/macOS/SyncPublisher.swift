@@ -130,7 +130,7 @@ final class SyncPublisher {
                                          cols: tab.cols, rows: tab.rows,
                                          working: tab.working, attention: tab.attention,
                                          styled: tab.view.styledScreen(),
-                                         chat: TranscriptReader.chatData(forCwd: cwd)))
+                                         chat: TranscriptReader.chatData(TranscriptReader.source(for: tab, cwd: cwd))))
                 lastFlush[tab.id] = Date()
             }
         }

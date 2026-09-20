@@ -38,111 +38,126 @@ public enum ChatTranscript {
     /// attachment). Absorbed ones become user messages; ones still waiting show
     /// at the end with detail "queued".
     public static func parse(jsonlLines: [String]) -> [ChatMessage] {
-        var out: [ChatMessage] = []
-        var queue: [(id: String, text: String)] = [] // FIFO, task notifications included so dequeue stays aligned
-        for line in jsonlLines {
-            guard let data = line.data(using: .utf8),
-                  let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                  let type = obj["type"] as? String
-            else { continue }
-            if obj["isMeta"] as? Bool == true { continue }
-            if obj["isSidechain"] as? Bool == true { continue }
-            let uuid = obj["uuid"] as? String ?? UUID().uuidString
-            if type == "queue-operation" {
-                let content = obj["content"] as? String
-                switch obj["operation"] as? String {
-                case "enqueue": if let content { queue.append(("queued-\(obj["timestamp"] as? String ?? uuid)", content)) }
-                case "dequeue": if !queue.isEmpty { queue.removeFirst() }
-                case "remove": if let i = queue.firstIndex(where: { $0.text == content }) { queue.remove(at: i) }
-                default: break
-                }
-                continue
-            }
-            if type == "attachment", let a = obj["attachment"] as? [String: Any],
-               a["type"] as? String == "queued_command",
-               (a["origin"] as? [String: Any])?["kind"] as? String ?? "human" == "human" {
-                if let t = userText(a["prompt"]) { out.append(ChatMessage(id: uuid, kind: .user, text: t)) }
-                continue
-            }
-            guard let message = obj["message"] as? [String: Any] else { continue }
-
-            switch type {
-            case "user":
-                if let text = userText(message["content"]) {
-                    out.append(ChatMessage(id: uuid, kind: .user, text: text))
-                }
-            case "assistant":
-                guard let blocks = message["content"] as? [[String: Any]] else { continue }
-                let model = modelLabel(message["model"] as? String, obj["effort"] as? String)
-                for (i, block) in blocks.enumerated() {
-                    let id = "\(uuid)-\(i)"
-                    switch block["type"] as? String {
-                    case "text":
-                        if let t = (block["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                           !t.isEmpty {
-                            out.append(ChatMessage(id: id, kind: .assistant, text: t, model: model))
-                        }
-                    case "tool_use":
-                        if let name = block["name"] as? String {
-                            let input = block["input"] as? [String: Any]
-                            out.append(ChatMessage(id: id, kind: .tool, text: toolLabel(name, input),
-                                                   detail: toolDetail(input), model: model))
-                        }
-                    default: break
-                    }
-                }
-            default: break
-            }
-        }
-        for q in queue {
-            if let t = userText(q.text) { out.append(ChatMessage(id: q.id, kind: .user, text: t, detail: "queued")) }
-        }
-        return out
+        var p = Parser(codex: false); p.feed(jsonlLines); return p.messages
     }
 
     /// Codex CLI rollout (~/.codex/sessions/Y/M/D/rollout-*.jsonl). The
     /// conversation lives in response_item records; event_msg records repeat
     /// them (agent_message/user_message) and are skipped.
     public static func parseCodex(jsonlLines: [String]) -> [ChatMessage] {
-        var out: [ChatMessage] = []
-        var model: String? // from the latest turn_context
-        for line in jsonlLines {
-            guard let data = line.data(using: .utf8),
-                  let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                  let p = obj["payload"] as? [String: Any] else { continue }
-            if obj["type"] as? String == "turn_context" {
-                model = modelLabel(p["model"] as? String, p["effort"] as? String)
-                continue
-            }
-            guard obj["type"] as? String == "response_item" else { continue }
-            let ts = obj["timestamp"] as? String ?? ""
-            switch p["type"] as? String {
-            case "message":
-                let blocks = p["content"] as? [[String: Any]] ?? []
-                let text = blocks.compactMap { $0["text"] as? String }.joined(separator: "\n")
-                // imported sessions share one timestamp: fold the text into the id
-                let id = "\(ts)-\(p["role"] as? String ?? "")-\(text.count)-\(text.prefix(24))"
-                if p["role"] as? String == "user" {
-                    if let t = userText(text) { out.append(ChatMessage(id: id, kind: .user, text: t)) }
-                } else if let t = Optional(text.trimmingCharacters(in: .whitespacesAndNewlines)), !t.isEmpty {
-                    out.append(ChatMessage(id: id, kind: .assistant, text: t, model: model))
-                }
-            case "function_call", "custom_tool_call", "local_shell_call":
-                let name = p["name"] as? String ?? "shell"
-                var input: [String: Any] = [:]
-                if let args = p["arguments"] as? String, let d = args.data(using: .utf8),
-                   let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] { input = j }
-                if let action = p["action"] as? [String: Any] { input = action } // local_shell_call
-                if var argv = input["command"] as? [String] {
-                    if argv.count >= 3, argv[1] == "-lc" { argv.removeFirst(2) } // ["bash","-lc","…"]
-                    input["command"] = argv.joined(separator: " ")
-                }
-                out.append(ChatMessage(id: p["call_id"] as? String ?? "\(ts)-\(name)", kind: .tool,
-                                       text: toolLabel(name, input), detail: toolDetail(input), model: model))
+        var p = Parser(codex: true); p.feed(jsonlLines); return p.messages
+    }
+
+    /// Incremental: feed lines as the transcript grows (the Mac keeps one per
+    /// session and hands it only the new bytes), read `messages` any time.
+    public struct Parser: Sendable {
+        public let codex: Bool
+        private var out: [ChatMessage] = []
+        private var queue: [(id: String, text: String)] = [] // FIFO, task notifications included so dequeue stays aligned
+        private var turnModel: String? // Codex: from the latest turn_context
+
+        public init(codex: Bool) { self.codex = codex }
+
+        public mutating func feed(_ lines: [String]) {
+            for line in lines { if codex { feedCodex(line) } else { feedClaude(line) } }
+        }
+
+        /// Everything so far, prompts still waiting in Claude's queue last.
+        public var messages: [ChatMessage] {
+            out + queue.compactMap { q in userText(q.text).map { ChatMessage(id: q.id, kind: .user, text: $0, detail: "queued") } }
+        }
+
+        private mutating func feedClaude(_ line: String) {
+        guard let data = line.data(using: .utf8),
+              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let type = obj["type"] as? String
+        else { return }
+        if obj["isMeta"] as? Bool == true { return }
+        if obj["isSidechain"] as? Bool == true { return }
+        let uuid = obj["uuid"] as? String ?? UUID().uuidString
+        if type == "queue-operation" {
+            let content = obj["content"] as? String
+            switch obj["operation"] as? String {
+            case "enqueue": if let content { queue.append(("queued-\(obj["timestamp"] as? String ?? uuid)", content)) }
+            case "dequeue": if !queue.isEmpty { queue.removeFirst() }
+            case "remove": if let i = queue.firstIndex(where: { $0.text == content }) { queue.remove(at: i) }
             default: break
             }
+            return
         }
-        return out
+        if type == "attachment", let a = obj["attachment"] as? [String: Any],
+           a["type"] as? String == "queued_command",
+           (a["origin"] as? [String: Any])?["kind"] as? String ?? "human" == "human" {
+            if let t = userText(a["prompt"]) { out.append(ChatMessage(id: uuid, kind: .user, text: t)) }
+            return
+        }
+        guard let message = obj["message"] as? [String: Any] else { return }
+
+        switch type {
+        case "user":
+            if let text = userText(message["content"]) {
+                out.append(ChatMessage(id: uuid, kind: .user, text: text))
+            }
+        case "assistant":
+            guard let blocks = message["content"] as? [[String: Any]] else { return }
+            let model = modelLabel(message["model"] as? String, obj["effort"] as? String)
+            for (i, block) in blocks.enumerated() {
+                let id = "\(uuid)-\(i)"
+                switch block["type"] as? String {
+                case "text":
+                    if let t = (block["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                       !t.isEmpty {
+                        out.append(ChatMessage(id: id, kind: .assistant, text: t, model: model))
+                    }
+                case "tool_use":
+                    if let name = block["name"] as? String {
+                        let input = block["input"] as? [String: Any]
+                        out.append(ChatMessage(id: id, kind: .tool, text: toolLabel(name, input),
+                                               detail: toolDetail(input), model: model))
+                    }
+                default: break
+                }
+            }
+        default: break
+        }
+        }
+
+        private mutating func feedCodex(_ line: String) {
+        guard let data = line.data(using: .utf8),
+              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let p = obj["payload"] as? [String: Any] else { return }
+        if obj["type"] as? String == "turn_context" {
+            turnModel = modelLabel(p["model"] as? String, p["effort"] as? String)
+            return
+        }
+        guard obj["type"] as? String == "response_item" else { return }
+        let ts = obj["timestamp"] as? String ?? ""
+        switch p["type"] as? String {
+        case "message":
+            let blocks = p["content"] as? [[String: Any]] ?? []
+            let text = blocks.compactMap { $0["text"] as? String }.joined(separator: "\n")
+            // imported sessions share one timestamp: fold the text into the id
+            let id = "\(ts)-\(p["role"] as? String ?? "")-\(text.count)-\(text.prefix(24))"
+            if p["role"] as? String == "user" {
+                if let t = userText(text) { out.append(ChatMessage(id: id, kind: .user, text: t)) }
+            } else if let t = Optional(text.trimmingCharacters(in: .whitespacesAndNewlines)), !t.isEmpty {
+                out.append(ChatMessage(id: id, kind: .assistant, text: t, model: turnModel))
+            }
+        case "function_call", "custom_tool_call", "local_shell_call":
+            let name = p["name"] as? String ?? "shell"
+            var input: [String: Any] = [:]
+            if let args = p["arguments"] as? String, let d = args.data(using: .utf8),
+               let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] { input = j }
+            if let action = p["action"] as? [String: Any] { input = action } // local_shell_call
+            if var argv = input["command"] as? [String] {
+                if argv.count >= 3, argv[1] == "-lc" { argv.removeFirst(2) } // ["bash","-lc","…"]
+                input["command"] = argv.joined(separator: " ")
+            }
+            out.append(ChatMessage(id: p["call_id"] as? String ?? "\(ts)-\(name)", kind: .tool,
+                                   text: toolLabel(name, input), detail: toolDetail(input), model: turnModel))
+        default: break
+        }
+        }
     }
 
     /// User content is either a plain string or an array of blocks; slash

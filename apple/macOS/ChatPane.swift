@@ -37,8 +37,8 @@ struct ChatPane: View {
         Group {
             if msgs.isEmpty { TerminalPane(controller: controller) } else {
                 chat
-                    .onAppear { controller.chatShowing = true }
-                    .onDisappear { controller.chatShowing = false }
+                    .onAppear { controller.chatPanes += 1 }
+                    .onDisappear { controller.chatPanes -= 1 }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .knifeChatFind)) { note in
@@ -53,9 +53,10 @@ struct ChatPane: View {
         .task(id: tab.id) {
             msgs = []
             while !Task.isCancelled {
-                let cwd = tab.currentCwd
-                let chat = await Task.detached { TranscriptReader.chat(forCwd: cwd) }.value
-                msgs = chat?.data.flatMap(ChatTranscript.decode) ?? []
+                let src = TranscriptReader.source(for: tab, cwd: tab.currentCwd)
+                let chat = await Task.detached { TranscriptReader.chat(src) }.value
+                guard !Task.isCancelled else { return } // switched tabs mid-read: don't paint the old tab's chat
+                msgs = chat?.msgs ?? []
                 codex = chat?.codex ?? false
                 let recent = msgs.suffix(8).filter { $0.kind == .user }.map(\.text)
                 echoes.removeAll { e in e.sent.timeIntervalSinceNow < -30 || recent.contains(e.text) }

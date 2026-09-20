@@ -41,6 +41,7 @@ struct ContentView: View {
                 Group {
                     if chatView, let tab = controller.activeTab {
                         ChatPane(controller: controller, tab: tab)
+                            .id(tab.id) // fresh state per tab: echoes, opened runs, find never carry over
                     } else {
                         TerminalPane(controller: controller)
                     }

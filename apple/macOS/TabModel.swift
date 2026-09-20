@@ -21,6 +21,7 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     @Published var attention = false
     var limited = false        // the turn ended on a usage limit (StopFailure rate_limit)
     var sessionId: String?     // claude's session, from its hooks — restore resumes exactly this one
+    var transcriptPath: String? // the agent's live transcript, from its hooks — the chat view reads exactly this one
     var lastReply: String?     // claude's last message at Stop, for the push
     var cols = 80
     var rows = 25
