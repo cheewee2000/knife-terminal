@@ -21,6 +21,7 @@ struct ChatPane: View {
     @State private var echoes: [(text: String, sent: Date)] = [] // sent, not yet in the transcript (≤30s: a prompt answer never lands)
     @State private var finding = false
     @State private var expanded: Set<String> = [] // opened tool runs (first call's id) and single calls
+    @State private var prompt: ScreenPrompt? // a numbered menu on the tab's screen (permission prompt)
     @State private var askStep: [String: Int] = [:]              // question card → question now up in the terminal
     @State private var askPicked: [String: [Int: Set<Int>]] = [:] // question card → question → options clicked here
     @State private var query = ""
@@ -63,6 +64,7 @@ struct ChatPane: View {
                 let recent = msgs.suffix(8).filter { $0.kind == .user }.map(\.text)
                 echoes.removeAll { e in e.sent.timeIntervalSinceNow < -30 || recent.contains(e.text) }
                 bars = UsageBar.parse(tab.view.styledScreen())
+                prompt = ScreenPrompt.parse(tab.view.plainScreen())
                 try? await Task.sleep(for: .seconds(1.5))
             }
         }
@@ -76,6 +78,7 @@ struct ChatPane: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         ForEach(items) { item($0).id($0.id) }
+                        if let p = prompt, liveAskId == nil { promptCard(p).id("prompt") } // a live question is its own card
                         if tab.working { Text("working…").font(mono(11)).foregroundStyle(.secondary) }
                         Color.clear.frame(height: 1).id("bottom")
                     }
@@ -83,6 +86,10 @@ struct ChatPane: View {
                     .textSelection(.enabled)
                 }
                 .defaultScrollAnchor(.bottom)
+                .onChange(of: prompt) {
+                    guard prompt != nil, currentHit == nil else { return }
+                    DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
                 .onChange(of: items.last?.id) { // next runloop: the new row is laid out by then
                     guard currentHit == nil else { return }
                     DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
@@ -216,6 +223,33 @@ struct ChatPane: View {
         }
         .padding(10)
         .overlay(Rectangle().stroke(live ? ansi(3) : Color.primary.opacity(0.15), lineWidth: 1))
+    }
+
+    /// A permission prompt (or any numbered menu) read off the screen; a digit answers it.
+    private func promptCard(_ p: ScreenPrompt) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let t = p.title { Text(t).font(mono(10)).foregroundStyle(ansi(3)) }
+            ForEach(p.body.indices, id: \.self) { i in
+                Text(p.body[i]).font(mono(i == p.body.count - 1 ? 12 : 11))
+                    .foregroundStyle(i == p.body.count - 1 ? Color.primary : ansi(2))
+            }
+            ForEach(p.options.indices, id: \.self) { i in
+                Button {
+                    send(["\(i + 1)"])
+                    prompt = nil // answered; the next screen read confirms
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("\(i + 1)")
+                        Text(p.options[i]).font(mono(11))
+                    }
+                    .frame(maxWidth: 520, alignment: .leading)
+                }
+                .buttonStyle(FootButtonStyle(paper: paper, wrap: true))
+            }
+            Text("waiting for your answer").font(mono(9)).foregroundStyle(.tertiary)
+        }
+        .padding(10)
+        .overlay(Rectangle().stroke(ansi(3), lineWidth: 1))
     }
 
     private func pick(_ m: ChatMessage, _ qs: [AskQuestion], _ qi: Int, _ oi: Int) {

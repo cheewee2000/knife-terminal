@@ -136,6 +136,7 @@ struct SessionDetailView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
                         ForEach(shown) { m in messageRow(m) }
+                        if let p = screenPrompt(tab) { promptCard(p, tab) }
                         if tab.working { workingRow }
                         Color.clear.frame(height: 1).id("chat-bottom")
                     }
@@ -188,6 +189,34 @@ struct SessionDetailView: View {
             }
             .foregroundStyle(.secondary)
         }
+    }
+
+    /// A numbered menu on the mirrored screen — a permission prompt, or a question's picker —
+    /// answered from chat: a digit picks (Claude Code 2.1.278).
+    private func screenPrompt(_ tab: MirroredTab) -> ScreenPrompt? {
+        guard let screen = StyledScreen.decode(tab.styled) else { return nil }
+        return ScreenPrompt.parse(screen.lines.map { $0.map(\.t).joined() }.joined(separator: "\n"))
+    }
+
+    private func promptCard(_ p: ScreenPrompt, _ tab: MirroredTab) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let t = p.title { Text(t).font(mono(11, bold: true)).foregroundStyle(knifeOrange) }
+            ForEach(p.body, id: \.self) { Text($0).font(mono(12)) }
+            ForEach(p.options.indices, id: \.self) { i in
+                Button { store.send("\(i + 1)", to: tab.tabId) } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("\(i + 1)").font(mono(12, bold: true))
+                        Text(p.options[i]).font(mono(12)).multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 9)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(knifeAccent.opacity(0.18)))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(knifeOrange, lineWidth: 1))
     }
 
     private var workingRow: some View {
