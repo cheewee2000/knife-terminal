@@ -16,6 +16,7 @@ struct ChatPane: View {
     @ObservedObject private var theme = AppModel.shared.theme
     @State private var msgs: [ChatMessage] = []
     @State private var bars: [UsageBar] = []
+    @State private var codex = false // the transcript is Codex's, not Claude Code's
     @State private var draft = ""
     @State private var echoes: [(text: String, sent: Date)] = [] // sent, not yet in the transcript
     @State private var finding = false
@@ -53,8 +54,9 @@ struct ChatPane: View {
             msgs = []
             while !Task.isCancelled {
                 let cwd = tab.currentCwd
-                let data = await Task.detached { TranscriptReader.chatData(forCwd: cwd) }.value
-                msgs = data.flatMap(ChatTranscript.decode) ?? []
+                let chat = await Task.detached { TranscriptReader.chat(forCwd: cwd) }.value
+                msgs = chat?.data.flatMap(ChatTranscript.decode) ?? []
+                codex = chat?.codex ?? false
                 let recent = msgs.suffix(8).filter { $0.kind == .user }.map(\.text)
                 echoes.removeAll { e in e.sent.timeIntervalSinceNow < -6 || recent.contains(e.text) }
                 bars = UsageBar.parse(tab.view.styledScreen())
@@ -314,21 +316,28 @@ struct ChatPane: View {
 
     private func closeFind() { finding = false; query = ""; findFocused = false }
 
-    /// Click the model · effort to change either: Claude Code takes `/model <alias>` and
-    /// `/effort <level>` typed into the tab; Codex only has its interactive /model picker, so
-    /// that opens in the terminal. The label catches up on the next reply.
+    /// Click the model · effort to change either, staying in chat: Claude Code takes
+    /// `/model <alias>` and `/effort <level>` typed into the tab (which agent it is comes from
+    /// the transcript, not the model name). Codex's /model is an interactive picker with no
+    /// arguments, so that one opens in the terminal. The label catches up on the next reply.
     private func modelMenu(_ label: String) -> some View {
-        let claude = ["fable", "opus", "sonnet", "haiku"].contains { label.contains($0) }
+        // label is "<model> · <effort>"; ✓ marks what's in use
+        let parts = label.components(separatedBy: " · ")
+        let (model, effort) = (parts[0], parts.count > 1 ? parts[1] : "")
+        let aliases = ["fable", "opus", "sonnet", "haiku"]
         return Menu {
-            if claude {
+            if !codex {
                 Section("model") {
-                    ForEach(["fable", "opus", "sonnet", "haiku"], id: \.self) { m in
-                        Button(m) { tab.view.typeLine("/model " + m) }
+                    if !aliases.contains(where: model.contains) {
+                        Button("✓ " + model) {}.disabled(true) // not an alias: shown, can't be re-picked by name
+                    }
+                    ForEach(aliases, id: \.self) { m in
+                        Button((model.contains(m) ? "✓ " : "   ") + m) { tab.view.typeLine("/model " + m) }
                     }
                 }
                 Section("effort") {
                     ForEach(["low", "medium", "high", "xhigh", "max", "auto"], id: \.self) { e in
-                        Button(e) { tab.view.typeLine("/effort " + e) }
+                        Button((effort == e ? "✓ " : "   ") + e) { tab.view.typeLine("/effort " + e) }
                     }
                 }
             } else {

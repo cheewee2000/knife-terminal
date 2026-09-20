@@ -10,14 +10,17 @@ enum TranscriptReader {
     private typealias Found = (path: String, mtime: Date, codex: Bool)
     private static let maxAge: TimeInterval = 86_400 // a session untouched for a day isn't this tab
 
-    static func chatData(forCwd cwd: String?) -> Data? {
+    static func chatData(forCwd cwd: String?) -> Data? { chat(forCwd: cwd)?.data }
+
+    /// The encoded messages plus which agent wrote the transcript.
+    static func chat(forCwd cwd: String?) -> (data: Data?, codex: Bool)? {
         guard let cwd, !cwd.isEmpty else { return nil }
         let candidates = [newestClaude(cwd), newestCodex(cwd)].compactMap { $0 }
         guard let best = candidates.max(by: { $0.mtime < $1.mtime }) else { return nil }
         let lines = tailLines(best.path)
         let msgs = (best.codex ? ChatTranscript.parseCodex(jsonlLines: lines)
                                : ChatTranscript.parse(jsonlLines: lines)).suffix(50)
-        return ChatTranscript.encode(Array(msgs))
+        return (ChatTranscript.encode(Array(msgs)), best.codex)
     }
 
     private static func mtime(_ path: String) -> Date? {
