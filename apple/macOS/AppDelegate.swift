@@ -93,6 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         view.addItem(withTitle: "Search Projects", action: #selector(focusSearch), keyEquivalent: "k").target = self
         let git = view.addItem(withTitle: "Toggle Git Panel", action: #selector(toggleGitPanel), keyEquivalent: "b")
         git.keyEquivalentModifierMask = [.command, .option]; git.target = self
+        let chat = view.addItem(withTitle: "Toggle Chat View", action: #selector(toggleChatView), keyEquivalent: "c")
+        chat.keyEquivalentModifierMask = [.command, .option]; chat.target = self
         view.addItem(.separator())
         for i in 1...9 {
             let item = view.addItem(withTitle: "Tab \(i)", action: #selector(jumpToTab(_:)), keyEquivalent: "\(i)")
@@ -144,6 +146,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc private func toggleGitPanel() {
         UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "gitPanel"), forKey: "gitPanel")
+    }
+    @objc private func toggleChatView() {
+        UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "chatView"), forKey: "chatView")
     }
     @objc private func focusSearch() {
         NotificationCenter.default.post(name: .knifeFocusSearch, object: nil)

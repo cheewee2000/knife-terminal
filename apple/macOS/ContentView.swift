@@ -18,6 +18,7 @@ struct ContentView: View {
     @AppStorage("sidebarCollapsed") private var collapsed = false
     @AppStorage("sideWidth") private var sideWidth: Double = 220
     @AppStorage("gitPanel") private var gitPanel = false
+    @AppStorage("chatView") private var chatView = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,8 +37,14 @@ struct ContentView: View {
                                 .onHover { inside in inside ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
                         )
                 }
-                TerminalPane(controller: controller)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Group {
+                    if chatView, let tab = controller.activeTab {
+                        ChatPane(controller: controller, tab: tab)
+                    } else {
+                        TerminalPane(controller: controller)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if gitPanel {
                     Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1)
                     GitPanel(controller: controller).frame(width: 280)
@@ -260,6 +267,7 @@ struct FooterBar: View {
                     _ = HooksInstaller.install(); hooksOn = HooksInstaller.installed()
                 }
                 footBtn("set default") { DefaultTerminal.register() }
+                footBtn("chat") { UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "chatView"), forKey: "chatView") }
                 footBtn("git") { UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "gitPanel"), forKey: "gitPanel") }
                 footBtn("global ctx") { ctxScope = ctxScope == "global" ? nil : "global" }
                     .popover(isPresented: Binding(get: { ctxScope == "global" }, set: { if !$0 { ctxScope = nil } })) {
