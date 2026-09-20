@@ -21,6 +21,8 @@ struct ChatPane: View {
     @State private var echoes: [(text: String, sent: Date)] = [] // sent, not yet in the transcript (≤30s: a prompt answer never lands)
     @State private var finding = false
     @State private var expanded: Set<String> = [] // opened tool runs (first call's id) and single calls
+    @State private var askStep: [String: Int] = [:]              // question card → question now up in the terminal
+    @State private var askPicked: [String: [Int: Set<Int>]] = [:] // question card → question → options clicked here
     @State private var query = ""
     @State private var hit = 0
     @FocusState private var findFocused: Bool
@@ -127,8 +129,12 @@ struct ChatPane: View {
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant:
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(ChatMarkdown.blocks(m.text).enumerated()), id: \.offset) { block($0.element, cur) }
+            if let qs = m.ask {
+                askCard(m, qs, cur)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(ChatMarkdown.blocks(m.text).enumerated()), id: \.offset) { block($0.element, cur) }
+                }
             }
         case .tool:
             // minimized: one dim line; click to open the full input, click again to fold it
@@ -146,6 +152,89 @@ struct ChatPane: View {
                 if open, let d = m.detail { plain(d, cur).font(mono(10)).padding(.leading, 12) }
             }
             .foregroundStyle(.tertiary)
+        }
+    }
+
+    // ─── Claude's multiple-choice questions (AskUserQuestion) as a card you answer in chat ───
+    // The buttons drive Claude Code's picker with the keys a person would press (checked
+    // against 2.1.278): a digit picks an option and moves to the next question, or toggles it
+    // in a multi-select, whose Submit row sits one past "Type something"; with more than one
+    // question, or any multi-select, a review screen follows where 1 submits. A lone
+    // single-select question submits on its digit.
+
+    private var paper: Color { Color(nsColor: theme.nsColor(theme.current.background)) }
+
+    /// Only the newest unanswered question is live — that's the one on the terminal.
+    private var liveAskId: String? { msgs.last { $0.ask != nil }.flatMap { $0.answers == nil ? $0.id : nil } }
+
+    @ViewBuilder
+    private func askCard(_ m: ChatMessage, _ qs: [AskQuestion], _ cur: Bool) -> some View {
+        let live = m.id == liveAskId
+        let step = askStep[m.id] ?? 0
+        let needsReview = qs.count > 1 || qs.contains(where: \.multiSelect)
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(qs.indices, id: \.self) { qi in
+                let q = qs[qi]
+                let picked = askPicked[m.id]?[qi] ?? []
+                let answer = m.answers?[q.question]
+                VStack(alignment: .leading, spacing: 5) {
+                    Text((q.header ?? "question") + (q.multiSelect ? " · pick any" : "")).font(mono(10)).foregroundStyle(ansi(3))
+                    inline(q.question, cur).font(mono(12))
+                    ForEach(q.options.indices, id: \.self) { oi in
+                        let o = q.options[oi]
+                        let chosen = picked.contains(oi)
+                            || answer.map { $0.components(separatedBy: ", ").contains(o.label) } == true
+                        Button { pick(m, qs, qi, oi) } label: {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text("\(oi + 1)")
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(o.label).font(mono(11))
+                                    if let d = o.description { Text(d).opacity(0.75) }
+                                }
+                            }
+                            .frame(maxWidth: 520, alignment: .leading)
+                        }
+                        .buttonStyle(FootButtonStyle(on: chosen, paper: paper, wrap: true))
+                        .disabled(!live || qi != step)
+                    }
+                    if q.multiSelect, live, qi == step {
+                        Button(qi == qs.count - 1 ? "done ›" : "next ›") {
+                            send(Array(repeating: "\u{1b}[B", count: q.options.count + 1) + ["\r"]) // down to its Submit row
+                            askStep[m.id] = step + 1
+                        }
+                        .buttonStyle(FootButtonStyle(paper: paper))
+                    }
+                }
+                .opacity(live && qi != step && step < qs.count ? 0.55 : 1)
+            }
+            if live, needsReview, step >= qs.count {
+                Button("submit answers") { send(["1"]) }.buttonStyle(FootButtonStyle(on: true, paper: paper))
+            }
+            Text(m.answers == nil ? (live ? "waiting for your answer" : "not answered")
+                 : m.answers!.isEmpty ? "dismissed" : "answered")
+                .font(mono(9)).foregroundStyle(.tertiary)
+        }
+        .padding(10)
+        .overlay(Rectangle().stroke(live ? ansi(3) : Color.primary.opacity(0.15), lineWidth: 1))
+    }
+
+    private func pick(_ m: ChatMessage, _ qs: [AskQuestion], _ qi: Int, _ oi: Int) {
+        send(["\(oi + 1)"])
+        var picked = askPicked[m.id] ?? [:]
+        if qs[qi].multiSelect {
+            picked[qi, default: []].formSymmetricDifference([oi])
+        } else {
+            picked[qi] = [oi]
+            askStep[m.id] = qi + 1
+        }
+        askPicked[m.id] = picked
+    }
+
+    /// Keys to the tab ~150 ms apart, like the `key` socket command — menus need the gap.
+    private func send(_ seqs: [String]) {
+        let view = tab.view
+        for (i, s) in seqs.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15 * Double(i)) { view.send(txt: s) }
         }
     }
 

@@ -340,21 +340,24 @@ struct FooterBar: View {
 }
 
 /// Square, 1px-bordered, Space Mono; hover tints, press darkens, `on` inverts (ink fill, paper text).
+/// `wrap` lets a long label (the chat's question options) wrap instead of staying one line.
 struct FootButtonStyle: ButtonStyle {
     var on = false
     let paper: Color
+    var wrap = false
 
-    func makeBody(configuration: Configuration) -> some View { Face(configuration: configuration, on: on, paper: paper) }
+    func makeBody(configuration: Configuration) -> some View { Face(configuration: configuration, on: on, paper: paper, wrap: wrap) }
 
     private struct Face: View {
         let configuration: Configuration
         let on: Bool
         let paper: Color
+        let wrap: Bool
         @State private var hover = false
 
         var body: some View {
             configuration.label
-                .font(mono(10)).lineLimit(1).fixedSize()
+                .font(mono(10)).lineLimit(wrap ? nil : 1).fixedSize(horizontal: !wrap, vertical: true)
                 .foregroundStyle(on ? paper : Color.primary)
                 .padding(.horizontal, 8).padding(.vertical, 3)
                 .background(on ? Color.primary.opacity(configuration.isPressed ? 0.7 : 0.9)

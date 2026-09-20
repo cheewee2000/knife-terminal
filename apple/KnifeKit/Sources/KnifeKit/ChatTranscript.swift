@@ -16,9 +16,34 @@ public struct ChatMessage: Codable, Sendable, Identifiable, Equatable {
     public var detail: String?
     /// Agent turns: the model and reasoning effort that produced it ("opus-5 · high").
     public var model: String?
+    /// Claude's multiple-choice questions (AskUserQuestion). `text` carries them as
+    /// markdown too, for readers that only show text.
+    public var ask: [AskQuestion]?
+    /// The picks once answered, question → label(s); empty = dismissed; nil = still waiting.
+    public var answers: [String: String]?
 
-    public init(id: String, kind: Kind, text: String, detail: String? = nil, model: String? = nil) {
-        self.id = id; self.kind = kind; self.text = text; self.detail = detail; self.model = model
+    public init(id: String, kind: Kind, text: String, detail: String? = nil, model: String? = nil,
+                ask: [AskQuestion]? = nil) {
+        self.id = id; self.kind = kind; self.text = text; self.detail = detail; self.model = model; self.ask = ask
+    }
+}
+
+public struct AskQuestion: Codable, Sendable, Equatable {
+    public struct Option: Codable, Sendable, Equatable {
+        public var label: String
+        public var description: String?
+    }
+    public var question: String
+    public var header: String?
+    public var multiSelect: Bool
+    public var options: [Option]
+
+    init?(_ q: [String: Any]) {
+        guard let question = q["question"] as? String, let opts = q["options"] as? [[String: Any]] else { return nil }
+        self.question = question
+        header = q["header"] as? String
+        multiSelect = q["multiSelect"] as? Bool ?? false
+        options = opts.compactMap { o in (o["label"] as? String).map { Option(label: $0, description: o["description"] as? String) } }
     }
 }
 
@@ -55,6 +80,7 @@ public enum ChatTranscript {
         private var out: [ChatMessage] = []
         private var queue: [(id: String, text: String)] = [] // FIFO, task notifications included so dequeue stays aligned
         private var turnModel: String? // Codex: from the latest turn_context
+        private var askAt: [String: Int] = [:] // AskUserQuestion tool_use id → its message, for the answer
 
         public init(codex: Bool) { self.codex = codex }
 
@@ -98,6 +124,14 @@ public enum ChatTranscript {
             if let text = userText(message["content"]) {
                 out.append(ChatMessage(id: uuid, kind: .user, text: text))
             }
+            // a question's result: {"answers": {question: label}}; an error result = dismissed
+            for b in message["content"] as? [[String: Any]] ?? [] where b["type"] as? String == "tool_result" {
+                guard let useId = b["tool_use_id"] as? String, let i = askAt[useId] else { continue }
+                let answers = (obj["toolUseResult"] as? [String: Any])?["answers"] as? [String: String] ?? [:]
+                out[i].answers = answers
+                out[i].text += answers.isEmpty ? "\n\n(dismissed)"
+                    : "\n\n" + answers.map { "→ \($0.value)" }.sorted().joined(separator: "\n")
+            }
         case "assistant":
             guard let blocks = message["content"] as? [[String: Any]] else { return }
             let model = modelLabel(message["model"] as? String, obj["effort"] as? String)
@@ -109,6 +143,17 @@ public enum ChatTranscript {
                        !t.isEmpty {
                         out.append(ChatMessage(id: id, kind: .assistant, text: t, model: model))
                     }
+                case "tool_use" where block["name"] as? String == "AskUserQuestion":
+                    // a question isn't plumbing: shown as Claude talking, with its choices
+                    let qs = ((block["input"] as? [String: Any])?["questions"] as? [[String: Any]] ?? []).compactMap(AskQuestion.init)
+                    guard !qs.isEmpty else { continue }
+                    let md = qs.map { q in
+                        "**\(q.header ?? "Question")** · \(q.question)\n" + q.options.enumerated().map { i, o in
+                            "\(i + 1). \(o.label)" + (o.description.map { " — \($0)" } ?? "")
+                        }.joined(separator: "\n")
+                    }.joined(separator: "\n\n")
+                    if let useId = block["id"] as? String { askAt[useId] = out.count }
+                    out.append(ChatMessage(id: id, kind: .assistant, text: md, model: model, ask: qs))
                 case "tool_use":
                     if let name = block["name"] as? String {
                         let input = block["input"] as? [String: Any]
