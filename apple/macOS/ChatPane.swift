@@ -4,7 +4,8 @@ import KnifeKit
 
 /// The active tab's claude/codex session as chat (footer 'chat', ⌘⌥C): replies in full, every
 /// tool call as a line plus its full input (commands, todo lists) — never an edit's diff. The
-/// statusline's usage bars, hidden with the terminal, are drawn natively above the composer.
+/// statusline's usage bars, hidden with the terminal, are drawn natively above the composer,
+/// led by the model + effort of the latest turn.
 /// Replies render as rich text (headings, lists, code, tables), colored by kind.
 /// ⌘F finds within the session: every hit highlighted, ⌘G / ⌘⇧G step through them.
 /// Lines typed in the composer go to the tab like the phone's. No transcript → the terminal.
@@ -76,9 +77,13 @@ struct ChatPane: View {
                 .onChange(of: currentHit) { if let id = currentHit { withAnimation { proxy.scrollTo(id, anchor: .center) } } }
             }
             Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
-            if !bars.isEmpty {
-                HStack(spacing: 20) { ForEach(bars) { usage($0) } }
-                    .padding(.horizontal, 16).padding(.top, 8)
+            let model = msgs.last { $0.model != nil }?.model
+            if !bars.isEmpty || model != nil {
+                HStack(spacing: 20) {
+                    if let model { Text(model).font(mono(10)).foregroundStyle(ansi(5)).fixedSize() }
+                    ForEach(bars) { usage($0) }
+                }
+                .padding(.horizontal, 16).padding(.top, 8)
             }
             TextField("message", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain).font(mono(12)).lineLimit(1...6)

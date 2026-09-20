@@ -18,3 +18,12 @@ final class ChatMarkdownTests: XCTestCase {
         ])
     }
 }
+
+final class ModelLabelTests: XCTestCase {
+    func testModelLabel() {
+        XCTAssertEqual(ChatTranscript.modelLabel("claude-opus-5", "high"), "opus-5 · high")
+        XCTAssertEqual(ChatTranscript.modelLabel("gpt-6-astra", "medium"), "gpt-6-astra · medium")
+        XCTAssertEqual(ChatTranscript.modelLabel("claude-sonnet-5", nil), "sonnet-5")
+        XCTAssertNil(ChatTranscript.modelLabel("<synthetic>", "high"))
+    }
+}

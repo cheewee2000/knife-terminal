@@ -14,9 +14,11 @@ public struct ChatMessage: Codable, Sendable, Identifiable, Equatable {
     /// Tool calls: the full input under the one-line label (whole command,
     /// description, todo list) — never an edit's old/new strings or file content.
     public var detail: String?
+    /// Agent turns: the model and reasoning effort that produced it ("opus-5 · high").
+    public var model: String?
 
-    public init(id: String, kind: Kind, text: String, detail: String? = nil) {
-        self.id = id; self.kind = kind; self.text = text; self.detail = detail
+    public init(id: String, kind: Kind, text: String, detail: String? = nil, model: String? = nil) {
+        self.id = id; self.kind = kind; self.text = text; self.detail = detail; self.model = model
     }
 }
 
@@ -48,19 +50,20 @@ public enum ChatTranscript {
                 }
             case "assistant":
                 guard let blocks = message["content"] as? [[String: Any]] else { continue }
+                let model = modelLabel(message["model"] as? String, obj["effort"] as? String)
                 for (i, block) in blocks.enumerated() {
                     let id = "\(uuid)-\(i)"
                     switch block["type"] as? String {
                     case "text":
                         if let t = (block["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
                            !t.isEmpty {
-                            out.append(ChatMessage(id: id, kind: .assistant, text: t))
+                            out.append(ChatMessage(id: id, kind: .assistant, text: t, model: model))
                         }
                     case "tool_use":
                         if let name = block["name"] as? String {
                             let input = block["input"] as? [String: Any]
                             out.append(ChatMessage(id: id, kind: .tool, text: toolLabel(name, input),
-                                                   detail: toolDetail(input)))
+                                                   detail: toolDetail(input), model: model))
                         }
                     default: break
                     }
@@ -76,11 +79,16 @@ public enum ChatTranscript {
     /// them (agent_message/user_message) and are skipped.
     public static func parseCodex(jsonlLines: [String]) -> [ChatMessage] {
         var out: [ChatMessage] = []
+        var model: String? // from the latest turn_context
         for line in jsonlLines {
             guard let data = line.data(using: .utf8),
                   let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                  obj["type"] as? String == "response_item",
                   let p = obj["payload"] as? [String: Any] else { continue }
+            if obj["type"] as? String == "turn_context" {
+                model = modelLabel(p["model"] as? String, p["effort"] as? String)
+                continue
+            }
+            guard obj["type"] as? String == "response_item" else { continue }
             let ts = obj["timestamp"] as? String ?? ""
             switch p["type"] as? String {
             case "message":
@@ -91,7 +99,7 @@ public enum ChatTranscript {
                 if p["role"] as? String == "user" {
                     if let t = userText(text) { out.append(ChatMessage(id: id, kind: .user, text: t)) }
                 } else if let t = Optional(text.trimmingCharacters(in: .whitespacesAndNewlines)), !t.isEmpty {
-                    out.append(ChatMessage(id: id, kind: .assistant, text: t))
+                    out.append(ChatMessage(id: id, kind: .assistant, text: t, model: model))
                 }
             case "function_call", "custom_tool_call", "local_shell_call":
                 let name = p["name"] as? String ?? "shell"
@@ -104,7 +112,7 @@ public enum ChatTranscript {
                     input["command"] = argv.joined(separator: " ")
                 }
                 out.append(ChatMessage(id: p["call_id"] as? String ?? "\(ts)-\(name)", kind: .tool,
-                                       text: toolLabel(name, input), detail: toolDetail(input)))
+                                       text: toolLabel(name, input), detail: toolDetail(input), model: model))
             default: break
             }
         }
@@ -131,6 +139,13 @@ public enum ChatTranscript {
         if t.hasPrefix("# Context from my IDE") { return nil }   // Codex IDE wrapper
         if t.hasPrefix("[Request interrupted") { return nil }
         return t
+    }
+
+    /// "claude-opus-5" + "high" → "opus-5 · high"; nil for Claude Code's "<synthetic>" stand-ins.
+    static func modelLabel(_ model: String?, _ effort: String?) -> String? {
+        guard var m = model, !m.isEmpty, !m.hasPrefix("<") else { return nil }
+        if m.hasPrefix("claude-") { m.removeFirst("claude-".count) }
+        return [m, effort].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     private static let detailKeys = ["description", "command", "file_path", "pattern", "path", "prompt", "url", "query", "skill", "subject"]
