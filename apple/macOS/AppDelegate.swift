@@ -151,7 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func toggleChatView() {
         UserDefaults.standard.set(!UserDefaults.standard.bool(forKey: "chatView"), forKey: "chatView")
     }
-    @objc private func find(_ sender: NSMenuItem) {
+    @objc func find(_ sender: NSMenuItem) { // also the footer's find button
         if let wc = front, wc.chatShowing {
             NotificationCenter.default.post(name: .knifeChatFind, object: wc, userInfo: ["action": sender.tag])
         } else {
