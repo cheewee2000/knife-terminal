@@ -31,8 +31,15 @@ public enum ChatTranscript {
 
     /// Parse Claude Code transcript lines (one JSON object per line) into chat
     /// messages. Unknown shapes are skipped, never fatal.
+    ///
+    /// A prompt typed while Claude is mid-turn isn't a `user` record: it's a
+    /// queue-operation enqueue, then either dequeued (→ a `user` record at the
+    /// next turn) or absorbed into the running turn (→ a `queued_command`
+    /// attachment). Absorbed ones become user messages; ones still waiting show
+    /// at the end with detail "queued".
     public static func parse(jsonlLines: [String]) -> [ChatMessage] {
         var out: [ChatMessage] = []
+        var queue: [(id: String, text: String)] = [] // FIFO, task notifications included so dequeue stays aligned
         for line in jsonlLines {
             guard let data = line.data(using: .utf8),
                   let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -41,6 +48,22 @@ public enum ChatTranscript {
             if obj["isMeta"] as? Bool == true { continue }
             if obj["isSidechain"] as? Bool == true { continue }
             let uuid = obj["uuid"] as? String ?? UUID().uuidString
+            if type == "queue-operation" {
+                let content = obj["content"] as? String
+                switch obj["operation"] as? String {
+                case "enqueue": if let content { queue.append(("queued-\(obj["timestamp"] as? String ?? uuid)", content)) }
+                case "dequeue": if !queue.isEmpty { queue.removeFirst() }
+                case "remove": if let i = queue.firstIndex(where: { $0.text == content }) { queue.remove(at: i) }
+                default: break
+                }
+                continue
+            }
+            if type == "attachment", let a = obj["attachment"] as? [String: Any],
+               a["type"] as? String == "queued_command",
+               (a["origin"] as? [String: Any])?["kind"] as? String ?? "human" == "human" {
+                if let t = userText(a["prompt"]) { out.append(ChatMessage(id: uuid, kind: .user, text: t)) }
+                continue
+            }
             guard let message = obj["message"] as? [String: Any] else { continue }
 
             switch type {
@@ -70,6 +93,9 @@ public enum ChatTranscript {
                 }
             default: break
             }
+        }
+        for q in queue {
+            if let t = userText(q.text) { out.append(ChatMessage(id: q.id, kind: .user, text: t, detail: "queued")) }
         }
         return out
     }
@@ -132,8 +158,10 @@ public enum ChatTranscript {
         guard var t = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
         if t.hasPrefix("<command-name>") {
             guard let end = t.range(of: "</command-name>") else { return nil }
-            t = String(t[t.index(t.startIndex, offsetBy: "<command-name>".count)..<end.lowerBound])
-            return t.isEmpty ? nil : t
+            let name = String(t[t.index(t.startIndex, offsetBy: "<command-name>".count)..<end.lowerBound])
+            let args = t.firstMatch(of: #/<command-args>([\s\S]*?)</command-args>/#).map { String($0.1) } ?? ""
+            t = args.isEmpty ? name : name + " " + args
+            return name.isEmpty ? nil : t
         }
         if t.hasPrefix("<") { return nil }   // command output, system wrappers
         if t.hasPrefix("# Context from my IDE") { return nil }   // Codex IDE wrapper

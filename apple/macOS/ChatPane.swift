@@ -17,6 +17,7 @@ struct ChatPane: View {
     @State private var msgs: [ChatMessage] = []
     @State private var bars: [UsageBar] = []
     @State private var draft = ""
+    @State private var echoes: [(text: String, sent: Date)] = [] // sent, not yet in the transcript
     @State private var finding = false
     @State private var expanded: Set<String> = [] // opened tool runs (first call's id) and single calls
     @State private var query = ""
@@ -54,6 +55,8 @@ struct ChatPane: View {
                 let cwd = tab.currentCwd
                 let data = await Task.detached { TranscriptReader.chatData(forCwd: cwd) }.value
                 msgs = data.flatMap(ChatTranscript.decode) ?? []
+                let recent = msgs.suffix(8).filter { $0.kind == .user }.map(\.text)
+                echoes.removeAll { e in e.sent.timeIntervalSinceNow < -6 || recent.contains(e.text) }
                 bars = UsageBar.parse(tab.view.styledScreen())
                 try? await Task.sleep(for: .seconds(1.5))
             }
@@ -76,6 +79,7 @@ struct ChatPane: View {
                 }
                 .defaultScrollAnchor(.bottom)
                 .onChange(of: msgs.last?.id) { if currentHit == nil { proxy.scrollTo("bottom", anchor: .bottom) } }
+                .onChange(of: echoes.count) { if currentHit == nil { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: currentHit) {
                     guard let id = currentHit else { return }
                     reveal(id) // open its run / input first, then scroll once it's laid out
@@ -97,6 +101,8 @@ struct ChatPane: View {
                 .onSubmit {
                     guard !draft.isEmpty else { return }
                     tab.view.typeLine(draft)
+                    // shown at once; the transcript's copy (user record or queue entry) replaces it
+                    echoes.append((draft.trimmingCharacters(in: .whitespacesAndNewlines), Date()))
                     draft = ""
                 }
         }
@@ -107,10 +113,14 @@ struct ChatPane: View {
         let cur = m.id == currentHit
         switch m.kind {
         case .user:
-            plain(m.text, cur).font(mono(12))
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(accent.opacity(0.25))
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            // detail "queued" (waiting for Claude's turn to end) / "sending" (local echo): dimmer, tagged
+            VStack(alignment: .trailing, spacing: 2) {
+                plain(m.text, cur).font(mono(12))
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(accent.opacity(m.detail == nil ? 0.25 : 0.12))
+                if let d = m.detail { Text(d).font(mono(9)).foregroundStyle(.tertiary) }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant:
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(Array(ChatMarkdown.blocks(m.text).enumerated()), id: \.offset) { block($0.element, cur) }
@@ -159,6 +169,9 @@ struct ChatPane: View {
             if m.kind == .tool { run.append(m) } else { flush(); out.append(.msg(m)) }
         }
         flush()
+        for (i, e) in echoes.enumerated() {
+            out.append(.msg(ChatMessage(id: "echo-\(i)-\(e.sent.timeIntervalSince1970)", kind: .user, text: e.text, detail: "sending")))
+        }
         return out
     }
 
