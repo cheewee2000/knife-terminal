@@ -17,6 +17,17 @@ struct SessionDetailView: View {
 
     private var tab: MirroredTab? { store.tabs.first { $0.id == tabRecordName } }
     private var messages: [ChatMessage] { tab.flatMap { ChatTranscript.decode($0.chat) } ?? [] }
+    /// Sent from the chat composer, not yet back from the Mac: shown greyed at once. Dropped
+    /// once the mirrored transcript carries the text (or after 30s — e.g. a prompt answer).
+    @State private var echoes: [(text: String, sent: Date)] = []
+    private var shown: [ChatMessage] {
+        let msgs = messages
+        let recent = msgs.suffix(8).filter { $0.kind == .user }.map(\.text)
+        let pending = echoes.filter { $0.sent.timeIntervalSinceNow > -30 && !recent.contains($0.text) }
+        return msgs + pending.enumerated().map { i, e in
+            ChatMessage(id: "echo-\(i)-\(e.sent.timeIntervalSince1970)", kind: .user, text: e.text, detail: "sending")
+        }
+    }
 
     var body: some View {
         Group {
@@ -124,7 +135,7 @@ struct SessionDetailView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
-                        ForEach(messages) { m in messageRow(m) }
+                        ForEach(shown) { m in messageRow(m) }
                         if tab.working { workingRow }
                         Color.clear.frame(height: 1).id("chat-bottom")
                     }
@@ -132,8 +143,10 @@ struct SessionDetailView: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .defaultScrollAnchor(.bottom)
-                .onChange(of: messages.last?.id ?? "") {
-                    withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("chat-bottom", anchor: .bottom) }
+                .onChange(of: shown.last?.id ?? "") { // next runloop: the new row is laid out by then
+                    DispatchQueue.main.async {
+                        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo("chat-bottom", anchor: .bottom) }
+                    }
                 }
                 .onChange(of: composing) { _, focused in
                     if focused { proxy.scrollTo("chat-bottom", anchor: .bottom) }
@@ -147,13 +160,18 @@ struct SessionDetailView: View {
     private func messageRow(_ m: ChatMessage) -> some View {
         switch m.kind {
         case .user:
+            // detail "sending" (local echo) / "queued" (waiting on Claude's turn): greyed, tagged
             HStack {
                 Spacer(minLength: 48)
-                Text(m.text)
-                    .font(mono(13))
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(RoundedRectangle(cornerRadius: 16).fill(knifeAccent.opacity(0.22)))
-                    .textSelection(.enabled)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(m.text)
+                        .font(mono(13))
+                        .foregroundStyle(m.detail == nil ? .primary : .secondary)
+                        .padding(.horizontal, 12).padding(.vertical, 8)
+                        .background(RoundedRectangle(cornerRadius: 16).fill(knifeAccent.opacity(m.detail == nil ? 0.22 : 0.1)))
+                        .textSelection(.enabled)
+                    if let d = m.detail { Text(d).font(mono(9)).foregroundStyle(.tertiary) }
+                }
             }
         case .assistant:
             Text(markdown(m.text))
@@ -257,6 +275,8 @@ struct SessionDetailView: View {
 
     private func submit(_ tab: MirroredTab) {
         store.send(draft + "\r", to: tab.tabId)
+        let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !showTerminal, !t.isEmpty { echoes.removeAll { $0.sent.timeIntervalSinceNow < -30 }; echoes.append((t, Date())) }
         draft = ""
     }
 }

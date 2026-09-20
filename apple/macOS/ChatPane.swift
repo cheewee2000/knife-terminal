@@ -18,7 +18,7 @@ struct ChatPane: View {
     @State private var bars: [UsageBar] = []
     @State private var codex = false // the transcript is Codex's, not Claude Code's
     @State private var draft = ""
-    @State private var echoes: [(text: String, sent: Date)] = [] // sent, not yet in the transcript
+    @State private var echoes: [(text: String, sent: Date)] = [] // sent, not yet in the transcript (≤30s: a prompt answer never lands)
     @State private var finding = false
     @State private var expanded: Set<String> = [] // opened tool runs (first call's id) and single calls
     @State private var query = ""
@@ -58,7 +58,7 @@ struct ChatPane: View {
                 msgs = chat?.data.flatMap(ChatTranscript.decode) ?? []
                 codex = chat?.codex ?? false
                 let recent = msgs.suffix(8).filter { $0.kind == .user }.map(\.text)
-                echoes.removeAll { e in e.sent.timeIntervalSinceNow < -6 || recent.contains(e.text) }
+                echoes.removeAll { e in e.sent.timeIntervalSinceNow < -30 || recent.contains(e.text) }
                 bars = UsageBar.parse(tab.view.styledScreen())
                 try? await Task.sleep(for: .seconds(1.5))
             }
@@ -80,8 +80,10 @@ struct ChatPane: View {
                     .textSelection(.enabled)
                 }
                 .defaultScrollAnchor(.bottom)
-                .onChange(of: msgs.last?.id) { if currentHit == nil { proxy.scrollTo("bottom", anchor: .bottom) } }
-                .onChange(of: echoes.count) { if currentHit == nil { proxy.scrollTo("bottom", anchor: .bottom) } }
+                .onChange(of: items.last?.id) { // next runloop: the new row is laid out by then
+                    guard currentHit == nil else { return }
+                    DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
                 .onChange(of: currentHit) {
                     guard let id = currentHit else { return }
                     reveal(id) // open its run / input first, then scroll once it's laid out
@@ -117,7 +119,7 @@ struct ChatPane: View {
         case .user:
             // detail "queued" (waiting for Claude's turn to end) / "sending" (local echo): dimmer, tagged
             VStack(alignment: .trailing, spacing: 2) {
-                plain(m.text, cur).font(mono(12))
+                plain(m.text, cur).font(mono(12)).foregroundStyle(m.detail == nil ? .primary : .secondary)
                     .padding(.horizontal, 10).padding(.vertical, 6)
                     .background(accent.opacity(m.detail == nil ? 0.25 : 0.12))
                 if let d = m.detail { Text(d).font(mono(9)).foregroundStyle(.tertiary) }
