@@ -13,3 +13,14 @@ final class ProjectRefMergeTests: XCTestCase {
         XCTAssertEqual(merged[1].name, "other")
     }
 }
+
+final class WebURLTests: XCTestCase {
+    func testWebURL() {
+        let want = "https://github.com/teejers/knife"
+        for r in ["git@github.com:teejers/knife.git", "ssh://git@github.com:22/teejers/knife.git",
+                  "https://github.com/teejers/knife.git", "https://cw@github.com/teejers/knife\n"] {
+            XCTAssertEqual(ProjectRef.webURL(forRemote: r)?.absoluteString, want, r)
+        }
+        XCTAssertNil(ProjectRef.webURL(forRemote: "/Volumes/backup/knife.git"))
+    }
+}

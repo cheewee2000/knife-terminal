@@ -77,6 +77,17 @@ public struct ProjectRef: Codable, Sendable, Identifiable, Equatable {
         self.name = name; self.path = path; self.remote = remote; self.description = description; self.lastTouched = lastTouched
     }
 
+    /// The repo's web page for a git remote: git@host:o/r.git, ssh://git@host:22/o/r,
+    /// https://user@host/o/r.git → https://host/o/r. nil for local-path remotes.
+    public static func webURL(forRemote remote: String) -> URL? {
+        var r = remote.trimmingCharacters(in: .whitespacesAndNewlines)
+        if r.hasSuffix(".git") { r.removeLast(4) }
+        if let m = r.firstMatch(of: #/^(?:ssh://)?[^@/]+@([^:/]+)[:/](?:\d+/)?(.+)$/#) { r = "https://\(m.1)/\(m.2)" }
+        guard var c = URLComponents(string: r), c.scheme?.hasPrefix("http") == true, c.host != nil else { return nil }
+        c.scheme = "https"; c.user = nil; c.password = nil
+        return c.url
+    }
+
     /// Merge per-machine lists into one, keyed by remote (path when there is
     /// none): the most recently touched entry wins, a description beats none.
     /// Sorted newest first.

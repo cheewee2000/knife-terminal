@@ -155,6 +155,7 @@ struct SidebarView: View {
                         }
                         .buttonStyle(.plain)
                         .help(p.path)
+                        .contextMenu { projectMenu(p, local: true) }
                     }
                     // manifest projects that only exist on another Mac — open = clone here
                     ForEach(filteredElsewhere) { p in
@@ -171,6 +172,7 @@ struct SidebarView: View {
                         }
                         .buttonStyle(.plain)
                         .help("on another Mac — opens by cloning it here")
+                        .contextMenu { projectMenu(p, local: false) }
                     }
 
                     JobBox()
@@ -188,6 +190,21 @@ struct SidebarView: View {
         .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { _ in reload() } // manifest syncs every ~10s
         .onReceive(NotificationCenter.default.publisher(for: .knifeFocusSearch)) { _ in
             if controller.window?.isKeyWindow ?? false { searchFocused = true }
+        }
+    }
+
+    /// Right-click a project: its folder in Finder, its repo's web page (from the git remote;
+    /// for another Mac's project, the manifest's).
+    @ViewBuilder
+    private func projectMenu(_ p: Project, local: Bool) -> some View {
+        if local {
+            Button("Open Folder in Finder") { NSWorkspace.shared.open(URL(fileURLWithPath: p.path)) }
+        }
+        let remote = local ? Manifest.remote(of: p.path) : Manifest.merged.first { $0.path == p.path }?.remote
+        if let url = remote.flatMap(ProjectRef.webURL(forRemote:)) {
+            Button("Open Repo Page (\(url.host ?? "web"))") { NSWorkspace.shared.open(url) }
+        } else {
+            Button("No Git Remote") {}.disabled(true)
         }
     }
 
