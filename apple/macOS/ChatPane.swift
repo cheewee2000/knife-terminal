@@ -17,7 +17,10 @@ struct ChatPane: View {
     @State private var msgs: [ChatMessage] = []
     @State private var bars: [UsageBar] = []
     @State private var codex = false // the transcript is Codex's, not Claude Code's
-    @State private var draft = ""
+    // parsed + linkified inline text, by cwd + source: parsing and the link scan's disk stats ran
+    // for every visible message on every poll tick. ponytail: grows with the session, dies with the pane.
+    private final class InlineCache { var made: [String: AttributedString] = [:] }
+    @State private var inlineCache = InlineCache()
     @State private var cwd: String? // the shell's, for resolving relative paths into links
     @State private var echoes: [(text: String, sent: Date)] = [] // sent, not yet in the transcript (≤30s: a prompt answer never lands)
     @State private var finding = false
@@ -112,16 +115,12 @@ struct ChatPane: View {
                 }
                 .padding(.horizontal, 16).padding(.top, 8)
             }
-            TextField("message", text: $draft, axis: .vertical)
-                .textFieldStyle(.plain).font(mono(12)).lineLimit(1...6)
-                .padding(.horizontal, 16).padding(.vertical, 10)
-                .onSubmit {
-                    guard !draft.isEmpty else { return }
-                    tab.view.typeLine(draft)
-                    // shown at once; the transcript's copy (user record or queue entry) replaces it
-                    echoes.append((draft.trimmingCharacters(in: .whitespacesAndNewlines), Date()))
-                    draft = ""
-                }
+            // its own view: a keystroke re-renders the field, not every message above it
+            Composer(font: mono(12)) { text in
+                tab.view.typeLine(text)
+                // shown at once; the transcript's copy (user record or queue entry) replaces it
+                echoes.append((text.trimmingCharacters(in: .whitespacesAndNewlines), Date()))
+            }
         }
     }
 
@@ -391,6 +390,8 @@ struct ChatPane: View {
 
     /// Inline markdown (bold, `code`, links) with code and links recolored, find hits marked.
     private func inline(_ s: String, _ cur: Bool) -> Text {
+        let key = (cwd ?? "") + "\u{0}" + s
+        if let hit = inlineCache.made[key] { return Text(mark(hit, cur)) }
         var a = (try? AttributedString(markdown: s, options: .init(
             interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
         linkify(&a)
@@ -403,6 +404,7 @@ struct ChatPane: View {
             }
             if run.link != nil { a[run.range].underlineStyle = .single }
         }
+        inlineCache.made[key] = a
         return Text(mark(a, cur))
     }
 
@@ -525,5 +527,22 @@ struct ChatPane: View {
             Text("\(bar.pct)%" + (bar.reset.map { " · \($0)" } ?? "")).font(mono(10)).fixedSize()
         }
         .help(bar.title)
+    }
+}
+
+private struct Composer: View {
+    let font: Font
+    let send: (String) -> Void
+    @State private var draft = ""
+
+    var body: some View {
+        TextField("message", text: $draft, axis: .vertical)
+            .textFieldStyle(.plain).font(font).lineLimit(1...6)
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .onSubmit {
+                guard !draft.isEmpty else { return }
+                send(draft)
+                draft = ""
+            }
     }
 }
