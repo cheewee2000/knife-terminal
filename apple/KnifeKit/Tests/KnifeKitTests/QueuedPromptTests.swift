@@ -15,6 +15,8 @@ final class QueuedPromptTests: XCTestCase {
         ]
         let m = ChatTranscript.parse(jsonlLines: lines)
         XCTAssertEqual(m.map(\.text), ["start", "absorbed one", "/model opus", "still waiting"])
+        XCTAssertEqual(m[2].model, "opus") // the footer's label follows the switch at once
+        XCTAssertEqual(ChatTranscript.switched("/effort low", from: "opus-5 · high"), "opus-5 · low")
         XCTAssertEqual(m.last?.detail, "queued")
         XCTAssertNil(m[1].detail)
     }

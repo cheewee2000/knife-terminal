@@ -122,7 +122,7 @@ public enum ChatTranscript {
         switch type {
         case "user":
             if let text = userText(message["content"]) {
-                out.append(ChatMessage(id: uuid, kind: .user, text: text))
+                out.append(ChatMessage(id: uuid, kind: .user, text: text, model: ChatTranscript.switched(text, from: out.last { $0.model != nil }?.model)))
             }
             // a question's result: {"answers": {question: label}}; an error result = dismissed
             for b in message["content"] as? [[String: Any]] ?? [] where b["type"] as? String == "tool_result" {
@@ -227,6 +227,16 @@ public enum ChatTranscript {
         if t.hasPrefix("# Context from my IDE") { return nil }   // Codex IDE wrapper
         if t.hasPrefix("[Request interrupted") { return nil }
         return t
+    }
+
+    /// "/model opus" or "/effort high" changes the label now, not at the next reply:
+    /// "opus-5 · high" + "/model sonnet" → "sonnet · high". nil for anything else.
+    static func switched(_ text: String, from label: String?) -> String? {
+        let w = text.split(separator: " ").map(String.init)
+        guard w.count == 2, w[0] == "/model" || w[0] == "/effort" else { return nil }
+        let parts = (label ?? "").components(separatedBy: " · ")
+        let (model, effort) = (parts[0], parts.count > 1 ? parts[1] : "")
+        return (w[0] == "/model" ? [w[1], effort] : [model, w[1]]).filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     /// "claude-opus-5" + "high" → "opus-5 · high"; nil for Claude Code's "<synthetic>" stand-ins.
