@@ -18,6 +18,7 @@ struct ChatPane: View {
     @State private var bars: [UsageBar] = []
     @State private var codex = false // the transcript is Codex's, not Claude Code's
     @State private var draft = ""
+    @State private var cwd: String? // the shell's, for resolving relative paths into links
     @State private var echoes: [(text: String, sent: Date)] = [] // sent, not yet in the transcript (≤30s: a prompt answer never lands)
     @State private var finding = false
     @State private var expanded: Set<String> = [] // opened tool runs (first call's id) and single calls
@@ -40,6 +41,7 @@ struct ChatPane: View {
         Group {
             if msgs.isEmpty { TerminalPane(controller: controller) } else {
                 chat
+                    .environment(\.openURL, openLinks)
                     .onAppear { controller.chatPanes += 1 }
                     .onDisappear { controller.chatPanes -= 1 }
             }
@@ -56,7 +58,8 @@ struct ChatPane: View {
         .task(id: tab.id) {
             msgs = []
             while !Task.isCancelled {
-                let src = TranscriptReader.source(for: tab, cwd: tab.currentCwd)
+                cwd = tab.currentCwd
+                let src = TranscriptReader.source(for: tab, cwd: cwd)
                 let chat = await Task.detached { TranscriptReader.chat(src) }.value
                 guard !Task.isCancelled else { return } // switched tabs mid-read: don't paint the old tab's chat
                 msgs = chat?.msgs ?? []
@@ -390,16 +393,47 @@ struct ChatPane: View {
     private func inline(_ s: String, _ cur: Bool) -> Text {
         var a = (try? AttributedString(markdown: s, options: .init(
             interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+        linkify(&a)
         for run in a.runs {
             if run.inlinePresentationIntent?.contains(.code) == true {
                 a[run.range].foregroundColor = ansi(2)
                 a[run.range].backgroundColor = Color.primary.opacity(0.06)
             } else if run.link != nil {
                 a[run.range].foregroundColor = ansi(5)
-                a[run.range].underlineStyle = .single
             }
+            if run.link != nil { a[run.range].underlineStyle = .single }
         }
         return Text(mark(a, cur))
+    }
+
+    /// Bare URLs and paths that exist on disk become links, found the way the terminal finds
+    /// them (KnifeTermView.fileLink); a file.swift:12 line reference rides in the fragment.
+    // ponytail: a stat per slash-bearing token on every render; cache per message if long chats stutter.
+    private func linkify(_ a: inout AttributedString) {
+        let text = String(a.characters)
+        let all = NSRange(location: 0, length: (text as NSString).length)
+        func link(_ r: NSRange, _ url: URL) {
+            guard let sr = Range(r, in: text), let ar = Range<AttributedString.Index>(sr, in: a),
+                  a[ar].runs.allSatisfy({ $0.link == nil }) else { return }
+            a[ar].link = url
+        }
+        for m in KnifeTermView.urlDetector?.matches(in: text, range: all) ?? [] {
+            if let url = m.url { link(m.range, url) }
+        }
+        for m in KnifeTermView.tokenRegex.matches(in: text, range: all) {
+            guard let (url, lineRef, r) = KnifeTermView.fileLink(token: (text as NSString).substring(with: m.range), at: m.range, cwd: cwd) else { continue }
+            link(r, lineRef.flatMap { URL(string: url.absoluteString + "#" + $0) } ?? url)
+        }
+    }
+
+    /// Links open as they do in the terminal: URLs in the browser, file:line in VS Code, ⌥ reveals in Finder.
+    private var openLinks: OpenURLAction {
+        OpenURLAction { url in
+            guard url.isFileURL else { return .systemAction }
+            tab.view.openLink(URL(fileURLWithPath: url.path), lineRef: url.fragment,
+                              reveal: NSEvent.modifierFlags.contains(.option))
+            return .handled
+        }
     }
 
     private func plain(_ s: String, _ cur: Bool) -> Text { Text(mark(AttributedString(s), cur)) }

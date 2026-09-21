@@ -315,7 +315,7 @@ final class KnifeTermView: LocalProcessTerminalView {
     private var screenLinks: [ScreenLink] = []
     private let linkLayer = CAShapeLayer()
     private var linkScanPending = false
-    private static let urlDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    static let urlDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 
     private func scheduleLinkScan() {
         guard !linkScanPending else { return }
@@ -379,7 +379,7 @@ final class KnifeTermView: LocalProcessTerminalView {
             // File paths: any token that resolves to something on disk.
             for m in Self.tokenRegex.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
                 guard !claimed.contains(where: { NSIntersectionRange($0, m.range).length > 0 }),
-                      let (url, lineRef, range) = fileLink(token: ns.substring(with: m.range), at: m.range)
+                      let (url, lineRef, range) = Self.fileLink(token: ns.substring(with: m.range), at: m.range, cwd: cachedCwd)
                 else { continue }
                 let spans = spansFor(range)
                 guard !spans.isEmpty else { continue }
@@ -392,14 +392,14 @@ final class KnifeTermView: LocalProcessTerminalView {
 
     // ─── File paths: underlined like URLs, click shows them in Finder ───
 
-    private static let tokenRegex = try! NSRegularExpression(pattern: #"\S+"#)
+    static let tokenRegex = try! NSRegularExpression(pattern: #"\S+"#)
 
     /// "(apple/macOS/Foo.swift:12)" → file URL for apple/macOS/Foo.swift, the
     /// "12" line reference, and the range of just the path part; nil when
     /// nothing on disk matches. Relative paths resolve against the shell's
     /// cwd; existence is the filter that keeps prose like "and/or" from
     /// underlining.
-    private func fileLink(token: String, at range: NSRange) -> (URL, String?, NSRange)? {
+    static func fileLink(token: String, at range: NSRange, cwd: String?) -> (URL, String?, NSRange)? {
         guard token.contains("/") || token.first == "~" else { return nil }
         var core = Substring(token)
         while let f = core.first, "('\"`<[{".contains(f) { core.removeFirst() }
@@ -414,7 +414,7 @@ final class KnifeTermView: LocalProcessTerminalView {
         if path.hasPrefix("~") {
             path = (path as NSString).expandingTildeInPath
         } else if !path.hasPrefix("/") {
-            guard let cwd = cachedCwd else { return nil }
+            guard let cwd else { return nil }
             path = cwd + "/" + path
         }
         path = (path as NSString).standardizingPath
@@ -447,7 +447,7 @@ final class KnifeTermView: LocalProcessTerminalView {
 
     /// URLs → browser. Directories → a Finder window. Files → Quick Look (⌥-click
     /// reveals in Finder), except a file:line reference, which opens VS Code at that line.
-    private func openLink(_ url: URL, lineRef: String? = nil, reveal: Bool = false) {
+    func openLink(_ url: URL, lineRef: String? = nil, reveal: Bool = false) {
         guard url.isFileURL else { NSWorkspace.shared.open(url); return }
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return }
@@ -462,6 +462,7 @@ final class KnifeTermView: LocalProcessTerminalView {
             return // falls through to Quick Look if VS Code isn't around
         }
         if reveal { NSWorkspace.shared.activateFileViewerSelecting([url]); return }
+        guard window != nil else { NSWorkspace.shared.open(url); return } // chat view: this view is offscreen, no Quick Look
         previewURL = url
         guard let panel = QLPreviewPanel.shared() else { return }
         if panel.isVisible { panel.reloadData() } else { window?.makeFirstResponder(self); panel.makeKeyAndOrderFront(nil) }
