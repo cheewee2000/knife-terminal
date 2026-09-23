@@ -19,7 +19,7 @@ struct ChatPane: View {
     @State private var codex = false // the transcript is Codex's, not Claude Code's
     // parsed + linkified inline text, by cwd + source: parsing and the link scan's disk stats ran
     // for every visible message on every poll tick. ponytail: grows with the session, dies with the pane.
-    private final class InlineCache { var made: [String: AttributedString] = [:] }
+    private final class InlineCache { var made: [String: AttributedString] = [:]; var blocks: [String: [ChatBlock]] = [:] }
     @State private var inlineCache = InlineCache()
     @State private var cwd: String? // the shell's, for resolving relative paths into links
     @State private var echoes: [(text: String, sent: Date)] = [] // sent, not yet in the transcript (≤30s: a prompt answer never lands)
@@ -65,12 +65,14 @@ struct ChatPane: View {
                 let src = TranscriptReader.source(for: tab, cwd: cwd)
                 let chat = await Task.detached { TranscriptReader.chat(src) }.value
                 guard !Task.isCancelled else { return } // switched tabs mid-read: don't paint the old tab's chat
-                msgs = chat?.msgs ?? []
+                // unchanged → no assignment: a new array re-lays out the lazy list mid-scroll
+                let new = chat?.msgs ?? []
+                if msgs != new { msgs = new }
                 codex = chat?.codex ?? false
                 let recent = msgs.suffix(8).filter { $0.kind == .user }.map(\.text)
                 echoes.removeAll { e in e.sent.timeIntervalSinceNow < -30 || recent.contains(e.text) }
-                bars = UsageBar.parse(tab.view.styledScreen())
-                prompt = ScreenPrompt.parse(tab.view.plainScreen())
+                let b = UsageBar.parse(tab.view.styledScreen()); if bars != b { bars = b }
+                let p = ScreenPrompt.parse(tab.view.plainScreen()); if prompt != p { prompt = p }
                 try? await Task.sleep(for: .seconds(1.5))
             }
         }
@@ -153,7 +155,7 @@ struct ChatPane: View {
                 askCard(m, qs, cur)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(Array(ChatMarkdown.blocks(m.text).enumerated()), id: \.offset) { block($0.element, cur) }
+                    ForEach(Array(blocks(m.text).enumerated()), id: \.offset) { block($0.element, cur) }
                 }
             }
         case .tool:
@@ -397,6 +399,15 @@ struct ChatPane: View {
         case .text(let t):
             inline(t, cur).font(mono(12))
         }
+    }
+
+    /// Block parse per message text: two Swift Regex matches per line, which is slow enough that
+    /// re-parsing every visible reply on each poll tick and scroll hung long threads.
+    private func blocks(_ text: String) -> [ChatBlock] {
+        if let b = inlineCache.blocks[text] { return b }
+        let b = ChatMarkdown.blocks(text)
+        inlineCache.blocks[text] = b
+        return b
     }
 
     /// Inline markdown (bold, `code`, links) with code and links recolored, find hits marked.
