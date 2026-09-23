@@ -85,7 +85,7 @@ struct ChatPane: View {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         ForEach(items) { item($0).id($0.id) }
                         if let p = prompt, liveAskId == nil { promptCard(p).id("prompt") } // a live question is its own card
-                        if tab.working { Text("working…").font(mono(11)).foregroundStyle(.secondary) }
+                        if tab.working { workingRow }
                         Color.clear.frame(height: 1).id("bottom")
                     }
                     .padding(.horizontal, 16).padding(.vertical, 8)
@@ -121,6 +121,17 @@ struct ChatPane: View {
                 // shown at once; the transcript's copy (user record or queue entry) replaces it
                 echoes.append((text.trimmingCharacters(in: .whitespacesAndNewlines), Date()))
             }
+        }
+    }
+
+    /// What's in progress: the newest tool call when it's the transcript's last entry — a
+    /// folded run hides it, so the whole command shows here until Claude's next block lands.
+    @ViewBuilder
+    private var workingRow: some View {
+        let live = msgs.last.flatMap { $0.kind == .tool ? $0 : nil }
+        VStack(alignment: .leading, spacing: 2) {
+            Text("working…" + (live.map { " › " + $0.text } ?? "")).font(mono(11)).lineLimit(1).foregroundStyle(.secondary)
+            if let d = live?.detail { Text(d).font(mono(10)).lineLimit(6).foregroundStyle(.tertiary).padding(.leading, 12) }
         }
     }
 
