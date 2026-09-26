@@ -189,8 +189,9 @@ struct ChatPane: View {
 
     private var paper: Color { Color(nsColor: theme.nsColor(theme.current.background)) }
 
-    /// Only the newest unanswered question is live — that's the one on the terminal.
-    private var liveAskId: String? { msgs.last { $0.ask != nil }.flatMap { $0.answers == nil ? $0.id : nil } }
+    /// Only the newest unanswered question is live — that's the one on the terminal. Codex's
+    /// never are: its picker sits behind ⌥↑ and takes other keys, so the card only shows the question.
+    private var liveAskId: String? { codex ? nil : msgs.last { $0.ask != nil }.flatMap { $0.answers == nil ? $0.id : nil } }
 
     @ViewBuilder
     private func askCard(_ m: ChatMessage, _ qs: [AskQuestion], _ cur: Bool) -> some View {

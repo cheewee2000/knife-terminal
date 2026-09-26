@@ -21,3 +21,22 @@ final class CodexTranscriptTests: XCTestCase {
         XCTAssertEqual(msgs[2].text, "Done.")
     }
 }
+
+extension CodexTranscriptTests {
+    // request_user_input_async as Codex 0.154 writes it, answered as a quoted user message
+    func testQuestionCard() {
+        let lines = [
+            ##"{"timestamp":"t1","type":"response_item","payload":{"type":"function_call","name":"request_user_input_async","arguments":"{\"questions\":[{\"title\":\"Pick a color\",\"options\":[\"Red\",\"Green\"]}]}","call_id":"call_q"}}"##,
+            ##"{"timestamp":"t2","type":"response_item","payload":{"type":"function_call_output","call_id":"call_q","output":"{\"accepted\":true}"}}"##,
+            ##"{"timestamp":"t3","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"> Pick a color\n\nGreen"}]}}"##,
+        ]
+        let asked = ChatTranscript.parseCodex(jsonlLines: Array(lines.prefix(2)))
+        XCTAssertEqual(asked.map(\.kind), [.assistant])
+        XCTAssertEqual(asked[0].ask?[0].options.map(\.label), ["Red", "Green"])
+        XCTAssertNil(asked[0].answers)
+        let answered = ChatTranscript.parseCodex(jsonlLines: lines)
+        XCTAssertEqual(answered.count, 1)
+        XCTAssertEqual(answered[0].answers, ["Pick a color": "Green"])
+        XCTAssertTrue(answered[0].text.hasSuffix("→ Green"))
+    }
+}

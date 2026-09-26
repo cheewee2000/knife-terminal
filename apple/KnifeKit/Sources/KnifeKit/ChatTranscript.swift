@@ -38,12 +38,27 @@ public struct AskQuestion: Codable, Sendable, Equatable {
     public var multiSelect: Bool
     public var options: [Option]
 
+    /// Claude Code: {question, header, options: [{label, description}]}; Codex
+    /// (request_user_input): {title, options: [String]}, options optional (free text).
     init?(_ q: [String: Any]) {
-        guard let question = q["question"] as? String, let opts = q["options"] as? [[String: Any]] else { return nil }
+        guard let question = q["question"] as? String ?? q["title"] as? String else { return nil }
         self.question = question
         header = q["header"] as? String
         multiSelect = q["multiSelect"] as? Bool ?? false
-        options = opts.compactMap { o in (o["label"] as? String).map { Option(label: $0, description: o["description"] as? String) } }
+        options = (q["options"] as? [Any] ?? []).compactMap { o in
+            if let s = o as? String { return Option(label: s, description: nil) }
+            guard let d = o as? [String: Any], let l = d["label"] as? String else { return nil }
+            return Option(label: l, description: d["description"] as? String)
+        }
+    }
+
+    /// The questions as text, for readers that only show text.
+    static func markdown(_ qs: [AskQuestion]) -> String {
+        qs.map { q in
+            "**\(q.header ?? "Question")** · \(q.question)\n" + q.options.enumerated().map { i, o in
+                "\(i + 1). \(o.label)" + (o.description.map { " — \($0)" } ?? "")
+            }.joined(separator: "\n")
+        }.joined(separator: "\n\n")
     }
 }
 
@@ -80,7 +95,7 @@ public enum ChatTranscript {
         private var out: [ChatMessage] = []
         private var queue: [(id: String, text: String)] = [] // FIFO, task notifications included so dequeue stays aligned
         private var turnModel: String? // Codex: from the latest turn_context
-        private var askAt: [String: Int] = [:] // AskUserQuestion tool_use id → its message, for the answer
+        private var askAt: [String: Int] = [:] // question's tool_use id (Codex: its title) → its message, for the answer
 
         public init(codex: Bool) { self.codex = codex }
 
@@ -147,11 +162,7 @@ public enum ChatTranscript {
                     // a question isn't plumbing: shown as Claude talking, with its choices
                     let qs = ((block["input"] as? [String: Any])?["questions"] as? [[String: Any]] ?? []).compactMap(AskQuestion.init)
                     guard !qs.isEmpty else { continue }
-                    let md = qs.map { q in
-                        "**\(q.header ?? "Question")** · \(q.question)\n" + q.options.enumerated().map { i, o in
-                            "\(i + 1). \(o.label)" + (o.description.map { " — \($0)" } ?? "")
-                        }.joined(separator: "\n")
-                    }.joined(separator: "\n\n")
+                    let md = AskQuestion.markdown(qs)
                     if let useId = block["id"] as? String { askAt[useId] = out.count }
                     out.append(ChatMessage(id: id, kind: .assistant, text: md, model: model, ask: qs))
                 case "tool_use":
@@ -184,7 +195,16 @@ public enum ChatTranscript {
             // imported sessions share one timestamp: fold the text into the id
             let id = "\(ts)-\(p["role"] as? String ?? "")-\(text.count)-\(text.prefix(24))"
             if p["role"] as? String == "user" {
-                if let t = userText(text) { out.append(ChatMessage(id: id, kind: .user, text: t)) }
+                guard let t = userText(text) else { return }
+                // a question's answer: "> <title>\n\n<pick>" — lands on the card, not as a bubble
+                if t.hasPrefix("> "), let nl = t.firstIndex(of: "\n"),
+                   let i = askAt[String(t[t.index(t.startIndex, offsetBy: 2)..<nl])] {
+                    let pick = t[nl...].trimmingCharacters(in: .whitespacesAndNewlines)
+                    out[i].answers = [out[i].ask![0].question: pick]
+                    out[i].text += "\n\n→ " + pick
+                    return
+                }
+                out.append(ChatMessage(id: id, kind: .user, text: t))
             } else if let t = Optional(text.trimmingCharacters(in: .whitespacesAndNewlines)), !t.isEmpty {
                 out.append(ChatMessage(id: id, kind: .assistant, text: t, model: turnModel))
             }
@@ -194,6 +214,14 @@ public enum ChatTranscript {
             if let args = p["arguments"] as? String, let d = args.data(using: .utf8),
                let j = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] { input = j }
             if let action = p["action"] as? [String: Any] { input = action } // local_shell_call
+            if name.hasPrefix("request_user_input") { // Codex's question (…_async: it keeps working meanwhile)
+                let qs = (input["questions"] as? [[String: Any]] ?? []).compactMap(AskQuestion.init)
+                guard !qs.isEmpty else { return }
+                askAt[qs[0].question] = out.count
+                out.append(ChatMessage(id: p["call_id"] as? String ?? "\(ts)-ask", kind: .assistant,
+                                       text: AskQuestion.markdown(qs), model: turnModel, ask: qs))
+                return
+            }
             if var argv = input["command"] as? [String] {
                 if argv.count >= 3, argv[1] == "-lc" { argv.removeFirst(2) } // ["bash","-lc","…"]
                 input["command"] = argv.joined(separator: " ")
