@@ -94,6 +94,9 @@ struct ChatPane: View {
                     .textSelection(.enabled)
                 }
                 .defaultScrollAnchor(.bottom)
+                .onAppear { // lazy rows at the bottom anchor aren't realized until a scroll: nudge once laid out
+                    DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
                 .onChange(of: prompt) {
                     guard prompt != nil, currentHit == nil else { return }
                     DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
