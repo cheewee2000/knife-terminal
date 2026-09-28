@@ -9,8 +9,39 @@ extension Notification.Name {
     static let knifeToggleSidebar = Notification.Name("knife.toggleSidebar")
 }
 
+@MainActor
 func mono(_ size: CGFloat, bold: Bool = false) -> Font {
-    Font.custom(bold ? "Space Mono Bold" : "Space Mono", size: size)
+    let allowBold = bold && AppModel.shared.theme.user.boldText
+    return Font.custom(allowBold ? "Space Mono Bold" : "Space Mono", size: size)
+}
+
+// Secondary/tertiary labels render grey — vetoed on dark for a no-grey-on-black
+// user style, where they become the style's replacement color (or primary).
+extension ThemeManager {
+    private func hexColor(_ hex: UInt32) -> AnyShapeStyle {
+        AnyShapeStyle(Color(red: Double((hex >> 16) & 0xff) / 255,
+                            green: Double((hex >> 8) & 0xff) / 255,
+                            blue: Double(hex & 0xff) / 255))
+    }
+    private var greyLift: AnyShapeStyle {
+        user.greyReplacementHex.map(hexColor) ?? AnyShapeStyle(.primary)
+    }
+    var muted: AnyShapeStyle {
+        user.greyOnBlack || !isDark ? AnyShapeStyle(.secondary) : greyLift
+    }
+    var faint: AnyShapeStyle {
+        user.greyOnBlack || !isDark ? AnyShapeStyle(.tertiary) : greyLift
+    }
+    // Shell list: where greys are vetoed, the one loud color belongs to the
+    // ACTIVE shell (accent active over plain siblings); the house style keeps
+    // bold-primary active over grey inactive.
+    var tabActive: AnyShapeStyle {
+        guard !user.greyOnBlack, isDark, let hex = user.accentHex else { return AnyShapeStyle(.primary) }
+        return hexColor(hex)
+    }
+    var tabInactive: AnyShapeStyle {
+        user.greyOnBlack || !isDark ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary)
+    }
 }
 
 struct ContentView: View {
@@ -44,6 +75,7 @@ struct ContentView: View {
                             .id(tab.id) // fresh state per tab: echoes, opened runs, find never carry over
                     } else {
                         TerminalPane(controller: controller)
+                            .padding(.leading, 6) // keep TUI list bullets off the separator line
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -124,9 +156,9 @@ struct SidebarView: View {
                     Button(action: { controller.addTab() }) {
                         HStack(spacing: 6) {
                             Text("+").font(mono(12))
-                            Text("new tab").font(mono(11))
+                            Text("new shell").font(mono(11))
                         }
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(theme.muted)
                         .padding(.horizontal, 10).padding(.vertical, 4)
                     }
                     .buttonStyle(.plain)
@@ -147,7 +179,9 @@ struct SidebarView: View {
                     ForEach(filtered) { p in
                         Button(action: { open(project: p) }) {
                             HStack(spacing: 6) {
-                                Text(Emoji.forPath(p.path)).font(.system(size: 12))
+                                if theme.user.emoticons {
+                                    Text(Emoji.forPath(p.path)).font(.system(size: 12))
+                                }
                                 Text(p.name).font(mono(11)).lineLimit(1)
                                 Spacer(minLength: 0)
                             }
@@ -162,12 +196,14 @@ struct SidebarView: View {
                     ForEach(filteredElsewhere) { p in
                         Button(action: { AppModel.shared.openProject(p.path, cmd: "claude"); query = ""; searchFocused = false }) {
                             HStack(spacing: 6) {
-                                Text(Emoji.forPath(p.path)).font(.system(size: 12))
+                                if theme.user.emoticons {
+                                    Text(Emoji.forPath(p.path)).font(.system(size: 12))
+                                }
                                 Text(p.name).font(mono(11)).lineLimit(1)
                                 Spacer(minLength: 0)
                                 Text("clone").font(mono(9))
                             }
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(theme.muted)
                             .padding(.horizontal, 10).padding(.vertical, 3)
                             .contentShape(Rectangle())
                         }
@@ -314,13 +350,14 @@ struct FooterBar: View {
                 }
                 sep
                 btn("theme: " + theme.mode.rawValue, help: "cycle auto · light · dark") { theme.cycle() }
+                btn("user: " + theme.user.id, help: "style profile — taylor: no emoticons, no bold, no grey-on-black, 12pt") { theme.cycleUser() }
                 btn(hooksOn ? "alerts on" : "alerts off", on: hooksOn, help: "Claude Code hooks for working/attention alerts") {
                     _ = HooksInstaller.install(); hooksOn = HooksInstaller.installed()
                 }
                 btn("set default", help: "make Knife the default terminal") { DefaultTerminal.register() }
                 Spacer(minLength: 8)
                 Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
-                    .font(mono(9)).foregroundStyle(.tertiary).fixedSize()
+                    .font(mono(9)).foregroundStyle(theme.faint).fixedSize()
             }
             .padding(.horizontal, 10).padding(.vertical, 5)
         }
@@ -371,6 +408,7 @@ struct FootButtonStyle: ButtonStyle {
 
 struct TabRow: View {
     @ObservedObject var tab: TabModel
+    @ObservedObject var theme = AppModel.shared.theme
     let active: Bool
     let activate: () -> Void
     let close: () -> Void
@@ -389,13 +427,15 @@ struct TabRow: View {
                 .animation(isPulsing ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default, value: pulse)
                 .onAppear { pulse = isPulsing }
                 .onChange(of: isPulsing) { _, now in pulse = now }
-            Text(tab.emoji).font(.system(size: 12))
+            if theme.user.emoticons {
+                Text(tab.emoji).font(.system(size: 12))
+            }
             Text(tab.title).font(mono(11, bold: active)).lineLimit(1)
-                .foregroundStyle(active ? Color.primary : Color.secondary)
+                .foregroundStyle(active ? theme.tabActive : theme.tabInactive)
             Spacer(minLength: 0)
             if hovering {
                 Button(action: close) {
-                    Text("×").font(mono(11)).foregroundStyle(.secondary)
+                    Text("×").font(mono(11)).foregroundStyle(theme.muted)
                 }
                 .buttonStyle(.plain)
             }
@@ -416,6 +456,7 @@ struct TabRow: View {
 struct ContextPanel: View {
     let scope: String
     let cwd: String?
+    @ObservedObject var theme = AppModel.shared.theme
 
     var body: some View {
         let home = NSHomeDirectory()
@@ -428,16 +469,16 @@ struct ContextPanel: View {
             if result.files.isEmpty {
                 Text(scope == "global" ? "no global context files"
                      : (cwd != nil ? "no project context files" : "no shell running in this tab"))
-                    .font(mono(10)).foregroundStyle(.secondary)
+                    .font(mono(10)).foregroundStyle(theme.muted)
             }
             ForEach(result.files) { f in
                 Button(action: { NSWorkspace.shared.open(URL(fileURLWithPath: f.path)) }) {
                     HStack(spacing: 8) {
                         Text((f.path as NSString).lastPathComponent).font(mono(10, bold: true))
-                        Text(short((f.path as NSString).deletingLastPathComponent)).font(mono(9)).foregroundStyle(.secondary).lineLimit(1)
+                        Text(short((f.path as NSString).deletingLastPathComponent)).font(mono(9)).foregroundStyle(theme.muted).lineLimit(1)
                         Spacer()
                         Text(f.size < 1024 ? "\(f.size)b" : String(format: "%.1fk", Double(f.size) / 1024))
-                            .font(mono(9)).foregroundStyle(.tertiary)
+                            .font(mono(9)).foregroundStyle(theme.faint)
                     }
                     .contentShape(Rectangle())
                 }

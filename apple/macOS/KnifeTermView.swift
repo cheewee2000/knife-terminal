@@ -63,12 +63,109 @@ final class KnifeTermView: LocalProcessTerminalView {
     required init?(coder: NSCoder) { fatalError() }
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
-        ring.append(slice)
-        super.dataReceived(slice: slice)
+        let data = filterForUserStyle(slice)
+        ring.append(data)
+        super.dataReceived(slice: data)
         DispatchQueue.main.async { [weak self] in
             self?.onOutput?()
             self?.scheduleLinkScan()
         }
+    }
+
+    // ─── User style: rewrite SGR sequences in the pty stream ───
+    // SwiftTerm derives its bold face internally with no way to opt out, so a
+    // no-bold user style is enforced on the data itself: bold params are
+    // dropped and grey 256/truecolor foregrounds lifted before the terminal
+    // (or the iOS mirror, which reads the terminal's state) ever sees them.
+    // Set from ThemeManager.style(terminal:); read on the pty feed thread.
+    var stripBold = false
+    var stripGrey = false
+    var greyLiftFg: (r: UInt8, g: UInt8, b: UInt8) = (0xec, 0xec, 0xea)
+    private var pendingCSI: [UInt8] = [] // tail of a chunk-split CSI sequence
+
+    private func filterForUserStyle(_ slice: ArraySlice<UInt8>) -> ArraySlice<UInt8> {
+        guard stripBold || stripGrey else {
+            if pendingCSI.isEmpty { return slice }
+            defer { pendingCSI = [] }
+            return (pendingCSI + slice)[...] // filter just turned off: flush the tail
+        }
+        var data = pendingCSI; pendingCSI = []
+        data.append(contentsOf: slice)
+        var out: [UInt8] = []; out.reserveCapacity(data.count)
+        var i = 0
+        while i < data.count {
+            guard data[i] == 0x1b, i + 1 >= data.count || data[i + 1] == UInt8(ascii: "[") else {
+                out.append(data[i]); i += 1; continue
+            }
+            var j = i + 2 // find the CSI final byte (0x40–0x7e)
+            while j < data.count, !(0x40...0x7e).contains(data[j]) { j += 1 }
+            if j >= data.count {
+                if data.count - i <= 64 { pendingCSI = Array(data[i...]) } // finish next chunk
+                else { out.append(contentsOf: data[i...]) } // too long for SGR; give up on it
+                break
+            }
+            if data[j] == UInt8(ascii: "m") {
+                out.append(contentsOf: rewriteSGR(data[(i + 2)..<j]))
+            } else {
+                out.append(contentsOf: data[i...j])
+            }
+            i = j + 1
+        }
+        return out[...]
+    }
+
+    /// Params of one SGR sequence in, rewritten full sequence (or nothing) out.
+    private func rewriteSGR(_ params: ArraySlice<UInt8>) -> [UInt8] {
+        let raw = String(decoding: params, as: UTF8.self)
+        let passthrough = Array("\u{1b}[".utf8) + params + [UInt8(ascii: "m")]
+        guard raw.allSatisfy({ $0.isNumber || $0 == ";" }) else { return passthrough } // colon forms etc.
+        let toks = raw.components(separatedBy: ";")
+        var out: [String] = []
+        var i = 0
+        while i < toks.count {
+            let t = toks[i]
+            let n = Int(t)
+            // extended color: 38/48/58 introduce 5;n or 2;r;g;b arguments
+            if let n, n == 38 || n == 48 || n == 58, i + 1 < toks.count, let mode = Int(toks[i + 1]) {
+                if mode == 5, i + 2 < toks.count {
+                    if n == 38, stripGrey, let c = Int(toks[i + 2]), Self.isGrey256(c) {
+                        out += liftedFgToks()
+                    } else {
+                        out += toks[i...i + 2]
+                    }
+                    i += 3; continue
+                }
+                if mode == 2, i + 4 < toks.count {
+                    if n == 38, stripGrey, let r = Int(toks[i + 2]), let g = Int(toks[i + 3]), let b = Int(toks[i + 4]),
+                       (0...255).contains(r), (0...255).contains(g), (0...255).contains(b),
+                       TermTheme.isGrey(UInt8(r), UInt8(g), UInt8(b)) {
+                        out += liftedFgToks()
+                    } else {
+                        out += toks[i...i + 4]
+                    }
+                    i += 5; continue
+                }
+                out.append(t); i += 1; continue
+            }
+            // SGR dim (2) passes through untouched: ghost text — suggested
+            // commands in Claude Code's input row — relies on it to read as
+            // secondary. Only explicitly-grey colors get lifted.
+            if stripBold, n == 1 { i += 1; continue } // bold on
+            out.append(t); i += 1
+        }
+        if out.isEmpty { return [] } // sequence only set bold: drop it whole
+        return Array("\u{1b}[".utf8) + Array(out.joined(separator: ";").utf8) + [UInt8(ascii: "m")]
+    }
+
+    private func liftedFgToks() -> [String] {
+        ["38", "2", String(greyLiftFg.r), String(greyLiftFg.g), String(greyLiftFg.b)]
+    }
+
+    /// 256-color greys: the grey ramp below near-white, and the color cube's
+    /// grey diagonal (95/135/175 levels). 0–15 map to the installed palette,
+    /// which ThemeManager already lifts.
+    private static func isGrey256(_ n: Int) -> Bool {
+        (232...252).contains(n) || n == 59 || n == 102 || n == 145 || n == 188
     }
 
     override func scrolled(source: TerminalView, position: Double) {

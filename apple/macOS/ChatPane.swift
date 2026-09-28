@@ -135,8 +135,8 @@ struct ChatPane: View {
     private var workingRow: some View {
         let live = msgs.last.flatMap { $0.kind == .tool ? $0 : nil }
         VStack(alignment: .leading, spacing: 2) {
-            Text("working…" + (live.map { " › " + $0.text } ?? "")).font(mono(11)).lineLimit(1).foregroundStyle(.secondary)
-            if let d = live?.detail { Text(d).font(mono(10)).lineLimit(6).foregroundStyle(.tertiary).padding(.leading, 12) }
+            Text("working…" + (live.map { " › " + $0.text } ?? "")).font(mono(11)).lineLimit(1).foregroundStyle(theme.muted)
+            if let d = live?.detail { Text(d).font(mono(10)).lineLimit(6).foregroundStyle(theme.faint).padding(.leading, 12) }
         }
     }
 
@@ -147,10 +147,10 @@ struct ChatPane: View {
         case .user:
             // detail "queued" (waiting for Claude's turn to end) / "sending" (local echo): dimmer, tagged
             VStack(alignment: .trailing, spacing: 2) {
-                plain(m.text, cur).font(mono(12)).foregroundStyle(m.detail == nil ? .primary : .secondary)
+                plain(m.text, cur).font(mono(12)).foregroundStyle(m.detail == nil ? AnyShapeStyle(.primary) : theme.muted)
                     .padding(.horizontal, 10).padding(.vertical, 6)
                     .background(accent.opacity(m.detail == nil ? 0.25 : 0.12))
-                if let d = m.detail { Text(d).font(mono(9)).foregroundStyle(.tertiary) }
+                if let d = m.detail { Text(d).font(mono(9)).foregroundStyle(theme.faint) }
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant:
@@ -176,7 +176,7 @@ struct ChatPane: View {
                 }
                 if open, let d = m.detail { plain(d, cur).font(mono(10)).padding(.leading, 12) }
             }
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(theme.faint)
         }
     }
 
@@ -238,7 +238,7 @@ struct ChatPane: View {
             }
             Text(m.answers == nil ? (live ? "waiting for your answer" : "not answered")
                  : m.answers!.isEmpty ? "dismissed" : "answered")
-                .font(mono(9)).foregroundStyle(.tertiary)
+                .font(mono(9)).foregroundStyle(theme.faint)
         }
         .padding(10)
         .overlay(Rectangle().stroke(live ? ansi(3) : Color.primary.opacity(0.15), lineWidth: 1))
@@ -265,7 +265,7 @@ struct ChatPane: View {
                 }
                 .buttonStyle(FootButtonStyle(paper: paper, wrap: true))
             }
-            Text("waiting for your answer").font(mono(9)).foregroundStyle(.tertiary)
+            Text("waiting for your answer").font(mono(9)).foregroundStyle(theme.faint)
         }
         .padding(10)
         .overlay(Rectangle().stroke(ansi(3), lineWidth: 1))
@@ -336,7 +336,7 @@ struct ChatPane: View {
             Button { toggle(id) } label: {
                 Text((open ? "⌄ " : "› ") + "\(run.count) tools · "
                      + counts.map { $0.1 > 1 ? "\($0.0) ×\($0.1)" : $0.0 }.joined(separator: ", "))
-                    .font(mono(10)).lineLimit(1).foregroundStyle(.tertiary)
+                    .font(mono(10)).lineLimit(1).foregroundStyle(theme.faint)
                     .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -486,7 +486,7 @@ struct ChatPane: View {
                 .onSubmit { step(NSEvent.modifierFlags.contains(.shift) ? -1 : 1); findFocused = true }
                 .onChange(of: query) { hit = 0 }
             Text(hits.isEmpty ? (query.isEmpty ? "" : "none") : "\(min(hit, hits.count - 1) + 1)/\(hits.count)")
-                .font(mono(10)).foregroundStyle(.secondary)
+                .font(mono(10)).foregroundStyle(theme.muted)
             Button { step(-1) } label: { Text("↑").font(mono(12)) }.buttonStyle(.plain)
             Button { step(1) } label: { Text("↓").font(mono(12)) }.buttonStyle(.plain)
             Button { closeFind() } label: { Text("done").font(mono(10)) }.buttonStyle(.plain)

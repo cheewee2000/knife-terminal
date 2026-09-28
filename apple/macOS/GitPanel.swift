@@ -6,6 +6,7 @@ import AppKit
 /// `git` and the `gh` CLI's own login; nothing is stored.
 struct GitPanel: View {
     @ObservedObject var controller: KnifeWindowController
+    @ObservedObject var theme = AppModel.shared.theme
     @State private var info: GitInfo?
     @State private var loading = false
 
@@ -17,14 +18,14 @@ struct GitPanel: View {
                     Text(info.map { ($0.root as NSString).lastPathComponent } ?? "git").font(mono(11))
                     Spacer()
                     Button(loading ? "…" : "refresh") { Task { await reload() } }
-                        .buttonStyle(.plain).font(mono(10)).foregroundStyle(.secondary)
+                        .buttonStyle(.plain).font(mono(10)).foregroundStyle(theme.muted)
                 }
                 if let info {
-                    Text(info.branch).font(mono(10)).foregroundStyle(.secondary)
-                    if let last = info.last { Text(last).font(mono(10)).foregroundStyle(.secondary).lineLimit(2) }
+                    Text(info.branch).font(mono(10)).foregroundStyle(theme.muted)
+                    if let last = info.last { Text(last).font(mono(10)).foregroundStyle(theme.muted).lineLimit(2) }
                     section(info.changes.isEmpty ? "clean" : "\(info.changes.count) changed")
                     ForEach(info.changes.prefix(12), id: \.self) { Text($0).font(mono(10)).lineLimit(1) }
-                    if info.changes.count > 12 { Text("+\(info.changes.count - 12) more").font(mono(10)).foregroundStyle(.secondary) }
+                    if info.changes.count > 12 { Text("+\(info.changes.count - 12) more").font(mono(10)).foregroundStyle(theme.muted) }
                     if let prs = info.prs {
                         section(prs.isEmpty ? "no open pull requests" : "pull requests")
                         ForEach(prs) { pr in
@@ -37,16 +38,16 @@ struct GitPanel: View {
                             HStack(alignment: .top, spacing: 6) {
                                 row("#\(issue.number) \(issue.title)") { NSWorkspace.shared.open(issue.url) }
                                 Button("agent") { startAgent(on: issue, in: info.root) }
-                                    .buttonStyle(.plain).font(mono(10)).foregroundStyle(.secondary)
+                                    .buttonStyle(.plain).font(mono(10)).foregroundStyle(theme.muted)
                                     .help("new tab running claude on this issue")
                             }
                         }
                     }
                     if info.prs == nil && info.issues == nil {
-                        Text("gh: no GitHub remote, or not signed in (gh auth login)").font(mono(10)).foregroundStyle(.secondary)
+                        Text("gh: no GitHub remote, or not signed in (gh auth login)").font(mono(10)).foregroundStyle(theme.muted)
                     }
                 } else if !loading {
-                    Text("not a git repo").font(mono(10)).foregroundStyle(.secondary)
+                    Text("not a git repo").font(mono(10)).foregroundStyle(theme.muted)
                 }
             }
             .padding(.horizontal, 10).padding(.bottom, 10)
@@ -61,7 +62,7 @@ struct GitPanel: View {
     private func section(_ title: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1).padding(.top, 6)
-            Text(title).font(mono(10)).foregroundStyle(.secondary)
+            Text(title).font(mono(10)).foregroundStyle(theme.muted)
         }
     }
 
