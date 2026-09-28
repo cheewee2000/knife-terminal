@@ -46,7 +46,7 @@ Needs Xcode signed into the CW&T Studio developer account (team `L6DVQR8JB9`) �
 ## Layout
 - `apple/project.yml` — XcodeGen spec (the `.xcodeproj` is generated, not committed)
 - `apple/macOS/` — the Mac app · `apple/iOS/` — the iPhone app
-- `apple/KnifeKit/` — shared package: CloudKit sync, emoji picker, CW&T terminal palettes
+- `apple/KnifeKit/` — shared package: CloudKit sync, transcript → chat (ChatTranscript, ChatMarkdown), usage bars, emoji picker, CW&T terminal palettes
 - `legacy/electron/` — the previous Electron + xterm.js + node-pty app
 
 Styled with the CW&T design system (Space Mono, ink on paper, hairline rules).
