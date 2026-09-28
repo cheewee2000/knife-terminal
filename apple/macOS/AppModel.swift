@@ -49,9 +49,18 @@ final class AppModel: ObservableObject {
                 AppModel.shared.checkSocket()
             }
         }
-        let publisher = SyncPublisher()
-        sync = publisher
-        publisher.start()
+        if Self.hasCloudKitEntitlement {
+            let publisher = SyncPublisher()
+            sync = publisher
+            publisher.start()
+        }
+    }
+
+    /// CKContainer(identifier:) kills the process when the binary isn't signed
+    /// with the iCloud entitlement (e.g. unsigned local builds) — check first.
+    private static var hasCloudKitEntitlement: Bool {
+        guard let task = SecTaskCreateFromSelf(nil) else { return false }
+        return SecTaskCopyValueForEntitlement(task, "com.apple.developer.icloud-services" as CFString, nil) != nil
     }
 
     func checkSocket() { socket?.rebindIfNeeded() }
