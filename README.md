@@ -1,6 +1,6 @@
 # Knife Terminal
 
-`CWT_STE3XM1_2607` · accent `#B1A57E` · v0.9.21
+`CWT_STE3XM1_2607` · accent `#B1A57E` · v1.2.32
 
 CW&T's own terminal. Native Swift — SwiftUI + [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) on macOS, with an iOS companion app that mirrors the Mac's live sessions over CloudKit. (The original Electron app lives in `legacy/electron/`.)
 
@@ -13,17 +13,21 @@ CW&T's own terminal. Native Swift — SwiftUI + [SwiftTerm](https://github.com/m
 Needs Xcode signed into the CW&T Studio developer account (team `L6DVQR8JB9`) — signing is automatic.
 
 ## macOS features
-- Left sidebar: tabs, then recent Claude Code projects (from `~/.claude.json`) — click one to open a tab in that folder running `claude`.
+- Left sidebar: tabs, then recent Claude Code projects (from `~/.claude.json`) — click one to open a tab in that folder running `claude`. Right-click a project for Open Folder in Finder / Open Repo Page (web URL from the git remote).
+- Footer: `terminal | chat` view switch · panels (sidebar, git) · find · context (global, tab) · setup (theme, alerts, set default). Tooltips carry the shortcuts.
+- **Chat view** (`chat` in the footer, ⌘⌥C): the active tab's Claude Code or Codex session rendered as chat, read from its transcript (each tab's own, reported by its hooks; the whole session, parsed incrementally). Replies are rich text (headings, lists, fenced code, tables, quotes) colored from the terminal theme; a run of tool calls folds to one dim line (`4 tools · Bash ×3, Read`), click to open, click a call for its full input. The working… line shows the tool in progress. Claude's multiple-choice questions and permission prompts (any numbered menu) are cards with buttons that answer in the tab; Codex's `request_user_input` shows as the same card. The composer types into the tab (a sent prompt shows at once, greyed; mid-turn prompts show tagged `queued`); the usage bars from the statusline are drawn natively above it, with the latest turn's `model · effort` — click it to switch (`/model`, `/effort`). URLs and file paths in replies are clickable like in the terminal. ⌘F finds across the session (⌘G / ⌘⇧G step). No transcript → terminal.
 - **Git panel** (`git` in the footer, ⌘⌥B): the active tab's repo — branch and ahead/behind, changed files, last commit, open pull requests with their checks (✓ ✗ …), open issues. Click a PR or issue to open it; `agent` beside an issue opens a new tab running claude on it. Uses `git` and `gh`'s own login; refreshes on tab switch and every 60 s.
 - ⌘K searches projects; Enter opens the first match. Theme toggle (auto/light/dark) in the footer.
+- **Updates**: Sparkle, Knife Terminal menu → "Check for Updates…" (feed: `appcast.xml` in this repo).
 - **Default terminal**: Knife Terminal menu → "Make Default Terminal…" (or `set default` in the footer) registers Knife for `.command`/`.sh`/`.tool`/unix executables and `ssh://`, `telnet://`, `x-man-page://` links. Folders: Finder → Open With → Knife Terminal, or `open -a "Knife Terminal" <dir>`. To open a folder with `claude` running: `printf "open %s" "$dir" | nc -U ~/.knife-terminal.sock` (the Finder "Open with Claude" quick action does this).
 - **Claude Code alerts**: "Install Claude Code Alert Hooks…" (or `alerts` in the footer) adds hooks to `~/.claude/settings.json` that ping `~/.knife-terminal.sock`; the tab pulses while Claude works and glows with a chime when it's waiting for you. The phone push says why: the permission or question text, or the last paragraph of Claude's reply. A turn that ends on a usage limit (the `StopFailure` hook, added to existing installs on launch) reads `limit` to the job runner, which pauses the job instead of resuming its overseer. Any terminal bell in a background tab does the same. Same socket protocol as the Electron app — already-installed hooks keep working.
 - **Session restore**: tabs (and their working directories) are saved and reopened on next launch; project tabs relaunch `claude --resume <the tab's session id>` (from its hooks), so two tabs in one project each get their own conversation back; `claude -c` only when no hook has reported one. Reads the old Electron session file on first run.
 - Drag files/folders onto the terminal to paste their shell-quoted paths. URLs and file paths on screen are underlined in the accent color and open on a plain click — URLs in the browser, folders in Finder, files in Quick Look (⌥-click reveals in Finder) (⌘-click works anywhere, incl. the input row). Paths resolve absolute, `~`, and relative-to-the-shell's-cwd forms, and a `file.swift:12` reference opens VS Code at that line.
 
 ## iOS mirror
-- One sign-in = your Apple ID. The Mac publishes every tab (title, status, rendered text tail) and its recent-projects list to your private CloudKit database; the phone shows tabs in a native text view — wraps to the screen, native selection/copy, no side-scrolling, tappable links.
+- One sign-in = your Apple ID. The Mac publishes every tab (title, status, rendered text tail, last 50 chat messages) and its recent-projects list to your private CloudKit database; the phone shows tabs in a native text view — wraps to the screen, native selection/copy, no side-scrolling, tappable links.
 - Fully interactive (composer and overseer text is typed in 256-character chunks, not pasted — Claude Code tags a paste as possibly not the user's words): quick keys (esc/tab/^C/arrows/⏎/y⏎) and a real multiline compose bar create `Input` records the Mac applies to the real PTY. Round trip is a few seconds — made for "yes, continue", not vim.
+- Each tab also has the chat view: the Claude session as messages, questions and permission prompts tappable, a chat composer that echoes what you sent until the Mac mirrors it back.
 - Push notification when Claude Code is waiting for you in any tab; app badge counts waiting tabs.
 - Closed projects are listed below live sessions — tap one and the Mac opens it in a new tab (running `claude`), which mirrors back to the phone within seconds.
 - Latency: silent CloudKit pushes when available, 10 s polling as fallback.
@@ -37,7 +41,7 @@ Needs Xcode signed into the CW&T Studio developer account (team `L6DVQR8JB9`) �
 - No CloudKit schema change: a request is an `Open` record with a `job:` prefix, the manifest is one `Projects` record per machine (`projects-<host>`), jobs are ordinary `Tab` records. There is one executor, so there is no job claiming; if a second Mac ever runs jobs, iCloud is the wrong coordination layer (eventually consistent) — claiming needs an atomic write, e.g. a small HTTP endpoint on the executor.
 
 ## Shortcuts
-- ⌘T new tab · ⌘W close tab (or mini) · ⌘1–9 jump to tab · ⌘⇧[ / ⌘⇧] prev/next tab · ⌘B hide/show sidebar · ⌘N mini popout terminal (plain shell, no tabs/projects)
+- ⌘T new tab · ⌘W close tab (or mini) · ⌘1–9 jump to tab · ⌘⇧[ / ⌘⇧] prev/next tab · ⌘B hide/show sidebar · ⌘⌥B git panel · ⌘⌥C chat view · ⌘K search projects · ⌘F find (chat: ⌘G / ⌘⇧G next/prev) · ⌘N mini popout terminal (plain shell, no tabs/projects)
 
 ## Layout
 - `apple/project.yml` — XcodeGen spec (the `.xcodeproj` is generated, not committed)
