@@ -41,6 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // Someone's Knife Terminal invited us into a session (collaborative mode)
+    func application(_ application: NSApplication, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
+        Collab.shared.accept(metadata)
+    }
+
     func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         NSLog("knife: push registration failed: \(error)")
     }
@@ -71,6 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shell.addItem(withTitle: "New Tab", action: #selector(newTab), keyEquivalent: "t").target = self
         shell.addItem(withTitle: "New Mini Terminal", action: #selector(newMini), keyEquivalent: "n").target = self
         shell.addItem(withTitle: "Close Tab", action: #selector(closeTab), keyEquivalent: "w").target = self
+        shell.addItem(.separator())
+        shell.addItem(withTitle: "Invite to Session…", action: #selector(invite), keyEquivalent: "").target = self
         main.addItem(withTitle: "Shell", action: nil, keyEquivalent: "").submenu = shell
 
         let edit = NSMenu(title: "Edit")
@@ -133,6 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let wc = front { wc.addTab() } else { AppModel.shared.newWindow() }
     }
     @objc private func newMini() { AppModel.shared.newMiniTerm() }
+    @objc private func invite() { if let t = front?.activeTab { Collab.shared.invite(t) } }
     @objc private func closeTab() {
         // ⌘W in a mini popout closes the popout
         if let key = NSApp.keyWindow, let mini = AppModel.shared.minis.first(where: { $0.window == key }) {

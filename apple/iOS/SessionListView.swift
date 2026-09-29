@@ -73,7 +73,7 @@ struct SessionListView: View {
                                 Button(role: .destructive) {
                                     store.closeTab(tab)
                                 } label: {
-                                    Text("close").font(mono(11))
+                                    Text(tab.share == nil ? "close" : "leave").font(mono(11))
                                 }
                             }
                         }
@@ -176,6 +176,7 @@ struct SessionRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(tab.title).font(mono(13, bold: tab.attention)).lineLimit(1)
                 HStack(spacing: 6) {
+                    if tab.share != nil { Text("shared with you").font(mono(10)).foregroundStyle(knifeAccent) }
                     if tab.attention { Text("waiting for you").font(mono(10)).foregroundStyle(knifeOrange) }
                     else if tab.working { Text("working").font(mono(10)).foregroundStyle(.secondary) }
                     Text(relative(tab.updatedAt)).font(mono(10)).foregroundStyle(.tertiary)

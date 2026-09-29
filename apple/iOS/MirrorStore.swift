@@ -18,7 +18,7 @@ final class MirrorStore: ObservableObject {
     @Published var offline = false
     private let cloud = CloudSync(role: "ios")
     private var started = false
-    private var pendingInputs: [(tabId: Int, text: String)] = []  // typed while offline; retried on refresh
+    private var pendingInputs: [(tab: MirroredTab, text: String)] = []  // typed while offline; retried on refresh
 
     // ─── Local cache: last mirrored state survives relaunch + works offline ───
 
@@ -72,6 +72,7 @@ final class MirrorStore: ObservableObject {
             try await cloud.ensureZone()
             try await cloud.ensureDatabaseSubscription()
             try await cloud.ensureAlertSubscription()
+            try? await cloud.ensureSharedSubscription() // guests only need it once a share exists; cheap to keep
             subsReady = true
         } catch {
             CloudSync.log("ios setup failed (will retry): \(error)")
@@ -100,7 +101,7 @@ final class MirrorStore: ObservableObject {
         }
         await ensureSubscriptions()
         await flushPendingInputs()
-        let delta: ZoneDelta
+        var delta: ZoneDelta
         do { delta = try await cloud.fetchChanges() }
         catch {
             offline = (error as? CKError).map { [.networkUnavailable, .networkFailure].contains($0.code) } ?? true
@@ -110,10 +111,17 @@ final class MirrorStore: ObservableObject {
         offline = false
         syncError = nil
         if !delta.garbage.isEmpty { Task { try? await cloud.deleteRecords(delta.garbage) } }
+        // sessions other people invited us to (collaborative mode) ride along in the same list
+        if let shared = try? await cloud.fetchSharedChanges() {
+            delta.tabs += shared.tabs
+            delta.deletedTabRecordNames += shared.deletedTabRecordNames
+            delta.endedShares = shared.endedShares
+        }
         var byId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         for t in delta.tabs { byId[t.id] = t }
         for name in delta.deletedTabRecordNames { byId.removeValue(forKey: name) }
-        tabs = byId.values.sorted { $0.order < $1.order }
+        for owner in delta.endedShares { byId = byId.filter { $0.value.share?.owner != owner } }
+        tabs = byId.values.sorted { ($0.share != nil ? 1 : 0, $0.order) < ($1.share != nil ? 1 : 0, $1.order) }
         for (name, refs) in delta.projects { projectLists[name] = refs }
         for name in delta.deletedProjectRecordNames { projectLists.removeValue(forKey: name) }
         pendingOpens = pendingOpens.filter { path in !tabs.contains { $0.cwd == path } }
@@ -126,8 +134,8 @@ final class MirrorStore: ObservableObject {
     /// Keystrokes go up immediately; if that fails (offline) they wait for the
     /// next refresh. In-memory only — a relaunch drops them.
     // ponytail: unpersisted queue, write it into the cache file if lost drafts become a complaint
-    func send(_ text: String, to tabId: Int) {
-        pendingInputs.append((tabId, text))
+    func send(_ text: String, to tab: MirroredTab) {
+        pendingInputs.append((tab, text))
         Task { await flushPendingInputs() }
     }
 
@@ -137,7 +145,7 @@ final class MirrorStore: ObservableObject {
         flushing = true
         defer { flushing = false }
         while let next = pendingInputs.first {
-            do { try await cloud.sendInput(tabId: next.tabId, text: next.text) }
+            do { try await cloud.sendInput(to: next.tab, text: next.text) }
             catch { syncError = "send failed: \(error.localizedDescription)"; return }
             pendingInputs.removeFirst()
         }
@@ -150,6 +158,7 @@ final class MirrorStore: ObservableObject {
         if let i = tabs.firstIndex(where: { $0.id == tab.id }) { tabs[i].attention = false }
         let badge = tabs.filter { $0.attention }.count
         Task { try? await UNUserNotificationCenter.current().setBadgeCount(badge) }
+        guard tab.share == nil else { return } // a guest's glance doesn't clear the host's flag
         Task { try? await cloud.sendSeen(tabId: tab.tabId) }
     }
 
@@ -157,6 +166,7 @@ final class MirrorStore: ObservableObject {
     /// the Tab record makes it stick (or the next refresh brings it back if not).
     func closeTab(_ tab: MirroredTab) {
         tabs.removeAll { $0.id == tab.id }
+        if let zone = tab.share { Task { try? await cloud.leave(zone) }; saveCache(); return } // a shared tab: leave, don't close the host's
         Task {
             try? await cloud.sendClose(tabId: tab.tabId)
             try? await Task.sleep(nanoseconds: 5_000_000_000)
@@ -175,6 +185,14 @@ final class MirrorStore: ObservableObject {
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             await refresh()
             pendingJob = false
+        }
+    }
+
+    /// Someone invited us to their session: accept, then the next refresh lists it.
+    func accept(_ metadata: CKShare.Metadata) {
+        Task {
+            do { try await cloud.accept(metadata) } catch { syncError = "join failed: \(error.localizedDescription)" }
+            await refresh()
         }
     }
 

@@ -59,3 +59,39 @@ public extension TermTheme {
         return rgb(ansi: code)
     }
 }
+
+public extension StyledScreen {
+    /// The screen as terminal bytes, for redrawing it in a real terminal view (a guest's tab in
+    /// collaborative mode): home, each line cleared and rewritten with its SGR attributes, the
+    /// rest of the screen cleared. Autowrap is off so lines wider than the viewer clip, not wrap.
+    func ansi() -> String {
+        var out = "\u{1b}[?7l\u{1b}[H"
+        for (i, line) in lines.enumerated() {
+            if i > 0 { out += "\r\n" }
+            out += "\u{1b}[2K"
+            for run in line {
+                var sgr: [String] = ["0"]
+                if let s = run.s {
+                    if s & Self.styleBold != 0 { sgr.append("1") }
+                    if s & Self.styleDim != 0 { sgr.append("2") }
+                    if s & Self.styleItalic != 0 { sgr.append("3") }
+                    if s & Self.styleUnderline != 0 { sgr.append("4") }
+                    if s & Self.styleInverse != 0 { sgr.append("7") }
+                }
+                if let f = run.f { sgr.append(Self.sgrColor(f, base: 38)) }
+                if let g = run.g { sgr.append(Self.sgrColor(g, base: 48)) }
+                out += "\u{1b}[" + sgr.joined(separator: ";") + "m" + run.t
+            }
+            out += "\u{1b}[0m"
+        }
+        return out + "\u{1b}[0m\u{1b}[J"
+    }
+
+    private static func sgrColor(_ code: Int, base: Int) -> String {
+        if code >= trueColorFlag {
+            let rgb = code - trueColorFlag
+            return "\(base);2;\(rgb >> 16 & 0xff);\(rgb >> 8 & 0xff);\(rgb & 0xff)"
+        }
+        return "\(base);5;\(code)"
+    }
+}

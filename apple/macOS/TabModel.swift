@@ -8,13 +8,14 @@ struct TabOptions {
     var title: String?       // fixed title (project name, "man ls", …) — OSC titles don't override it
     var shownTitle: String?   // restored display title
     var restoreCmd: String?
+    var guest: String?       // a session shared with us (collaborative mode): mirrored tab id, no local process
 }
 
 @MainActor
 final class TabModel: NSObject, ObservableObject, Identifiable {
     let id: Int
     let view: KnifeTermView
-    let emoji: String
+    @Published var emoji: String
     let opts: TabOptions
     @Published var title: String
     @Published var working = false
@@ -73,9 +74,10 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         let shell = Self.userShell()
         var cwd = opts.cwd ?? NSHomeDirectory()
         if !FileManager.default.fileExists(atPath: cwd) { cwd = NSHomeDirectory() }
-        view.startProcess(executable: shell, args: ["-l"], environment: envList, execName: nil, currentDirectory: cwd)
-
-        if let cmd = opts.cmd {
+        if opts.guest == nil {
+            view.startProcess(executable: shell, args: ["-l"], environment: envList, execName: nil, currentDirectory: cwd)
+        }
+        if let cmd = opts.cmd, opts.guest == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
                 self?.view.send(txt: cmd + "\r")
             }

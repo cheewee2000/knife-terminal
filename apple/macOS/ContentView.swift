@@ -152,6 +152,13 @@ struct SidebarView: View {
                             }
                             .onDrop(of: [.text], delegate: TabReorderDrop(
                                 targetId: tab.id, dragging: $draggingTabId, controller: controller))
+                            .contextMenu {
+                                if tab.opts.guest == nil {
+                                    Button("Invite to Session…") { Collab.shared.invite(tab) }
+                                } else {
+                                    Button("Leave Session") { controller.closeTab(tab.id) }
+                                }
+                            }
                     }
                     Button(action: { controller.addTab() }) {
                         HStack(spacing: 6) {
@@ -433,6 +440,7 @@ struct TabRow: View {
             Text(tab.title).font(mono(11, bold: active)).lineLimit(1)
                 .foregroundStyle(active ? theme.tabActive : theme.tabInactive)
             Spacer(minLength: 0)
+            if tab.opts.guest != nil { Text("shared").font(mono(9)).foregroundStyle(.secondary) }
             if hovering {
                 Button(action: close) {
                     Text("×").font(mono(11)).foregroundStyle(theme.muted)

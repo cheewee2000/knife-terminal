@@ -203,7 +203,7 @@ struct SessionDetailView: View {
             if let t = p.title { Text(t).font(mono(11, bold: true)).foregroundStyle(knifeOrange) }
             ForEach(p.body, id: \.self) { Text($0).font(mono(12)) }
             ForEach(p.options.indices, id: \.self) { i in
-                Button { store.send("\(i + 1)", to: tab.tabId) } label: {
+                Button { store.send("\(i + 1)", to: tab) } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text("\(i + 1)").font(mono(12, bold: true))
                         Text(p.options[i]).font(mono(12)).multilineTextAlignment(.leading)
@@ -273,7 +273,7 @@ struct SessionDetailView: View {
         HStack(alignment: .bottom, spacing: 10) {
             if tab.title.hasPrefix("job:"), tab.attention { // routing wants a pick: one tap
                 ForEach(1...3, id: \.self) { n in
-                    Button { store.send("\(n)\r", to: tab.tabId) } label: {
+                    Button { store.send("\(n)\r", to: tab) } label: {
                         Text("\(n)").font(mono(13, bold: true)).frame(width: 28, height: 28)
                             .background(RoundedRectangle(cornerRadius: 6).fill(knifeAccent.opacity(0.25)))
                     }
@@ -303,7 +303,7 @@ struct SessionDetailView: View {
     }
 
     private func submit(_ tab: MirroredTab) {
-        store.send(draft + "\r", to: tab.tabId)
+        store.send(draft + "\r", to: tab)
         let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         if !showTerminal, !t.isEmpty { echoes.removeAll { $0.sent.timeIntervalSinceNow < -30 }; echoes.append((t, Date())) }
         draft = ""

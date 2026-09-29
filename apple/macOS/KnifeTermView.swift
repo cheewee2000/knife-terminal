@@ -14,6 +14,7 @@ final class KnifeTermView: LocalProcessTerminalView {
     var onOutput: (() -> Void)?      // raw pty output landed (already in `ring`)
     var onBell: (() -> Void)?
     var onUserInput: (() -> Void)?   // real typing, not ESC[-prefixed reports
+    var remoteSend: ((ArraySlice<UInt8>) -> Void)? // set on a guest tab: typing goes to the host, there's no local process
     let ring = OutputRingBuffer()
     private var findBarWatch: NSKeyValueObservation?
 
@@ -277,6 +278,7 @@ final class KnifeTermView: LocalProcessTerminalView {
         // Focus in/out reports, mouse events, and query responses arrive here
         // too (all ESC-prefixed) — only real typing clears working/attention.
         if data.first != 0x1b { DispatchQueue.main.async { [weak self] in self?.onUserInput?() } }
+        if let remoteSend { remoteSend(data); return }
         super.send(source: source, data: data)
     }
 
@@ -285,6 +287,7 @@ final class KnifeTermView: LocalProcessTerminalView {
     /// a CR inside it as a newline — so text goes out in 256-character writes 15 ms apart, newlines
     /// as Ctrl+J, Enter last. (Measured by Origin on 2.1.278: 512 chars per 20 ms stays typed.)
     func typeLine(_ text: String) {
+        if let remoteSend { remoteSend(ArraySlice(Array((text + "\r").utf8))); return } // the host types it (SyncPublisher.consumeInputs)
         var t = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\t", with: "    ")
         t = String(String.UnicodeScalarView(t.unicodeScalars.filter { $0 == "\n" || ($0.value >= 0x20 && $0.value != 0x7f) }))

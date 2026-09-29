@@ -63,7 +63,9 @@ struct ChatPane: View {
             while !Task.isCancelled {
                 cwd = tab.currentCwd
                 let src = TranscriptReader.source(for: tab, cwd: cwd)
-                let chat = await Task.detached { TranscriptReader.chat(src) }.value
+                var chat: (msgs: [ChatMessage], codex: Bool)?
+                if let g = tab.opts.guest { chat = (Collab.shared.chat(g), false) } // the host's mirrored transcript
+                else { chat = await Task.detached { TranscriptReader.chat(src) }.value }
                 guard !Task.isCancelled else { return } // switched tabs mid-read: don't paint the old tab's chat
                 // unchanged → no assignment: a new array re-lays out the lazy list mid-scroll
                 let new = chat?.msgs ?? []

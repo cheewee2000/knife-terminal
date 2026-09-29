@@ -98,6 +98,15 @@ final class SyncPublisher {
         Task { try? await cloud.publishAlert(tabTitle: tabTitle, message: message) }
     }
 
+    /// Publish one tab right now (its record must exist before it can be shared). False when iCloud isn't up.
+    func publishNow(_ tab: TabModel) async -> Bool {
+        guard enabled else { return false }
+        while inFlight { try? await Task.sleep(for: .milliseconds(50)) }
+        dirty.insert(tab.id)
+        await flush()
+        return true
+    }
+
     private func markDirty(_ id: Int, urgent: Bool) {
         guard enabled else { return }
         dirty.insert(id)
@@ -123,7 +132,7 @@ final class SyncPublisher {
         for wc in AppModel.shared.windows {
             for tab in wc.tabs {
                 defer { order += 1 }
-                guard ids.contains(tab.id) else { continue }
+                guard ids.contains(tab.id), tab.opts.guest == nil else { continue } // guest tabs are someone else's session
                 let cwd = tab.lastReportedCwd ?? tab.opts.cwd
                 snaps.append(TabSnapshot(tabId: tab.id, title: tab.title, emoji: tab.emoji,
                                          cwd: cwd, order: order,
@@ -149,9 +158,11 @@ final class SyncPublisher {
 
     private var consuming = false
     func consumeInputs() async {
-        guard enabled, !consuming else { return } // poll + push overlap; one fetch at a time
+        guard !consuming else { return } // poll + push overlap; one fetch at a time
         consuming = true
         defer { consuming = false }
+        await Collab.shared.pull() // sessions shared with us: needs only the account, not our zone
+        guard enabled else { return }
         guard let delta = try? await cloud.fetchChanges() else { return } // failure already logged by CloudSync
         // other machines' manifest slices → merged file for the job runner
         if !delta.projects.isEmpty || !delta.deletedProjectRecordNames.isEmpty {

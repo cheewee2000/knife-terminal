@@ -33,6 +33,12 @@ Needs Xcode signed into the CW&T Studio developer account (team `L6DVQR8JB9`) �
 - Closed projects are listed below live sessions — tap one and the Mac opens it in a new tab (running `claude`), which mirrors back to the phone within seconds.
 - Latency: silent CloudKit pushes when available, 10 s polling as fallback.
 
+## Collaborative mode: invite someone into a session
+- Right-click a tab (or Shell → Invite to Session…) → the system Add People sheet (Messages, Mail, copy link). Invitees need Knife Terminal and an Apple ID; they get read/write, i.e. they can type.
+- Under the hood it's a CloudKit share on that one tab's mirror record — nothing else in your zone is visible. The guest reads it from their shared database and their typing lands as `Input` records parented to it, which the host applies exactly like the phone's. Closing the tab (or relaunching the Mac) deletes the record and ends the share.
+- On a guest's Mac the session is a tab like any other — a real terminal view redrawn from the host's screen (marked "shared" in the sidebar; chat view, ⌘F and selection work; typing goes to the host, coalesced into one record per burst). × or "Leave Session" leaves the share. On a guest's phone it's listed with the other sessions ("shared with you"; swipe → leave).
+- Not persisted: guest tabs come back through the share on the next sync, never from the session file.
+
 ## Jobs: dictate a request, one Mac runs it
 - **One Mac runs everything**: the Mac running Knife publishes its tabs, answers the phone, and runs every job. The phone posts requests (the "ask" box at the top of the list — dictate with the keyboard mic); the Mac's sidebar has the same box. If the Mac is asleep or closed, jobs wait until it's back.
 - **Manifest**: the Mac publishes its recent projects with the **git remote** (the project's identity across machines), a one-line **description** (README first paragraph, else `claude -p --model haiku` writes one, cached in `~/.knife/descriptions.json`) and **last touched** time. The merged view lands in `~/.knife/manifest.json`. Projects without a remote can't be routed to.

@@ -86,6 +86,7 @@ final class AppModel: ObservableObject {
         pendingStop[tab.id]?.cancel(); pendingStop.removeValue(forKey: tab.id)
         saveSessionSoon()
         sync?.tabClosed(tab.id)
+        Collab.shared.tabClosed(tab)
     }
 
     func processExited(tabId: Int) {
@@ -428,9 +429,10 @@ final class AppModel: ObservableObject {
 
     func saveSession() {
         let saved = windows.compactMap { wc -> SavedWindow? in
-            guard !wc.tabs.isEmpty else { return nil }
+            let own = wc.tabs.filter { $0.opts.guest == nil } // guest tabs come back through the share, not the session file
+            guard !own.isEmpty else { return nil }
             let b = wc.window?.frame ?? .zero
-            let tabs = wc.tabs.map { t in
+            let tabs = own.map { t in
                 // `claude -c` would reopen the folder's latest session — two tabs in one project would both get it
                 SavedTab(title: t.title, cwd: t.currentCwd, cmd: t.sessionId.map { "claude --resume \($0)" } ?? t.opts.restoreCmd,
                          active: t.id == wc.activeId)

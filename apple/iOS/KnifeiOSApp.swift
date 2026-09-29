@@ -28,6 +28,15 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
         return true
     }
 
+    // Share invitations (collaborative mode) arrive through the window scene, so the app needs
+    // a scene delegate even though SwiftUI runs the scene.
+    func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let cfg = UISceneConfiguration(name: nil, sessionRole: session.role)
+        cfg.delegateClass = ShareSceneDelegate.self
+        return cfg
+    }
+
     func application(_ application: UIApplication,
                      didReceiveRemoteNotification userInfo: [AnyHashable: Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
@@ -42,6 +51,15 @@ final class PushDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCen
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
         completionHandler([.banner, .sound])
+    }
+}
+
+final class ShareSceneDelegate: NSObject, UIWindowSceneDelegate {
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
+        if let m = options.cloudKitShareMetadata { MirrorStore.shared.accept(m) } // cold launch from the link
+    }
+    func windowScene(_ windowScene: UIWindowScene, userDidAcceptCloudKitShareWith metadata: CKShare.Metadata) {
+        MirrorStore.shared.accept(metadata)
     }
 }
 
