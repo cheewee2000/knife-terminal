@@ -18,6 +18,10 @@ final class SyncPublisher {
     private var inFlight = false
 
     func start() {
+        // which CloudKit environment this binary talks to — a Development build can't see Production's schema or data
+        let env = SecTaskCreateFromSelf(nil).flatMap {
+            SecTaskCopyValueForEntitlement($0, "com.apple.developer.icloud-container-environment" as CFString, nil) } as? String
+        CloudSync.log("launch: CloudKit environment \(env ?? "default")")
         Task { await setup() }
         pollTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { _ in
             Task { @MainActor in

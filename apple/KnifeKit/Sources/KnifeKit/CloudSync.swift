@@ -364,6 +364,7 @@ public final class CloudSync: @unchecked Sendable {
         share[CKShare.SystemFieldKey.shareType] = "com.cwandt.knifeterminal.session" as CKRecordValue
         share.publicPermission = .none
         try await modify(save: [root, share], delete: nil)
+        Self.log("share saved for tab-\(tabId)")
         return share
     }
 

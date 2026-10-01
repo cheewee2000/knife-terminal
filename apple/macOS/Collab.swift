@@ -37,7 +37,11 @@ final class Collab: NSObject, NSCloudSharingServiceDelegate {
     }
 
     nonisolated func sharingService(_ service: NSSharingService, didCompleteForItems items: [Any], error: Error?) {
-        guard let error, (error as? CKError)?.code != .operationCancelled else { return }
+        guard let error else { return }
+        // closing the sheet without inviting anyone arrives here as a "user cancelled" error
+        let ns = error as NSError
+        if (ns.domain == NSCocoaErrorDomain && ns.code == NSUserCancelledError) || (error as? CKError)?.code == .operationCancelled { return }
+        CloudSync.log("share sheet failed: \(error)")
         Task { @MainActor in Self.alert("Couldn't save the invitation", error) }
     }
 
