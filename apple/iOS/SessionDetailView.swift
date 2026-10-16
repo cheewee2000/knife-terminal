@@ -59,7 +59,7 @@ struct SessionDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 10) {
                         if tab.working {
-                            Circle().fill(knifeAccent).frame(width: 7, height: 7)
+                            PulseDot(color: knifeAccent)
                         } else if tab.attention {
                             Circle().fill(knifeOrange).frame(width: 7, height: 7)
                         }
@@ -221,7 +221,7 @@ struct SessionDetailView: View {
 
     private var workingRow: some View {
         HStack(spacing: 8) {
-            Circle().fill(knifeAccent).frame(width: 7, height: 7)
+            PulseDot(color: knifeAccent)
             Text("working…").font(mono(11)).foregroundStyle(.secondary)
         }
     }

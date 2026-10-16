@@ -137,7 +137,10 @@ struct ChatPane: View {
     private var workingRow: some View {
         let live = msgs.last.flatMap { $0.kind == .tool ? $0 : nil }
         VStack(alignment: .leading, spacing: 2) {
-            Text("working…" + (live.map { " › " + $0.text } ?? "")).font(mono(11)).lineLimit(1).foregroundStyle(theme.muted)
+            HStack(spacing: 6) {
+                PulseDot(color: accent, size: 6)
+                Text("working…" + (live.map { " › " + $0.text } ?? "")).font(mono(11)).lineLimit(1).foregroundStyle(theme.muted)
+            }
             if let d = live?.detail { Text(d).font(mono(10)).lineLimit(6).foregroundStyle(theme.faint).padding(.leading, 12) }
         }
     }
