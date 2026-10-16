@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 import KnifeKit
 
 /// The active tab's claude/codex session as chat (footer 'chat', ⌘⌥C): messages in full and in
@@ -30,6 +31,7 @@ struct ChatPane: View {
     @State private var askPicked: [String: [Int: Set<Int>]] = [:] // question card → question → options clicked here
     @State private var query = ""
     @State private var hit = 0
+    @State private var dropped = "" // files dropped on the pane, quoted — the composer appends them to its draft
     @FocusState private var findFocused: Bool
 
     // ponytail: hits are per message — ⌘G jumps message to message, all occurrences inside one
@@ -123,11 +125,21 @@ struct ChatPane: View {
                 .padding(.horizontal, 16).padding(.top, 8)
             }
             // its own view: a keystroke re-renders the field, not every message above it
-            Composer(font: mono(12)) { text in
+            Composer(font: mono(12), dropped: $dropped) { text in
                 tab.view.typeLine(text)
                 // shown at once; the transcript's copy (user record or queue entry) replaces it
                 echoes.append((text.trimmingCharacters(in: .whitespacesAndNewlines), Date()))
             }
+        }
+        // files dropped anywhere on the chat land in the composer as shell-quoted paths, like a drop on the terminal
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            for p in providers {
+                p.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
+                    guard let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                    DispatchQueue.main.async { dropped += shellQuote(url.path) + " " }
+                }
+            }
+            return !providers.isEmpty
         }
     }
 
@@ -563,6 +575,7 @@ struct ChatPane: View {
 
 private struct Composer: View {
     let font: Font
+    @Binding var dropped: String // set by the pane's drop handler; taken into the draft here
     let send: (String) -> Void
     @State private var draft = ""
 
@@ -570,6 +583,11 @@ private struct Composer: View {
         TextField("message", text: $draft, axis: .vertical)
             .textFieldStyle(.plain).font(font).lineLimit(1...6)
             .padding(.horizontal, 16).padding(.vertical, 10)
+            .onChange(of: dropped) {
+                guard !dropped.isEmpty else { return }
+                if !draft.isEmpty, !draft.hasSuffix(" ") { draft += " " }
+                draft += dropped; dropped = ""
+            }
             .onSubmit {
                 guard !draft.isEmpty else { return }
                 send(draft)
