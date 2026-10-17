@@ -251,6 +251,10 @@ final class AppModel: ObservableObject {
            let sid = hook["session_id"] as? String, sid.range(of: "^[A-Za-z0-9-]+$", options: .regularExpression) != nil {
             tab.sessionId = sid
         }
+        if let tab = tabById[id] { // a question is up from its PreToolUse until any non-notification event
+            if hook["hook_event_name"] as? String == "PreToolUse", hook["tool_name"] as? String == "AskUserQuestion" { tab.askStarted() }
+            else if hook["hook_event_name"] as? String != "Notification" { tab.askEnded() }
+        }
         attention(id: id, type: type, hook: hook)
         return nil
     }

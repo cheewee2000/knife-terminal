@@ -85,6 +85,7 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         view.onUserInput = { [weak self] in
             guard let self else { return }
             self.limited = false
+            if self.askIdle != nil { self.armAsk() } // a key while a question is up restarts its idle clock
             if self.working || self.attention {
                 self.working = false; self.attention = false
                 AppModel.shared.tabStateChanged(self)
@@ -107,6 +108,36 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
 
     func terminate() {
         view.process?.terminate()
+    }
+
+    // ─── Question auto-continue: an AskUserQuestion nobody touches for `questionTimeout` seconds
+    // (default 300; `defaults write com.cwandt.knifeterminal questionTimeout -float 0` turns it off)
+    // takes its first option — the recommended one — like Claude Code's own idle timeout, which
+    // never runs under Remote Control. Only a picker whose options end in "Chat about this" is
+    // answered, so permission prompts are never touched.
+    private var askIdle: DispatchWorkItem?
+    private var askPending = false
+    static var questionTimeout: TimeInterval { UserDefaults.standard.object(forKey: "questionTimeout") as? Double ?? 300 }
+
+    func askStarted() { askPending = true; armAsk() }
+    func askEnded() { askPending = false; askIdle?.cancel(); askIdle = nil }
+
+    private func armAsk() {
+        askIdle?.cancel()
+        guard askPending, Self.questionTimeout > 0 else { return }
+        let w = DispatchWorkItem { [weak self] in self?.askIdle = nil; self?.autoAnswer(ticks: 6, last: nil) }
+        askIdle = w
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.questionTimeout, execute: w)
+    }
+
+    /// 1 picks the first option (a lone single-select submits on it); a later question or the
+    /// review screen follows a second later, where 1 picks or submits again. ponytail: a
+    /// multi-select question shows the same title after the toggle, so the loop stops there.
+    private func autoAnswer(ticks: Int, last: String?) {
+        guard askPending, ticks > 0, let p = ScreenPrompt.parse(view.plainScreen()),
+              p.options.last?.hasPrefix("Chat about this") == true, p.title != last else { return }
+        view.send(txt: "1")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.autoAnswer(ticks: ticks - 1, last: p.title) }
     }
 }
 
