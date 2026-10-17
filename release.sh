@@ -6,6 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 V=$(sed -n 's/.*MARKETING_VERSION: *"\(.*\)".*/\1/p' apple/project.yml)
+B=$(sed -n 's/.*CURRENT_PROJECT_VERSION: *"\([^"]*\)".*/\1/p' apple/project.yml) # Sparkle compares this, not $V
 NOTES=${1:-$(git log -1 --pretty=%s)}
 REPO=cheewee2000/knife-terminal
 ZIP="$PWD/dist/Knife-Terminal-$V.zip"
@@ -48,7 +49,7 @@ cat > appcast.xml <<XML
     <item>
       <title>Knife Terminal $V</title>
       <link>https://github.com/$REPO/releases/tag/v$V</link>
-      <sparkle:version>$V</sparkle:version>
+      <sparkle:version>$B</sparkle:version>
       <sparkle:shortVersionString>$V</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<p>$NOTES</p>]]></description>

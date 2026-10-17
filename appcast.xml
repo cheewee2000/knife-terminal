@@ -8,7 +8,7 @@
     <item>
       <title>Knife Terminal 1.3.3</title>
       <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v1.3.3</link>
-      <sparkle:version>1.3.3</sparkle:version>
+      <sparkle:version>1.1.7</sparkle:version>
       <sparkle:shortVersionString>1.3.3</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
       <description><![CDATA[<p>Drop files onto the chat view: their paths land in the composer, quoted, ready to send. The chat's working row now pulses while the agent is thinking. Collaborative mode: closing the invite sheet without inviting anyone no longer shows an error, and the share type is now deployed to Production so invites go through.</p>]]></description>
