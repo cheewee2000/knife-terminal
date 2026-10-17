@@ -10,7 +10,8 @@ import KnifeKit
 /// led by the model + effort of the latest turn — click it to change either.
 /// Replies render as rich text (headings, lists, code, tables), colored by kind.
 /// ⌘F finds within the session: every hit highlighted, ⌘G / ⌘⇧G step through them.
-/// Lines typed in the composer go to the tab like the phone's. No transcript → the terminal.
+/// Lines typed in the composer go to the tab like the phone's; a leading / lists the CLI's slash
+/// commands (built-ins + skills on disk), ↑↓ Tab ⏎ complete, a known command tints the field. No transcript → the terminal.
 struct ChatPane: View {
     @ObservedObject var controller: KnifeWindowController
     @ObservedObject var tab: TabModel
@@ -125,7 +126,7 @@ struct ChatPane: View {
                 .padding(.horizontal, 16).padding(.top, 8)
             }
             // its own view: a keystroke re-renders the field, not every message above it
-            Composer(font: mono(12), dropped: $dropped) { text in
+            Composer(font: mono(12), codex: codex, cwd: cwd, accent: accent, dropped: $dropped) { text in
                 tab.view.typeLine(text)
                 // shown at once; the transcript's copy (user record or queue entry) replaces it
                 echoes.append((text.trimmingCharacters(in: .whitespacesAndNewlines), Date()))
@@ -575,23 +576,88 @@ struct ChatPane: View {
 
 private struct Composer: View {
     let font: Font
+    let codex: Bool
+    let cwd: String?
+    let accent: Color
     @Binding var dropped: String // set by the pane's drop handler; taken into the draft here
     let send: (String) -> Void
     @State private var draft = ""
+    @State private var pick = 0 // highlighted row of the slash menu
+
+    /// Slash commands the CLI will take: its built-ins, plus skills + custom commands on disk
+    /// (~/.claude/commands/*.md, ~/.claude/skills/*/, and the project's .claude/ copies).
+    /// ponytail: the built-in list is static — a new CLI release means editing it here.
+    private var commands: [String] {
+        if codex {
+            return ["approvals", "clear", "compact", "diff", "init", "logout", "mcp", "mention", "model", "new", "quit", "review", "status"]
+        }
+        var out: Set<String> = ["add-dir", "agents", "bug", "clear", "compact", "config", "context", "cost", "doctor", "effort", "exit",
+            "export", "fast", "feedback", "help", "hooks", "ide", "init", "keybindings", "login", "logout", "mcp", "memory", "model",
+            "permissions", "plugin", "pr-comments", "release-notes", "rename", "resume", "review", "rewind", "sandbox", "security-review",
+            "skills", "stats", "status", "statusline", "tasks", "terminal-setup", "theme", "usage", "vim", "workflows"]
+        let fm = FileManager.default
+        for root in [NSHomeDirectory() + "/.claude", cwd.map { $0 + "/.claude" }].compactMap({ $0 }) {
+            for f in (try? fm.contentsOfDirectory(atPath: root + "/commands")) ?? [] where f.hasSuffix(".md") { out.insert(String(f.dropLast(3))) }
+            for d in (try? fm.contentsOfDirectory(atPath: root + "/skills")) ?? [] where fm.fileExists(atPath: root + "/skills/\(d)/SKILL.md") { out.insert(d) }
+        }
+        return out.sorted()
+    }
+
+    /// The draft is a bare slash token being typed: "/" or "/cle" — nothing after it yet.
+    private var typingCommand: String? {
+        guard draft.hasPrefix("/"), !draft.contains(where: \.isWhitespace) else { return nil }
+        return String(draft.dropFirst())
+    }
+    private var matches: [String] {
+        guard let t = typingCommand else { return [] }
+        let all = commands
+        return t.isEmpty ? all : all.filter { $0.hasPrefix(t) } + all.filter { !$0.hasPrefix(t) && $0.contains(t) }
+    }
+    /// The first word is a known command → the whole field takes the accent color.
+    private var isCommand: Bool {
+        guard draft.hasPrefix("/") else { return false }
+        return commands.contains(String(draft.dropFirst().prefix { !$0.isWhitespace }))
+    }
 
     var body: some View {
-        TextField("message", text: $draft, axis: .vertical)
-            .textFieldStyle(.plain).font(font).lineLimit(1...6)
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .onChange(of: dropped) {
-                guard !dropped.isEmpty else { return }
-                if !draft.isEmpty, !draft.hasSuffix(" ") { draft += " " }
-                draft += dropped; dropped = ""
+        VStack(alignment: .leading, spacing: 0) {
+            if !matches.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(matches.prefix(8).enumerated()), id: \.element) { i, c in
+                        Text("/" + c).font(font).foregroundStyle(i == pick ? accent : Color.primary)
+                            .padding(.horizontal, 16).padding(.vertical, 2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(i == pick ? Color.primary.opacity(0.07) : Color.clear)
+                            .contentShape(Rectangle())
+                            .onTapGesture { complete(c) }
+                    }
+                }
+                .padding(.vertical, 4)
+                .overlay(alignment: .top) { Rectangle().fill(Color.primary.opacity(0.15)).frame(height: 1) }
             }
-            .onSubmit {
-                guard !draft.isEmpty else { return }
-                send(draft)
-                draft = ""
-            }
+            TextField("message", text: $draft, axis: .vertical)
+                .textFieldStyle(.plain).font(font).lineLimit(1...6)
+                .foregroundStyle(isCommand ? accent : Color.primary)
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                .onChange(of: draft) { pick = 0 }
+                .onKeyPress(.upArrow) { guard !matches.isEmpty else { return .ignored }; pick = max(0, pick - 1); return .handled }
+                .onKeyPress(.downArrow) { guard !matches.isEmpty else { return .ignored }; pick = min(matches.prefix(8).count - 1, pick + 1); return .handled }
+                .onKeyPress(.tab) { guard !matches.isEmpty else { return .ignored }; complete(matches[pick]); return .handled }
+                .onKeyPress(.escape) { guard !matches.isEmpty else { return .ignored }; draft = ""; return .handled }
+                .onChange(of: dropped) {
+                    guard !dropped.isEmpty else { return }
+                    if !draft.isEmpty, !draft.hasSuffix(" ") { draft += " " }
+                    draft += dropped; dropped = ""
+                }
+                .onSubmit {
+                    guard !draft.isEmpty else { return }
+                    // ⏎ on a partial command completes the highlighted row; ⏎ again sends it
+                    if let t = typingCommand, !matches.isEmpty, matches[pick] != t { complete(matches[pick]); return }
+                    send(draft)
+                    draft = ""
+                }
+        }
     }
+
+    private func complete(_ c: String) { draft = "/" + c + " "; pick = 0 }
 }
