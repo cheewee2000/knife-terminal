@@ -324,6 +324,8 @@ struct FooterBar: View {
     @AppStorage("chatView") private var chatView = false
     @State private var hooksOn = HooksInstaller.installed()
     @State private var ctxScope: String? = nil
+    @AppStorage("questionTimeout") private var questionTimeout: Double = 300 // TabModel.questionTimeout reads the same key
+    private static let timeouts: [(String, Double)] = [("off", 0), ("1 min", 60), ("2 min", 120), ("5 min", 300), ("10 min", 600), ("30 min", 1800)]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -362,6 +364,8 @@ struct FooterBar: View {
                     _ = HooksInstaller.install(); hooksOn = HooksInstaller.installed()
                 }
                 btn("set default", help: "make Knife the default terminal") { DefaultTerminal.register() }
+                sep
+                autoPickMenu
                 Spacer(minLength: 8)
                 Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
                     .font(mono(9)).foregroundStyle(theme.faint).fixedSize()
@@ -375,6 +379,27 @@ struct FooterBar: View {
     }
 
     private var sep: some View { Rectangle().fill(Color.primary.opacity(0.15)).frame(width: 1, height: 14) }
+
+    /// How long an agent's multiple-choice question waits before Knife picks its first option
+    /// (TabModel.autoAnswer); while one is pending in this tab the label counts down to it.
+    private var autoPickMenu: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { ctx in autoPickLabel(now: ctx.date) }
+    }
+
+    private func autoPickLabel(now: Date) -> some View {
+        let name = Self.timeouts.first { $0.1 == questionTimeout }?.0 ?? "\(Int(questionTimeout))s"
+        let left: Int? = controller.activeTab?.askDeadline.map { max(0, Int($0.timeIntervalSince(now).rounded(.up))) }
+        let label = left.map { String(format: "auto-pick %d:%02d", $0 / 60, $0 % 60) } ?? ("auto-pick: " + name)
+        return Menu {
+            ForEach(Self.timeouts, id: \.1) { t in
+                Button((t.1 == questionTimeout ? "✓ " : "   ") + t.0) { questionTimeout = t.1 }
+            }
+        } label: {
+            Text(label).font(mono(10)).foregroundStyle(left != nil ? AnyShapeStyle(Color.primary) : theme.faint).fixedSize()
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .help("a question left alone this long takes its first (recommended) option")
+    }
 
     private func btn(_ label: String, on: Bool = false, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) { Text(label) }

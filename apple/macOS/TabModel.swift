@@ -117,16 +117,18 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     // answered, so permission prompts are never touched.
     private var askIdle: DispatchWorkItem?
     private var askPending = false
+    @Published var askDeadline: Date? // when the pending question auto-picks; the footer counts down to it
     static var questionTimeout: TimeInterval { UserDefaults.standard.object(forKey: "questionTimeout") as? Double ?? 300 }
 
     func askStarted() { askPending = true; armAsk() }
-    func askEnded() { askPending = false; askIdle?.cancel(); askIdle = nil }
+    func askEnded() { askPending = false; askIdle?.cancel(); askIdle = nil; askDeadline = nil }
 
     private func armAsk() {
-        askIdle?.cancel()
+        askIdle?.cancel(); askDeadline = nil
         guard askPending, Self.questionTimeout > 0 else { return }
-        let w = DispatchWorkItem { [weak self] in self?.askIdle = nil; self?.autoAnswer(ticks: 6, last: nil) }
+        let w = DispatchWorkItem { [weak self] in self?.askIdle = nil; self?.askDeadline = nil; self?.autoAnswer(ticks: 6, last: nil) }
         askIdle = w
+        askDeadline = Date(timeIntervalSinceNow: Self.questionTimeout)
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.questionTimeout, execute: w)
     }
 
