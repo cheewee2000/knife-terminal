@@ -395,9 +395,10 @@ struct FooterBar: View {
                 Button((t.1 == questionTimeout ? "✓ " : "   ") + t.0) { questionTimeout = t.1 }
             }
         } label: {
-            Text(label).font(mono(10)).foregroundStyle(left != nil ? AnyShapeStyle(Color.primary) : theme.faint).fixedSize()
+            Text(label)
         }
-        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .menuStyle(.button).menuIndicator(.hidden).fixedSize()
+        .buttonStyle(FootButtonStyle(on: left != nil, paper: Color(nsColor: theme.nsColor(theme.current.background))))
         .help("a question left alone this long takes its first (recommended) option")
     }
 
