@@ -41,6 +41,7 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
     func activate(_ id: Int) {
         guard tabs.contains(where: { $0.id == id }) else { return }
         activeId = id
+        if let cwd = activeTab?.opts.cwd { Projects.touch(cwd) } // switching to a tab = using its project
         if NSApp.isActive, window?.isKeyWindow ?? false, let t = activeTab, t.attention {
             t.attention = false
         }

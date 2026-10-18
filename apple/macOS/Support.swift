@@ -245,16 +245,19 @@ enum Projects {
                 let enc = (projDir as NSString).appendingPathComponent(encode(p))
                 guard let attrs = try? fm.attributesOfItem(atPath: enc),
                       let dirDate = attrs[.modificationDate] as? Date else { return nil }
-                // most recent activity: newest transcript in the dir (appends bump
-                // file mtime, not the dir's), or an open from Knife itself
+                // most recently used from Knife (opened or switched to); a project never
+                // touched here falls back to its newest transcript (appends bump file
+                // mtime, not the dir's), so a busy background session can't outrank
+                // the one you just used
                 var t = dirDate.timeIntervalSince1970
-                for f in (try? fm.contentsOfDirectory(atPath: enc)) ?? [] {
-                    if let a = try? fm.attributesOfItem(atPath: (enc as NSString).appendingPathComponent(f)),
-                       let m = a[.modificationDate] as? Date {
-                        t = max(t, m.timeIntervalSince1970)
+                if let k = touched[p] { t = k } else {
+                    for f in (try? fm.contentsOfDirectory(atPath: enc)) ?? [] {
+                        if let a = try? fm.attributesOfItem(atPath: (enc as NSString).appendingPathComponent(f)),
+                           let m = a[.modificationDate] as? Date {
+                            t = max(t, m.timeIntervalSince1970)
+                        }
                     }
                 }
-                t = max(t, touched[p] ?? 0)
                 return Project(path: p, name: (p as NSString).lastPathComponent, t: t)
             }
             .sorted { $0.t > $1.t }
