@@ -6,16 +6,16 @@
     <description>Updates for Knife Terminal</description>
     <language>en</language>
     <item>
-      <title>Knife Terminal 1.3.7</title>
-      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v1.3.7</link>
-      <sparkle:version>1.1.8</sparkle:version>
-      <sparkle:shortVersionString>1.3.7</sparkle:shortVersionString>
+      <title>Knife Terminal 1.3.10</title>
+      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v1.3.10</link>
+      <sparkle:version>1.1.9</sparkle:version>
+      <sparkle:shortVersionString>1.3.10</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>Slash commands in the chat composer: a leading / lists Claude Code's commands and your skills, with arrow keys, Tab and Enter to complete. Agent questions auto-continue: a multiple-choice question left alone takes its recommended option after a delay you pick from the new footer menu (off to 30 minutes), with a live countdown while one waits. Fixes the updater reinstalling older releases over newer builds.</p>]]></description>
+      <description><![CDATA[<p>Style profiles are named for the style (house, plain), not people. iOS: multi-select questions get a submit button. Sidebar projects sort by most recently used.</p>]]></description>
       <enclosure
-        url="https://github.com/cheewee2000/knife-terminal/releases/download/v1.3.7/Knife-Terminal-1.3.7.zip"
+        url="https://github.com/cheewee2000/knife-terminal/releases/download/v1.3.10/Knife-Terminal-1.3.10.zip"
         type="application/octet-stream"
-        sparkle:edSignature="9XQ2uYE1Ldjq4mtoDa+IHWTEJpK9uBHwU6rKNZ0LlS8H5pYFIERdFBIEJ8maEkzJtMwqfnFv+GEROwiBOkhiAQ==" length="4928908"/>
+        sparkle:edSignature="Si5Oc8thMzRTQma6NkfWPAXxYuWr0C/hIMN9PyNuLixrqQZ/OK8YXJPeRrO8SrRGkZB+kxvwx68tIloXiBMpAA==" length="4929180"/>
     </item>
   </channel>
 </rss>
