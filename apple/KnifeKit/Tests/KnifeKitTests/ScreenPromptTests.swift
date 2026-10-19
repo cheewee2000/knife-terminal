@@ -31,6 +31,28 @@ final class ScreenPromptTests: XCTestCase {
                                     "Yes, and switch to auto mode · auto mode handles these prompts for you", "No"])
     }
 
+    // AskUserQuestion multiSelect as 2.1.278 draws it: unnumbered Submit, "Chat about this" under a rule
+    func testMultiSelect() {
+        let screen = """
+        ←  ☒ Colors  ✔ Submit  →
+        Pick colors
+        ❯ 1. [ ] Red
+                 Red
+          2. [✔] Green
+                 Green
+          3. [ ] Type something
+             Submit
+        \(rule)
+          4. Chat about this
+
+        Enter to select · ↑/↓ to navigate · Esc to cancel
+        """
+        let p = ScreenPrompt.parse(screen)
+        XCTAssertEqual(p?.options.first, "[ ] Red")
+        XCTAssertEqual(p?.multiSelect, true)
+        XCTAssertEqual(ScreenPrompt.parse("Ready to submit your answers?\n❯ 1. Submit answers\n  2. Cancel\nEsc to cancel")?.multiSelect, false)
+    }
+
     func testIdleScreenHasNoPrompt() {
         let screen = """
         ⏺ Done. 1. first thing  2. second thing

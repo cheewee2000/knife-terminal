@@ -10,6 +10,12 @@ public struct ScreenPrompt: Equatable, Sendable {
     public var body: [String]
     public var options: [String] // option n is options[n - 1]
 
+    /// A multi-select question: digits toggle "[ ] …" boxes, and its Submit row has no number.
+    /// → (`multiSelectSubmit`) moves on from wherever the cursor is — to the next question, or
+    /// the numbered "Submit answers" review (checked against Claude Code 2.1.278).
+    public var multiSelect: Bool { options.contains { $0.hasPrefix("[ ] ") || $0.hasPrefix("[✔] ") } }
+    public static let multiSelectSubmit = "\u{1b}[C"
+
     /// The menu at the bottom of `screen`, if one is up: numbered options 1…n (n ≥ 2)
     /// just above an "Esc to …" footer, under a ─── rule.
     public static func parse(_ screen: String) -> ScreenPrompt? {

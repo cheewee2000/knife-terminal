@@ -214,6 +214,14 @@ struct SessionDetailView: View {
                 }
                 .buttonStyle(.plain)
             }
+            if p.multiSelect {
+                Button { store.send(ScreenPrompt.multiSelectSubmit, to: tab) } label: {
+                    Text("submit ›").font(mono(12, bold: true))
+                        .padding(.horizontal, 12).padding(.vertical, 9)
+                        .background(RoundedRectangle(cornerRadius: 10).stroke(knifeAccent, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(12)
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(knifeOrange, lineWidth: 1))
@@ -279,6 +287,12 @@ struct SessionDetailView: View {
                     }
                     .buttonStyle(.plain)
                 }
+            }
+            if screenPrompt(tab)?.multiSelect == true { // its Submit row has no digit to type
+                Button { store.send(ScreenPrompt.multiSelectSubmit, to: tab) } label: {
+                    Text("submit ›").font(mono(11, bold: true))
+                }
+                .buttonStyle(.plain)
             }
             TextField("type here, ⏎ sends", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
