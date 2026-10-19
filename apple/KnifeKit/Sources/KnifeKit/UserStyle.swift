@@ -2,7 +2,7 @@ import Foundation
 
 // Per-person style profiles — the app is shared, the taste isn't.
 // Each profile is a set of vetoes over the CW&T house style; `cw` is the
-// house style untouched. Add fields here as preferences accumulate.
+// house style untouched. Ids name the style, not a person — the app is public. Add fields here as preferences accumulate.
 public struct UserStyle: Sendable, Equatable {
     public let id: String
     /// Emoji in the chrome (tab rows, project list).
@@ -20,19 +20,20 @@ public struct UserStyle: Sendable, Equatable {
     /// nil = the house treatment (bold primary).
     public let accentHex: UInt32?
 
-    public static let taylor = UserStyle(id: "taylor", emoticons: false, boldText: false, greyOnBlack: false,
+    public static let plain = UserStyle(id: "plain", emoticons: false, boldText: false, greyOnBlack: false,
                                          termFontDelta: -1, greyReplacementHex: nil, accentHex: 0x00FF00)
-    public static let cw = UserStyle(id: "cw", emoticons: true, boldText: true, greyOnBlack: true,
+    public static let house = UserStyle(id: "house", emoticons: true, boldText: true, greyOnBlack: true,
                                      termFontDelta: 0, greyReplacementHex: nil, accentHex: nil)
-    public static let all: [UserStyle] = [.taylor, .cw]
+    public static let all: [UserStyle] = [.plain, .house]
 
     public static func named(_ id: String?) -> UserStyle? {
-        all.first { $0.id == id }
+        let id = ["taylor": "plain", "cw": "house"][id ?? ""] ?? id // ids saved before 1.3.10
+        return all.first { $0.id == id }
     }
 
     /// First-run default: guess the profile from the macOS account, house style otherwise.
     public static func forMachine(username: String, fullName: String) -> UserStyle {
-        (username + " " + fullName).lowercased().contains("taylor") ? .taylor : .cw
+        (username + " " + fullName).lowercased().contains("taylor") ? .plain : .house
     }
 }
 

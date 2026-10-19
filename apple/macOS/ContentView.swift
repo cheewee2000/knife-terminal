@@ -359,7 +359,7 @@ struct FooterBar: View {
                 }
                 sep
                 btn("theme: " + theme.mode.rawValue, help: "cycle auto · light · dark") { theme.cycle() }
-                btn("user: " + theme.user.id, help: "style profile — taylor: no emoticons, no bold, no grey-on-black, 12pt") { theme.cycleUser() }
+                btn("style: " + theme.user.id, help: "style profile — plain: no emoticons, no bold, no grey-on-black, 12pt") { theme.cycleUser() }
                 btn(hooksOn ? "alerts on" : "alerts off", on: hooksOn, help: "Claude Code hooks for working/attention alerts") {
                     _ = HooksInstaller.install(); hooksOn = HooksInstaller.installed()
                 }
