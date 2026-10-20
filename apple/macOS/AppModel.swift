@@ -172,6 +172,22 @@ final class AppModel: ObservableObject {
                              title: "job: " + String(text.prefix(40))), activateIt: false)
     }
 
+    // ─── Remote Mac: a tab's claude session moves to another Mac (knife-remote.sh) ───
+
+    static var remoteConfigured: Bool { FileManager.default.fileExists(atPath: Manifest.dir + "/remote") }
+
+    /// Close the tab (stops its claude), then a tab that resumes the session over there and attaches.
+    func sendToRemote(_ tab: TabModel, in wc: KnifeWindowController) {
+        let script = Bundle.main.path(forResource: "knife-remote", ofType: "sh") ?? ""
+        let cwd = tab.currentCwd ?? NSHomeDirectory()
+        let cmd = "bash \(shellQuote(script)) send \(shellQuote(cwd)) \(shellQuote(tab.transcriptPath ?? ""))"
+        let title = "⇢ " + tab.title
+        wc.closeTab(tab.id)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { // let claude flush its transcript
+            wc.addTab(TabOptions(cwd: cwd, cmd: cmd, title: title, restoreCmd: cmd))
+        }
+    }
+
     /// Open a project by a path from any machine's manifest entry: this
     /// machine's checkout when it has one, else clone it first (a lazy clone
     /// on first use — the manifest carries the remote, not the checkout).
