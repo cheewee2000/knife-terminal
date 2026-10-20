@@ -34,6 +34,26 @@ public struct TermTheme: Sendable {
             RGB(0xd6d6d2), RGB(0xc9a567), RGB(0x9c9c97), RGB(0xffffff),
         ])
 
+    // Ghostty's bundled "Tomorrow" — the light sibling of its stock dark look.
+    public static let ghosttyLight = TermTheme(
+        background: RGB(0xffffff), foreground: RGB(0x4d4d4c), cursor: RGB(0x4d4d4c), cursorText: RGB(0xffffff),
+        ansi: [
+            RGB(0x000000), RGB(0xc82829), RGB(0x718c00), RGB(0xeab700),
+            RGB(0x4271ae), RGB(0x8959a8), RGB(0x3e999f), RGB(0xbfbfbf),
+            RGB(0x000000), RGB(0xc82829), RGB(0x718c00), RGB(0xeab700),
+            RGB(0x4271ae), RGB(0x8959a8), RGB(0x3e999f), RGB(0xffffff),
+        ])
+
+    // Ghostty's stock dark look (`ghostty +show-config --default`).
+    public static let ghosttyDark = TermTheme(
+        background: RGB(0x282c34), foreground: RGB(0xffffff), cursor: RGB(0xffffff), cursorText: RGB(0x282c34),
+        ansi: [
+            RGB(0x1d1f21), RGB(0xcc6666), RGB(0xb5bd68), RGB(0xf0c674),
+            RGB(0x81a2be), RGB(0xb294bb), RGB(0x8abeb7), RGB(0xc5c8c6),
+            RGB(0x666666), RGB(0xd54e53), RGB(0xb9ca4a), RGB(0xe7c547),
+            RGB(0x7aa6da), RGB(0xc397d8), RGB(0x70c0b1), RGB(0xeaeaea),
+        ])
+
     init(background: RGB, foreground: RGB, cursor: RGB, cursorText: RGB, ansi: [RGB]) {
         self.background = background; self.foreground = foreground
         self.cursor = cursor; self.cursorText = cursorText; self.ansi = ansi

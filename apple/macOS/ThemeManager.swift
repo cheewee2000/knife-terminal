@@ -31,7 +31,10 @@ final class ThemeManager: ObservableObject {
         }
     }
 
-    var current: TermTheme { (isDark ? TermTheme.dark : .light).applying(user, dark: isDark) }
+    var current: TermTheme {
+        let base = user.ghosttyPalette ? (isDark ? TermTheme.ghosttyDark : .ghosttyLight) : (isDark ? TermTheme.dark : .light)
+        return base.applying(user, dark: isDark)
+    }
 
     func cycle() {
         mode = switch mode { case .auto: .light; case .light: .dark; case .dark: .auto }
@@ -69,8 +72,9 @@ final class ThemeManager: ObservableObject {
         NSColor(srgbRed: CGFloat(c.r) / 255, green: CGFloat(c.g) / 255, blue: CGFloat(c.b) / 255, alpha: 1)
     }
 
-    static func termFont(size: CGFloat) -> NSFont {
-        NSFont(name: "Space Mono", size: size)
+    static func termFont(size: CGFloat, preferred: String? = nil) -> NSFont {
+        preferred.flatMap { NSFont(name: $0, size: size) }
+            ?? NSFont(name: "Space Mono", size: size)
             ?? NSFont(name: "JetBrains Mono", size: size)
             ?? NSFont(name: "Menlo", size: size)
             ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
@@ -93,7 +97,7 @@ final class ThemeManager: ObservableObject {
         terminal.nativeForegroundColor = nsColor(t.foreground)
         terminal.caretColor = nsColor(t.cursor)
         terminal.selectedTextBackgroundColor = terminal.findBarVisible ? findHighlight : selectionTint
-        terminal.font = Self.termFont(size: 13 + CGFloat(user.termFontDelta))
+        terminal.font = Self.termFont(size: 13 + CGFloat(user.termFontDelta), preferred: user.termFont)
         terminal.needsDisplay = true
     }
 }

@@ -19,12 +19,27 @@ public struct UserStyle: Sendable, Equatable {
     /// The one loud color this user allows — the active shell in the sidebar;
     /// nil = the house treatment (bold primary).
     public let accentHex: UInt32?
+    /// Terminal palettes: Ghostty's (stock dark, Tomorrow light) instead of the house ones.
+    public var ghosttyPalette = false
+    /// Terminal grid font; nil = Space Mono.
+    public var termFont: String? = nil
+    /// Chrome (sidebar, footer) font, regular and bold faces; nil = Space Mono.
+    /// A face that isn't installed falls back to the system font.
+    public var chromeFont: (regular: String, bold: String)? = nil
+
+    public static func == (a: UserStyle, b: UserStyle) -> Bool { a.id == b.id }
 
     public static let plain = UserStyle(id: "plain", emoticons: false, boldText: false, greyOnBlack: false,
                                          termFontDelta: -1, greyReplacementHex: nil, accentHex: 0x00FF00)
     public static let house = UserStyle(id: "house", emoticons: true, boldText: true, greyOnBlack: true,
                                      termFontDelta: 0, greyReplacementHex: nil, accentHex: nil)
-    public static let all: [UserStyle] = [.plain, .house]
+    /// Ghostty's look: its palettes, JetBrains Mono (bundled) for the grid,
+    /// Helvetica Now Text for the chrome (licensed, not bundled — system font without it).
+    public static let ghostty = UserStyle(id: "ghostty", emoticons: true, boldText: true, greyOnBlack: true,
+                                          termFontDelta: 0, greyReplacementHex: nil, accentHex: nil,
+                                          ghosttyPalette: true, termFont: "JetBrains Mono",
+                                          chromeFont: ("HelveticaNowText-Regular", "HelveticaNowText-Medium"))
+    public static let all: [UserStyle] = [.plain, .house, .ghostty]
 
     public static func named(_ id: String?) -> UserStyle? {
         let id = ["taylor": "plain", "cw": "house"][id ?? ""] ?? id // ids saved before 1.3.10

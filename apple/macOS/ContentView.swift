@@ -11,7 +11,13 @@ extension Notification.Name {
 
 @MainActor
 func mono(_ size: CGFloat, bold: Bool = false) -> Font {
-    let allowBold = bold && AppModel.shared.theme.user.boldText
+    let user = AppModel.shared.theme.user
+    let allowBold = bold && user.boldText
+    if let f = user.chromeFont {
+        return NSFont(name: f.regular, size: size) != nil
+            ? Font.custom(allowBold ? f.bold : f.regular, size: size)
+            : .system(size: size, weight: allowBold ? .medium : .regular)
+    }
     return Font.custom(allowBold ? "Space Mono Bold" : "Space Mono", size: size)
 }
 
@@ -359,7 +365,7 @@ struct FooterBar: View {
                 }
                 sep
                 btn("theme: " + theme.mode.rawValue, help: "cycle auto · light · dark") { theme.cycle() }
-                btn("style: " + theme.user.id, help: "style profile — plain: no emoticons, no bold, no grey-on-black, 12pt") { theme.cycleUser() }
+                btn("style: " + theme.user.id, help: "style profile — house: CW&T; plain: no emoticons, no bold, no grey-on-black, 12pt; ghostty: Ghostty colors, JetBrains Mono, Helvetica Now") { theme.cycleUser() }
                 btn(hooksOn ? "alerts on" : "alerts off", on: hooksOn, help: "Claude Code hooks for working/attention alerts") {
                     _ = HooksInstaller.install(); hooksOn = HooksInstaller.installed()
                 }
