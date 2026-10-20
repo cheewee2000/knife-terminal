@@ -37,7 +37,15 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         return Self.cwdOf(pid: pid) ?? lastReportedCwd
     }
 
+    /// The kernel knows the shell's cwd: proc_pidinfo costs microseconds where
+    /// spawning lsof costs ~100ms. lsof stays as the fallback.
     nonisolated static func cwdOf(pid: pid_t) -> String? {
+        var info = proc_vnodepathinfo()
+        let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        if proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, size) == size {
+            let s = withUnsafeBytes(of: &info.pvi_cdir.vip_path) { String(cString: $0.bindMemory(to: CChar.self).baseAddress!) }
+            if !s.isEmpty { return s }
+        }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
         p.arguments = ["-a", "-p", String(pid), "-d", "cwd", "-Fn"]
@@ -64,10 +72,16 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         view.processDelegate = self
         AppModel.shared.theme.style(terminal: view)
 
-        var env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CLAUDE_CODE_") }
+        // scrub the launcher's terminal identity (launched from Ghostty the app
+        // inherits TERM_PROGRAM=ghostty, GHOSTTY_*, and a TERMINFO with only
+        // xterm-ghostty) — shell integrations keyed on those would misfire
+        var env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CLAUDE_CODE_") && !$0.key.hasPrefix("GHOSTTY_") }
         env["KNIFE_TAB"] = String(id)
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
+        env["TERM_PROGRAM"] = "KnifeTerminal"
+        env["TERM_PROGRAM_VERSION"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        env["TERMINFO"] = nil
         if env["LANG"] == nil { env["LANG"] = "en_US.UTF-8" }
         let envList = env.map { "\($0.key)=\($0.value)" }
 
