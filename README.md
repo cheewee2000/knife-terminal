@@ -47,15 +47,6 @@ Needs Xcode signed into the CW&T Studio developer account (team `L6DVQR8JB9`) �
 - **New project from a folder**: Knife Terminal menu → "New Project from Folder…" (or `printf "adopt %s" "$dir" | nc -U ~/.knife-terminal.sock` from a Finder quick action): `git init`, private GitHub repo via `gh repo create`, then `claude`. The next manifest publish carries it to the executor, which clones it on the first job.
 - No CloudKit schema change: a request is an `Open` record with a `job:` prefix, the manifest is one `Projects` record per machine (`projects-<host>`), jobs are ordinary `Tab` records. There is one executor, so there is no job claiming; if a second Mac ever runs jobs, iCloud is the wrong coordination layer (eventually consistent) — claiming needs an atomic write, e.g. a small HTTP endpoint on the executor.
 
-## Remote Mac: keep a session running with the laptop closed
-
-Right-click a Claude tab → **Send to Remote Mac**. The tab's claude stops here; its transcript is copied to the other Mac (paths remapped) and resumed there in tmux, and the tab becomes an ssh attach that reconnects after sleep. Close the tab or the lid and the session keeps running; reopen to reattach. When the remote claude exits, the transcript comes back home. Needs key-based ssh, tmux and claude on the other Mac, the project folder synced to it (e.g. Dropbox), and `~/.knife/remote`:
-
-```
-KNIFE_REMOTE_HOST=user@other-mac.local
-KNIFE_REMOTE_MAP='/Users/me/Dropbox/=/Users/them/Dropbox/'
-```
-
 ## Shortcuts
 - ⌘T new tab · ⌘W close tab (or mini) · ⌘1–9 jump to tab · ⌘⇧[ / ⌘⇧] prev/next tab · ⌘B hide/show sidebar · ⌘⌥B git panel · ⌘⌥C chat view · ⌘K search projects · ⌘F find (chat: ⌘G / ⌘⇧G next/prev) · ⌘N mini popout terminal (plain shell, no tabs/projects)
 

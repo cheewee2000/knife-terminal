@@ -161,9 +161,6 @@ struct SidebarView: View {
                             .contextMenu {
                                 if tab.opts.guest == nil {
                                     Button("Invite to Session…") { Collab.shared.invite(tab) }
-                                    if AppModel.remoteConfigured, tab.sessionId != nil || tab.transcriptPath != nil {
-                                        Button("Send to Remote Mac") { AppModel.shared.sendToRemote(tab, in: controller) }
-                                    }
                                 } else {
                                     Button("Leave Session") { controller.closeTab(tab.id) }
                                 }
