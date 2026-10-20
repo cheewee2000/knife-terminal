@@ -6,16 +6,16 @@
     <description>Updates for Knife Terminal</description>
     <language>en</language>
     <item>
-      <title>Knife Terminal 1.3.10</title>
-      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v1.3.10</link>
-      <sparkle:version>1.1.9</sparkle:version>
-      <sparkle:shortVersionString>1.3.10</sparkle:shortVersionString>
+      <title>Knife Terminal 1.3.12</title>
+      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v1.3.12</link>
+      <sparkle:version>1.1.10</sparkle:version>
+      <sparkle:shortVersionString>1.3.12</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p>Style profiles are named for the style (house, plain), not people. iOS: multi-select questions get a submit button. Sidebar projects sort by most recently used.</p>]]></description>
+      <description><![CDATA[<p><ul><li><b>New style: ghostty</b> — click <i>style:</i> in the footer. Ghostty's stock dark and Tomorrow light colors, JetBrains Mono in the terminal, Helvetica Now Text in the chrome when installed (system font otherwise). From Eddie Cohen's PR #1.</li><li>Shells identify as Knife (TERM_PROGRAM=KnifeTerminal) instead of inheriting the launcher's terminal (Ghostty etc.).</li><li>Faster folder lookups for each tab (proc_pidinfo instead of lsof).</li></ul></p>]]></description>
       <enclosure
-        url="https://github.com/cheewee2000/knife-terminal/releases/download/v1.3.10/Knife-Terminal-1.3.10.zip"
+        url="https://github.com/cheewee2000/knife-terminal/releases/download/v1.3.12/Knife-Terminal-1.3.12.zip"
         type="application/octet-stream"
-        sparkle:edSignature="Si5Oc8thMzRTQma6NkfWPAXxYuWr0C/hIMN9PyNuLixrqQZ/OK8YXJPeRrO8SrRGkZB+kxvwx68tIloXiBMpAA==" length="4929180"/>
+        sparkle:edSignature="vFy1oX1AS0vBZSfJFMGNt9gv2yc2DQM8s3GxV6aC/MKgjTwqUfCdMgavC5cFm675QAsB/+sal8Jp2spPd5BjBw==" length="5473937"/>
     </item>
   </channel>
 </rss>
