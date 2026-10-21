@@ -151,7 +151,8 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     /// multi-select question shows the same title after the toggle, so the loop stops there.
     private func autoAnswer(ticks: Int, last: String?) {
         guard askPending, ticks > 0, let p = ScreenPrompt.parse(view.plainScreen()),
-              p.options.last?.hasPrefix("Chat about this") == true, p.title != last else { return }
+              p.options.last?.hasPrefix("Chat about this") == true || p.options.first == "Submit answers", // the review screen
+              p.title != last else { return }
         view.send(txt: "1")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.autoAnswer(ticks: ticks - 1, last: p.title) }
     }
