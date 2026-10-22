@@ -21,7 +21,9 @@ public struct ScreenPrompt: Equatable, Sendable {
     public static func parse(_ screen: String) -> ScreenPrompt? {
         var lines = screen.components(separatedBy: "\n").map { $0.replacingOccurrences(of: "\u{00a0}", with: " ") }
         while let last = lines.last, last.trimmingCharacters(in: .whitespaces).isEmpty { lines.removeLast() }
-        guard let footer = lines.indices.last(where: { lines[$0].contains("Esc to ") }),
+        // 2.1.308 draws the "Submit answers" review with no footer; its menu is the last thing on screen
+        let reviewTail = lines.count >= 2 && lines[lines.count - 2].contains("1. Submit answers")
+        guard let footer = reviewTail ? lines.count : lines.indices.last(where: { lines[$0].contains("Esc to ") }),
               footer >= lines.count - 3 else { return nil }
         var opts: [Int: String] = [:]
         var i = footer - 1

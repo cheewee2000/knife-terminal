@@ -51,6 +51,7 @@ final class ScreenPromptTests: XCTestCase {
         XCTAssertEqual(p?.options.first, "[ ] Red")
         XCTAssertEqual(p?.multiSelect, true)
         XCTAssertEqual(ScreenPrompt.parse("Ready to submit your answers?\n❯ 1. Submit answers\n  2. Cancel\nEsc to cancel")?.multiSelect, false)
+        XCTAssertEqual(ScreenPrompt.parse("────────────\nReady to submit your answers?\n❯ 1. Submit answers\n  2. Cancel\n\n")?.options, ["Submit answers", "Cancel"]) // 2.1.308: no footer
     }
 
     func testIdleScreenHasNoPrompt() {
