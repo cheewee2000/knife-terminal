@@ -78,6 +78,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shell.addItem(withTitle: "Close Tab", action: #selector(closeTab), keyEquivalent: "w").target = self
         shell.addItem(.separator())
         shell.addItem(withTitle: "Invite to Session…", action: #selector(invite), keyEquivalent: "").target = self
+        shell.addItem(.separator())
+        shell.addItem(withTitle: "Share Everything with Another Mac…", action: #selector(shareZone), keyEquivalent: "").target = self
+        shell.addItem(withTitle: "Leave Shared Mac", action: #selector(leaveHostZone), keyEquivalent: "").target = self
         main.addItem(withTitle: "Shell", action: nil, keyEquivalent: "").submenu = shell
 
         let edit = NSMenu(title: "Edit")
@@ -141,6 +144,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     @objc private func newMini() { AppModel.shared.newMiniTerm() }
     @objc private func invite() { if let t = front?.activeTab { Collab.shared.invite(t) } }
+    @objc private func shareZone() { Collab.shared.shareZone() }
+    @objc private func leaveHostZone() { Collab.shared.leaveHostZone() }
     @objc private func closeTab() {
         // ⌘W in a mini popout closes the popout
         if let key = NSApp.keyWindow, let mini = AppModel.shared.minis.first(where: { $0.window == key }) {

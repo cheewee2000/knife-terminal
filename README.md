@@ -1,6 +1,6 @@
 # Knife Terminal
 
-`CWT_STE3XM1_2607` · accent `#B1A57E` · v1.4.0
+`CWT_STE3XM1_2607` · accent `#B1A57E` · v1.4.1
 
 CW&T's own terminal. Native Swift — SwiftUI + [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) on macOS, with an iOS companion app that mirrors the Mac's live sessions over CloudKit. (The original Electron app lives in `legacy/electron/`.)
 
@@ -41,6 +41,7 @@ Needs Xcode signed into the CW&T Studio developer account (team `L6DVQR8JB9`) �
 
 ## Jobs: dictate a request, one Mac runs it
 - **Several Macs, one executor**: every Mac running Knife publishes its own tabs (tab ids are per-machine, so a laptop and an always-on mini can both be signed in). The one with `jobs: here` on in the footer is the executor: it answers the phone (job requests, project taps). The phone posts requests (the "ask" box at the top of the list — dictate with the keyboard mic); the Mac's sidebar has the same box. If the executor is asleep or closed, jobs wait until it's back.
+- **A Mac on another Apple ID** (the mini on its own account): Shell → "Share Everything with Another Mac…" on your Mac sends a zone-wide iCloud share (Messages/Mail/link); accepting it on the other Mac makes it a peer in your zone — its tabs on your phone, your requests to it — while its own iCloud stays untouched. Shell → "Leave Shared Mac" there goes back. While the zone share exists, "Invite to Session" can't be used (CloudKit allows one kind of share per zone).
 - **Where a project runs** (`run jobs on` in the phone's project menu, or right-click a project in the sidebar → Run Jobs On): a machine name, `cloud`, or auto (the executor). A request can override it for one job ("…on the laptop", "…in the cloud"). The executor routes every request, then runs it, or forwards it to the Mac it belongs on (which runs it when it's awake), or — for `cloud` — pushes a reminder that the project lives in the Claude app, not Knife. Tags live in one shared `projects-where` record; flip them as a project's needs change (an Xcode phase → laptop, a text-only phase → mini or cloud).
 - **Manifest**: the Mac publishes its recent projects with the **git remote** (the project's identity across machines), a one-line **description** (README first paragraph, else `claude -p --model haiku` writes one, cached in `~/.knife/descriptions.json`) and **last touched** time. The merged view lands in `~/.knife/manifest.json`. Projects without a remote can't be routed to.
 - **Routing** runs on the executor (`knife-job.sh`, bundled): the request + manifest go to haiku, which picks a remote with a confidence and three candidates. ≥ 0.75 dispatches; below that the job tab lists the candidates, pings the phone ("which project? 1 … 2 … 3 …") and one tap on 1/2/3 in the tab picks.

@@ -56,6 +56,14 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// After joining or leaving another Mac's zone: a fresh publisher against the new zone.
+    func restartSync() {
+        sync?.stop()
+        let publisher = SyncPublisher()
+        sync = publisher
+        publisher.start()
+    }
+
     /// CKContainer(identifier:) kills the process when the binary isn't signed
     /// with the iCloud entitlement (e.g. unsigned local builds) — check first.
     private static var hasCloudKitEntitlement: Bool {

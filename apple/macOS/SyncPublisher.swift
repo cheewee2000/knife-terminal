@@ -9,8 +9,21 @@ import KnifeKit
 /// requests and forwards those whose project runs elsewhere ("@<machine>:…").
 @MainActor
 final class SyncPublisher {
-    let cloud = CloudSync(role: "mac")
+    let cloud: CloudSync
     private var enabled = false
+
+    /// The other Apple ID's zone this Mac joined (zone-wide share), if any — see CloudSync.hostZone.
+    static var hostZone: SharedZone? {
+        get { UserDefaults.standard.data(forKey: "knife.hostZone").flatMap { try? JSONDecoder().decode(SharedZone.self, from: $0) } }
+        set { UserDefaults.standard.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "knife.hostZone") }
+    }
+
+    init() { cloud = CloudSync(role: "mac", hostZone: Self.hostZone) }
+
+    func stop() {
+        enabled = false
+        pollTimer?.invalidate(); flushTimer?.invalidate()
+    }
     var subReady = false
     private var dirty: Set<Int> = []          // tab ids with unpublished output
     private var flushTimer: Timer?

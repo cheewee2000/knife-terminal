@@ -176,7 +176,11 @@ public final class CloudSync: @unchecked Sendable {
     public let container: CKContainer
     public let db: CKDatabase
     public var sharedDB: CKDatabase { container.sharedCloudDatabase }
-    public let zoneID = CKRecordZone.ID(zoneName: "KnifeZone", ownerName: CKCurrentUserDefaultName)
+    public let zoneID: CKRecordZone.ID
+    /// Set on a Mac that joined another Apple ID's zone through a zone-wide share:
+    /// every operation then targets that zone in the shared database, so this
+    /// Mac publishes tabs, consumes requests and routes jobs as a peer there.
+    public let hostZone: SharedZone?
     private let role: String // "mac" | "ios" — namespaces tokens + subscription ids
     private let defaults = UserDefaults.standard
     // Setup (zone + subscriptions) is redone once per process — cheap, idempotent
@@ -212,10 +216,12 @@ public final class CloudSync: @unchecked Sendable {
         }
     }
 
-    public init(role: String) {
+    public init(role: String, hostZone: SharedZone? = nil) {
         self.role = role
+        self.hostZone = hostZone
         container = CKContainer(identifier: Self.containerID)
-        db = container.privateCloudDatabase
+        db = hostZone == nil ? container.privateCloudDatabase : container.sharedCloudDatabase
+        zoneID = hostZone?.zoneID ?? CKRecordZone.ID(zoneName: "KnifeZone", ownerName: CKCurrentUserDefaultName)
     }
 
     public func accountAvailable() async -> Bool {
@@ -225,6 +231,7 @@ public final class CloudSync: @unchecked Sendable {
     // ─── Setup ───
 
     public func ensureZone(force: Bool = false) async throws {
+        if hostZone != nil { return } // the host owns it; a guest can't create zones in the shared database
         if !force, setupDone.contains("zone") { return }
         let res = try await db.modifyRecordZones(saving: [CKRecordZone(zoneID: zoneID)], deleting: [])
         // per-zone failures don't throw at the top level — surface them
@@ -244,6 +251,10 @@ public final class CloudSync: @unchecked Sendable {
 
     /// Recreate the zone after a server-side zoneNotFound and forget the change token.
     private func recoverMissingZone() async throws {
+        if let hostZone {
+            Self.log("host zone \(hostZone.owner) is gone — the share ended; leave it (Shell → Leave Shared Mac)")
+            throw CKError(.zoneNotFound)
+        }
         Self.log("zone missing — recreating, change token dropped")
         changeToken = nil
         try await ensureZone(force: true)
@@ -384,6 +395,22 @@ public final class CloudSync: @unchecked Sendable {
         return share
     }
 
+    /// Host: the zone-wide CKShare on our zone (created if there isn't one) — another
+    /// Mac on a different Apple ID accepts it and runs its whole sync in our zone.
+    /// CloudKit allows either record shares or a zone-wide share in a zone, not both:
+    /// while this exists, Invite to Session fails.
+    public func shareZone() async throws -> CKShare {
+        let id = CKRecord.ID(recordName: CKRecordNameZoneWideShare, zoneID: zoneID)
+        if let existing = try? await db.record(for: id) as? CKShare { return existing }
+        let share = CKShare(recordZoneID: zoneID)
+        share[CKShare.SystemFieldKey.title] = "Knife Terminal" as CKRecordValue
+        share[CKShare.SystemFieldKey.shareType] = "com.cwandt.knifeterminal.zone" as CKRecordValue
+        share.publicPermission = .none
+        try await modify(save: [share], delete: nil)
+        Self.log("zone-wide share saved")
+        return share
+    }
+
     /// Guest: accept an invitation; the host's zone then shows up in fetchSharedChanges.
     public func accept(_ metadata: CKShare.Metadata) async throws {
         _ = try await container.accept(metadata)
@@ -465,7 +492,7 @@ public final class CloudSync: @unchecked Sendable {
 
     // ─── Zone-change fetch (both sides) ───
 
-    private var tokenKey: String { "knife.zoneToken.\(role)" }
+    private var tokenKey: String { "knife.zoneToken.\(role)" + (hostZone.map { ".host-" + $0.owner } ?? "") }
 
     private var changeToken: CKServerChangeToken? {
         get {

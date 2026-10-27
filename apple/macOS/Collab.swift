@@ -32,6 +32,34 @@ final class Collab: NSObject, NSCloudSharingServiceDelegate {
         }
     }
 
+    /// Host: share the whole zone with a Mac on another Apple ID (the always-on mini on its own
+    /// account). It then runs Knife as a peer in our zone: its tabs on our phone, our requests to it.
+    func shareZone() {
+        Task {
+            do {
+                guard let sync = AppModel.shared.sync, sync.cloud.hostZone == nil else {
+                    throw NSError(domain: "knife", code: 1, userInfo: [NSLocalizedDescriptionKey: "This Mac is itself a guest in another Mac's zone."])
+                }
+                let share = try await sync.cloud.shareZone()
+                let provider = NSItemProvider()
+                provider.registerCloudKitShare(share, container: sync.cloud.container)
+                let service = NSSharingService(named: .cloudSharing)!
+                service.delegate = self
+                service.perform(withItems: [provider])
+            } catch { Self.alert("Couldn't share this Mac's zone", error) }
+        }
+    }
+
+    /// Guest: stop running in the host's zone and go back to our own.
+    func leaveHostZone() {
+        guard let zone = SyncPublisher.hostZone else { return }
+        Task {
+            try? await cloud?.leave(zone)
+            SyncPublisher.hostZone = nil
+            AppModel.shared.restartSync()
+        }
+    }
+
     nonisolated func options(for service: NSSharingService, share provider: NSItemProvider) -> NSSharingService.CloudKitOptions {
         [.allowPrivate, .allowReadWrite] // invitees type too — that's the point
     }
@@ -53,15 +81,25 @@ final class Collab: NSObject, NSCloudSharingServiceDelegate {
 
     func accept(_ metadata: CKShare.Metadata) {
         Task {
-            do { try await cloud?.accept(metadata); await pull() }
-            catch { Self.alert("Couldn't join the session", error) }
+            do {
+                try await cloud?.accept(metadata)
+                // a zone-wide share: this Mac now lives in the host's zone (see CloudSync.hostZone)
+                if metadata.share.recordID.recordName == CKRecordNameZoneWideShare {
+                    let z = metadata.share.recordID.zoneID
+                    SyncPublisher.hostZone = SharedZone(owner: z.ownerName, zone: z.zoneName, shareRecord: CKRecordNameZoneWideShare)
+                    AppModel.shared.restartSync()
+                    return
+                }
+                await pull()
+            } catch { Self.alert("Couldn't join the session", error) }
         }
     }
 
     /// Fetch shared tabs (on the sync poll and on silent pushes); errors are logged by CloudSync.
     func pull() async {
         guard let cloud, let delta = try? await cloud.fetchSharedChanges() else { return }
-        for t in delta.tabs { apply(t) }
+        let host = cloud.hostZone?.owner   // the zone we run in is not a guest session
+        for t in delta.tabs where t.share?.owner != host { apply(t) }
         for id in delta.deletedTabRecordNames { drop(id) }
         for owner in delta.endedShares { for (id, m) in mirrored where m.share?.owner == owner { drop(id) } }
     }
