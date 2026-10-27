@@ -8,7 +8,7 @@ final class AppModel: ObservableObject {
     let theme = ThemeManager()
     var windows: [KnifeWindowController] = []
     weak var mostRecentWindow: KnifeWindowController?
-    private var nextTabId = 1
+    private var nextTabId = Manifest.tabIdBase
     private var owner: [Int: KnifeWindowController] = [:] // tab id → window
     private var tabById: [Int: TabModel] = [:]
     var sync: SyncPublisher?
@@ -165,10 +165,18 @@ final class AppModel: ObservableObject {
 
     private var jobScript: String { Bundle.main.path(forResource: Manifest.scriptName, ofType: "sh") ?? "" }
 
-    func dispatchJob(_ text: String) {
+    /// Whether this Mac takes the phone's requests (jobs, project taps). Off on a
+    /// Mac that only mirrors its own tabs while another one is the executor.
+    var executor: Bool {
+        get { UserDefaults.standard.object(forKey: "knife.executor") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "knife.executor") }
+    }
+
+    /// `here`: forwarded from the executor after routing — run it, don't route elsewhere again.
+    func dispatchJob(_ text: String, here: Bool = false) {
         let wc = frontWindow() ?? newWindow(withTab: false)
         wc.addTab(TabOptions(cwd: Manifest.dir + "/jobs",
-                             cmd: "bash \(shellQuote(jobScript)) run \(shellQuote(text))",
+                             cmd: "\(here ? "KNIFE_HERE=1 " : "")bash \(shellQuote(jobScript)) run \(shellQuote(text))",
                              title: "job: " + String(text.prefix(40))), activateIt: false)
     }
 
@@ -220,6 +228,12 @@ final class AppModel: ObservableObject {
             return nil
         }
         // "adopt <dir>" → git init + remote + claude tab; "alert <tab> <msg>" → attention + push (job runner)
+        // "forward <machine> <text>" → the job runner routed a request to a project that runs on another Mac
+        if trimmed.hasPrefix("forward ") {
+            let parts = trimmed.dropFirst(8).split(separator: " ", maxSplits: 1)
+            if parts.count == 2 { sync?.forward(to: String(parts[0]), path: CloudSync.jobPrefix + String(parts[1])) }
+            return nil
+        }
         if trimmed.hasPrefix("adopt ") {
             adoptFolder(String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespacesAndNewlines))
             return nil

@@ -87,10 +87,24 @@ public struct ProjectRef: Codable, Sendable, Identifiable, Equatable {
     public var remote: String?
     public var description: String?
     public var lastTouched: Date?
+    public var runOn: String?       // where its jobs run: a machine name (Manifest.machine), "cloud", or nil = the executor
     public var id: String { remote ?? path }
 
-    public init(name: String, path: String, remote: String? = nil, description: String? = nil, lastTouched: Date? = nil) {
-        self.name = name; self.path = path; self.remote = remote; self.description = description; self.lastTouched = lastTouched
+    public init(name: String, path: String, remote: String? = nil, description: String? = nil, lastTouched: Date? = nil, runOn: String? = nil) {
+        self.name = name; self.path = path; self.remote = remote; self.description = description; self.lastTouched = lastTouched; self.runOn = runOn
+    }
+
+    /// The run-on tags ride in one extra Projects record ("projects-where", written
+    /// by whoever sets a tag — phone or any Mac) as path-less entries, so no record
+    /// type or field had to be added: merge() strips them and applies the tag.
+    public static let whereMachine = "where"
+    public static func tags(_ lists: [[ProjectRef]]) -> [String: String] {
+        var t: [String: String] = [:]
+        for ref in lists.joined() where ref.path.isEmpty { if let r = ref.remote { t[r] = ref.runOn } }
+        return t
+    }
+    public static func tagRefs(_ tags: [String: String]) -> [ProjectRef] {
+        tags.map { ProjectRef(name: "", path: "", remote: $0.key, runOn: $0.value) }
     }
 
     /// The repo's web page for a git remote: git@host:o/r.git, ssh://git@host:22/o/r,
@@ -109,7 +123,8 @@ public struct ProjectRef: Codable, Sendable, Identifiable, Equatable {
     /// Sorted newest first.
     public static func merge(_ lists: [[ProjectRef]]) -> [ProjectRef] {
         var byId: [String: ProjectRef] = [:]
-        for ref in lists.joined() {
+        let tags = Self.tags(lists)
+        for ref in lists.joined() where !ref.path.isEmpty {
             guard var cur = byId[ref.id] else { byId[ref.id] = ref; continue }
             if (ref.lastTouched ?? .distantPast) > (cur.lastTouched ?? .distantPast) {
                 cur.name = ref.name; cur.path = ref.path; cur.lastTouched = ref.lastTouched
@@ -117,6 +132,7 @@ public struct ProjectRef: Codable, Sendable, Identifiable, Equatable {
             if cur.description?.isEmpty ?? true, let d = ref.description, !d.isEmpty { cur.description = d }
             byId[ref.id] = cur
         }
+        for (id, tag) in tags { byId[id]?.runOn = tag }
         return byId.values.sorted { ($0.lastTouched ?? .distantPast) > ($1.lastTouched ?? .distantPast) }
     }
 }

@@ -84,9 +84,9 @@ struct SessionListView: View {
                 if !closedProjects.isEmpty {
                     Section {
                         ForEach(closedProjects) { p in
-                            ProjectRow(project: p, pending: store.pendingOpens.contains(p.path)) { agent in
-                                store.openProject(p, agent: agent)
-                            }
+                            ProjectRow(project: p, pending: store.pendingOpens.contains(p.path), machines: store.machines,
+                                       open: { agent in store.openProject(p, agent: agent) },
+                                       setRunOn: { tag in store.setRunOn(p, tag) })
                         }
                     } header: {
                         Text("projects — tap to open on the Mac (Claude, or Codex via open ▾)").font(mono(10)).foregroundStyle(.secondary)
@@ -135,27 +135,39 @@ struct SessionListView: View {
 struct ProjectRow: View {
     let project: ProjectRef
     let pending: Bool
+    let machines: [String]
     let open: (String) -> Void   // "claude" | "codex"
+    let setRunOn: (String?) -> Void   // machine | "cloud" | nil = the executor
+
+    private var cloud: Bool { project.runOn == "cloud" }
 
     var body: some View {
         HStack(spacing: 8) {
             Text(Emoji.forPath(project.path))
             Text(project.name).font(mono(13)).lineLimit(1)
+            if let w = project.runOn { Text(w).font(mono(10)).foregroundStyle(.secondary).lineLimit(1) }
             Spacer()
             if pending {
                 ProgressView().controlSize(.small)
             } else {
                 Menu {
-                    Button("open with Claude Code") { open("claude") }
-                    Button("open with Codex") { open("codex") }
+                    if !cloud {
+                        Button("open with Claude Code") { open("claude") }
+                        Button("open with Codex") { open("codex") }
+                    }
+                    Menu("run jobs on" + (project.runOn.map { " (\($0))" } ?? "")) {
+                        Button("auto — the executor") { setRunOn(nil) }
+                        ForEach(machines, id: \.self) { m in Button(m) { setRunOn(m) } }
+                        Button("cloud — the Claude app, not Knife") { setRunOn("cloud") }
+                    }
                 } label: {
-                    Text("open ▾").font(mono(11)).foregroundStyle(knifeAccent)
+                    Text(cloud ? "cloud ▾" : "open ▾").font(mono(11)).foregroundStyle(knifeAccent)
                 }
             }
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
-        .onTapGesture { if !pending { open("claude") } } // row tap = Claude, the default agent
+        .onTapGesture { if !pending && !cloud { open("claude") } } // row tap = Claude, the default agent; cloud projects live in the Claude app
     }
 }
 

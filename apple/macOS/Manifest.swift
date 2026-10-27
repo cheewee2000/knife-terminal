@@ -18,9 +18,35 @@ enum Manifest {
         return String(raw.map { $0.isLetter || $0.isNumber ? $0 : "-" })
     }()
 
+    /// Tab ids start here so two Macs publishing to the same zone never collide
+    /// (Tab records are "tab-<id>" and Input/Seen/Close records carry the id):
+    /// a stable hash of the machine name × 10000. Ids are opaque everywhere else.
+    static let tabIdBase: Int = {
+        let h = machine.utf8.reduce(5381) { ($0 &* 33 &+ Int($1)) & 0x7fff_ffff }
+        return (h % 900 + 100) * 10_000 + 1
+    }()
+
     /// Other machines' lists, as last fetched from CloudKit (record name → refs).
     static var remoteLists: [String: [ProjectRef]] = [:]
     static private(set) var merged: [ProjectRef] = []
+
+    /// Every Mac publishing a manifest slice (this one included) — the run-on choices.
+    static var machines: [String] {
+        let others = remoteLists.keys.map { String($0.dropFirst("projects-".count)) }.filter { $0 != ProjectRef.whereMachine }
+        return Array(Set(others + [machine])).sorted()
+    }
+
+    static var tags: [String: String] { ProjectRef.tags([remoteLists["projects-" + ProjectRef.whereMachine] ?? []]) }
+
+    /// Set (or clear, tag nil) where a project's jobs run; lands in the shared
+    /// "projects-where" record so every Mac and the phone see it.
+    static func setRunOn(remote: String, tag: String?) {
+        var t = tags; t[remote] = tag
+        let refs = ProjectRef.tagRefs(t)
+        remoteLists["projects-" + ProjectRef.whereMachine] = refs
+        write(local: localRefs())
+        Task { try? await AppModel.shared.sync?.cloud.saveProjects(refs, machine: ProjectRef.whereMachine) }
+    }
 
     // ─── This machine's entries ───
 
@@ -42,6 +68,7 @@ enum Manifest {
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         try? enc.encode(merged).write(to: URL(fileURLWithPath: path), options: .atomic)
+        try? JSONEncoder().encode(["self": [machine], "all": machines]).write(to: URL(fileURLWithPath: dir + "/machines.json"), options: .atomic)
     }
 
     /// Sidebar list: this Mac's projects, then manifest projects that only exist

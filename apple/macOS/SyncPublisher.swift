@@ -4,7 +4,9 @@ import KnifeKit
 
 /// Mac side of the iOS mirror: publishes Tab records (coalesced), consumes
 /// Input records, creates Alert records for push notifications, and runs the
-/// phone's job requests. One Mac is the executor; run Knife on one Mac.
+/// phone's job requests. Several Macs may run Knife (tab ids are per-machine,
+/// see Manifest.tabIdBase); the one with `executor` on takes the phone's
+/// requests and forwards those whose project runs elsewhere ("@<machine>:…").
 @MainActor
 final class SyncPublisher {
     let cloud = CloudSync(role: "mac")
@@ -97,6 +99,12 @@ final class SyncPublisher {
         Task { try? await cloud.deleteTabs([id]) } // failure logged by CloudSync
     }
 
+    /// Hand a phone request to the Mac named `machine`: a new Open record it alone consumes.
+    func forward(to machine: String, path: String) {
+        guard enabled else { return }
+        Task { try? await cloud.sendOpen(path: "@\(machine):" + path) }
+    }
+
     func publishAlert(tabTitle: String, message: String) {
         guard enabled else { return }
         Task { try? await cloud.publishAlert(tabTitle: tabTitle, message: message) }
@@ -177,8 +185,10 @@ final class SyncPublisher {
         if !delta.garbage.isEmpty { Task { try? await cloud.deleteRecords(delta.garbage) } }
         guard !delta.inputs.isEmpty || !delta.opens.isEmpty || !delta.closes.isEmpty || !delta.seens.isEmpty
         else { return }
+        var consumed: [CKRecord.ID] = []   // another Mac's records stay for it to consume
         for input in delta.inputs {
             guard let tab = AppModel.shared.tab(input.tabId) else { continue }
+            consumed.append(input.recordID)
             let text = input.data
             if text.count > 1, text.hasSuffix("\r") {
                 tab.view.typeLine(String(text.dropLast()))   // composer text: typed, not pasted
@@ -190,34 +200,43 @@ final class SyncPublisher {
         // "codex:<path>" picks Codex CLI — the Open record can't grow a cmd
         // field without a Production CloudKit schema deploy, so it rides in path
         // "job:<text>" is a request to route + run (see knife-job.sh)
+        // "@<machine>:…" was forwarded by the executor to that Mac (its project runs there)
+        let mine = "@" + Manifest.machine + ":"
         for open in delta.opens where !open.path.isEmpty {
-            if open.path.hasPrefix(CloudSync.jobPrefix) {
-                AppModel.shared.dispatchJob(String(open.path.dropFirst(CloudSync.jobPrefix.count)))
-            } else if open.path.hasPrefix("codex:") {
-                AppModel.shared.openProject(String(open.path.dropFirst(6)), cmd: "codex")
-            } else {
-                AppModel.shared.openProject(open.path, cmd: "claude")
+            var path = open.path, forwarded = false
+            if path.hasPrefix(mine) { path = String(path.dropFirst(mine.count)); forwarded = true }
+            else if path.hasPrefix("@") || !AppModel.shared.executor { continue }
+            consumed.append(open.recordID)
+            if path.hasPrefix(CloudSync.jobPrefix) {
+                AppModel.shared.dispatchJob(String(path.dropFirst(CloudSync.jobPrefix.count)), here: forwarded)
+                continue
+            }
+            let project = path.hasPrefix("codex:") ? String(path.dropFirst(6)) : path
+            switch forwarded ? nil : Manifest.merged.first(where: { $0.path == project })?.runOn {
+            case "cloud":
+                publishAlert(tabTitle: (project as NSString).lastPathComponent, message: "runs in the cloud — open it in the Claude app")
+            case let machine? where machine != Manifest.machine:
+                forward(to: machine, path: path)
+            default:
+                AppModel.shared.openProject(project, cmd: path.hasPrefix("codex:") ? "codex" : "claude")
             }
         }
         // phone asked to close a tab
         for close in delta.closes {
             for wc in AppModel.shared.windows where wc.tabs.contains(where: { $0.id == close.tabId }) {
+                consumed.append(close.recordID)
                 wc.closeTab(close.tabId)
                 break
             }
         }
         // phone viewed a tab → its "waiting for you" flag is acknowledged
         for seen in delta.seens {
-            if let tab = AppModel.shared.tab(seen.tabId), tab.attention {
-                tab.attention = false
-                tabStateChanged(tab)
-            }
+            guard let tab = AppModel.shared.tab(seen.tabId) else { continue }
+            consumed.append(seen.recordID)
+            if tab.attention { tab.attention = false; tabStateChanged(tab) }
         }
-        try? await cloud.deleteRecords(delta.inputs.map { $0.recordID }
-                                       + delta.opens.map { $0.recordID }
-                                       + delta.closes.map { $0.recordID }
-                                       + delta.seens.map { $0.recordID })
+        try? await cloud.deleteRecords(consumed)
         // phone typed → screen will change; make sure it mirrors back fast
-        for input in delta.inputs { markDirty(input.tabId, urgent: true) }
+        for input in delta.inputs where AppModel.shared.tab(input.tabId) != nil { markDirty(input.tabId, urgent: true) }
     }
 }

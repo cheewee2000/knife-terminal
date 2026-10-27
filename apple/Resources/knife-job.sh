@@ -15,6 +15,7 @@ set -u
 KNIFE=$HOME/.knife
 MANIFEST=${KNIFE_MANIFEST:-$KNIFE/manifest.json}   # overrides: self-check against a scratch repo
 CLONES=${KNIFE_CLONES:-$KNIFE/projects}
+MACHINES=${KNIFE_MACHINES:-$KNIFE/machines.json}   # {"self": [this Mac], "all": [every Mac publishing a manifest]}
 SOCK=$HOME/.knife-terminal.sock
 mkdir -p "$KNIFE/jobs" "$KNIFE/router" "$CLONES"
 
@@ -90,21 +91,40 @@ for p in json.load(open(sys.argv[1])):
 PY
 )
   [ -n "$list" ] || fail "manifest is empty — open a project with a git remote first"
+  local machines; machines=$(python3 -c 'import json,sys
+try: print(", ".join(json.load(open(sys.argv[1]))["all"]))
+except Exception: pass' "$MACHINES")
   ask "You route a spoken request to one software project.
 Projects (name | remote | last touched | description):
 $list
 
+Machines that can run it: ${machines:-none}, cloud
+
 Request: \"$1\"
 
-Pick the project the request is about. Recently touched projects are more likely, but a clear name or topic match wins. Reply with only this JSON, nothing else:
-{\"remote\": \"<remote url of the best match>\", \"confidence\": <0.0-1.0>, \"candidates\": [\"<remote>\", \"<remote>\", \"<remote>\"]}
+Pick the project the request is about. Recently touched projects are more likely, but a clear name or topic match wins. If the request says where to run it (\"on the laptop\", \"on the mini\", \"in the cloud\"), map that to a machine name from the list or cloud; otherwise where is null. Reply with only this JSON, nothing else:
+{\"remote\": \"<remote url of the best match>\", \"confidence\": <0.0-1.0>, \"candidates\": [\"<remote>\", \"<remote>\", \"<remote>\"], \"where\": <machine name | \"cloud\" | null>}
 candidates = the 3 most likely remotes, best first." | python3 -c '
 import json, re, sys
 m = re.search(r"\{.*\}", sys.stdin.read(), re.S)
 j = json.loads(m.group(0)) if m else {}
 c = [r for r in j.get("candidates", []) if r][:3] or ([j["remote"]] if j.get("remote") else [])
-print(json.dumps({"remote": j.get("remote") or (c[0] if c else ""), "confidence": float(j.get("confidence", 0) or 0), "candidates": c}))'
+print(json.dumps({"remote": j.get("remote") or (c[0] if c else ""), "confidence": float(j.get("confidence", 0) or 0), "candidates": c, "where": j.get("where")}))'
 }
+
+# where a job runs: the request'"'"'s say-so (if it names a known machine or cloud), else the
+# project'"'"'s run-on tag (manifest runOn, set from the phone or a sidebar), else here.
+# Prints a machine name, cloud, or nothing when it is this Mac. $1 remote, $2 route json.
+where_of() { python3 -c '
+import json, sys
+def load(p, d):
+    try: return json.load(open(p))
+    except Exception: return d
+m = load(sys.argv[2], {"self": [""], "all": []}); j = json.loads(sys.argv[4])
+w = j.get("where")
+if w not in m["all"] + ["cloud"]:
+    w = next((p.get("runOn") for p in load(sys.argv[1], []) if p.get("remote") == sys.argv[3]), None)
+print("" if not w or w == m["self"][0] else w)' "$MANIFEST" "$MACHINES" "$1" "$2"; }
 
 name_of() { python3 -c '
 import json, sys
@@ -156,6 +176,15 @@ run() {
     remote=${names[$((pick-1))]}
   fi
   name=$(name_of "$remote"); name=${name:-$(basename "${remote%.git}")}
+
+  # not ours? hand it to the Mac it runs on (KNIFE_HERE: it was handed to us, run it)
+  local where; where=$(where_of "$remote" "$r")
+  if [ -z "${KNIFE_HERE:-}" ] && [ -n "$where" ]; then
+    [ "$where" = cloud ] && fail "$name runs in the cloud — open it in the Claude app"
+    say "→ $name runs on $where — forwarding"
+    printf 'forward %s %s' "$where" "$text" | nc -U -w 1 "$SOCK" >/dev/null 2>&1 || fail "could not reach Knife to forward"
+    exit 0
+  fi
   repo=$(resolve "$remote") || fail "could not clone $remote"
 
   # The overseer: a claude session whose only tool is knife-tab. It opens the project

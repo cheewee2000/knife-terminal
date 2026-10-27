@@ -256,6 +256,14 @@ struct SidebarView: View {
         } else {
             Button("No Git Remote") {}.disabled(true)
         }
+        if let remote {
+            let tag = Manifest.tags[remote]
+            Menu("Run Jobs On" + (tag.map { " (\($0))" } ?? "")) {
+                Button("auto — the executor") { Manifest.setRunOn(remote: remote, tag: nil) }
+                ForEach(Manifest.machines, id: \.self) { m in Button(m) { Manifest.setRunOn(remote: remote, tag: m) } }
+                Button("cloud — the Claude app, not Knife") { Manifest.setRunOn(remote: remote, tag: "cloud") }
+            }
+        }
     }
 
     private func reload() {
@@ -329,6 +337,7 @@ struct FooterBar: View {
     @AppStorage("gitPanel") private var gitPanel = false
     @AppStorage("chatView") private var chatView = false
     @State private var hooksOn = HooksInstaller.installed()
+    @State private var executor = AppModel.shared.executor
     @State private var ctxScope: String? = nil
     @AppStorage("questionTimeout") private var questionTimeout: Double = 300 // TabModel.questionTimeout reads the same key
     private static let timeouts: [(String, Double)] = [("off", 0), ("1 min", 60), ("2 min", 120), ("5 min", 300), ("10 min", 600), ("30 min", 1800)]
@@ -370,6 +379,9 @@ struct FooterBar: View {
                     _ = HooksInstaller.install(); hooksOn = HooksInstaller.installed()
                 }
                 btn("set default", help: "make Knife the default terminal") { DefaultTerminal.register() }
+                btn(executor ? "jobs: here" : "jobs: off", on: executor, help: "this Mac runs the phone's requests (jobs, project taps) — off when another Mac is the executor") {
+                    AppModel.shared.executor.toggle(); executor = AppModel.shared.executor
+                }
                 sep
                 autoPickMenu
                 Spacer(minLength: 8)

@@ -196,6 +196,22 @@ final class MirrorStore: ObservableObject {
         }
     }
 
+    /// Macs publishing a manifest slice — the run-on choices.
+    var machines: [String] {
+        projectLists.keys.map { String($0.dropFirst("projects-".count)) }.filter { $0 != ProjectRef.whereMachine && $0 != "demo" }.sorted()
+    }
+
+    /// Where a project's jobs run (a machine, "cloud", nil = the executor): the
+    /// shared "projects-where" record, rewritten whole (last writer wins).
+    func setRunOn(_ p: ProjectRef, _ tag: String?) {
+        guard let remote = p.remote else { return }
+        let key = "projects-" + ProjectRef.whereMachine
+        var t = ProjectRef.tags([projectLists[key] ?? []]); t[remote] = tag
+        let refs = ProjectRef.tagRefs(t)
+        projectLists[key] = refs
+        Task { try? await cloud.saveProjects(refs, machine: ProjectRef.whereMachine) }
+    }
+
     /// Ask the Mac to open this project in a new tab (running claude).
     /// The new tab mirrors back through the normal sync within a few seconds.
     func openProject(_ p: ProjectRef, agent: String = "claude") {
