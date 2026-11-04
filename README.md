@@ -1,6 +1,6 @@
 # Knife Terminal
 
-`CWT_STE3XM1_2607` · accent `#B1A57E` · v1.4.1
+`CWT_STE3XM1_2607` · accent `#B1A57E` · v1.4.2
 
 CW&T's own terminal. Native Swift — SwiftUI + [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) on macOS, with an iOS companion app that mirrors the Mac's live sessions over CloudKit. (The original Electron app lives in `legacy/electron/`.)
 

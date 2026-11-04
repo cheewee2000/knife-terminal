@@ -261,7 +261,7 @@ enum Projects {
                 return Project(path: p, name: (p as NSString).lastPathComponent, t: t)
             }
             .sorted { $0.t > $1.t }
-            .prefix(30).map { $0 }
+            .prefix(100).map { $0 }
     }
 }
 
