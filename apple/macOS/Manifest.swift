@@ -26,6 +26,8 @@ enum Manifest {
         return (h % 900 + 100) * 10_000 + 1
     }()
 
+    static func owns(_ tabId: Int) -> Bool { (tabIdBase..<tabIdBase + 10_000).contains(tabId) }
+
     /// Other machines' lists, as last fetched from CloudKit (record name → refs).
     static var remoteLists: [String: [ProjectRef]] = [:]
     static private(set) var merged: [ProjectRef] = []

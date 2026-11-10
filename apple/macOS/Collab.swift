@@ -99,6 +99,12 @@ final class Collab: NSObject, NSCloudSharingServiceDelegate {
     func pull() async {
         guard let cloud, let delta = try? await cloud.fetchSharedChanges() else { return }
         let host = cloud.hostZone?.owner   // the zone we run in is not a guest session
+        if let host, delta.endedShares.contains(host) {   // the host stopped sharing: back to our own zone
+            CloudSync.log("host zone \(host) is gone — back to this Mac's own zone")
+            SyncPublisher.hostZone = nil
+            AppModel.shared.restartSync()
+            return
+        }
         for t in delta.tabs where t.share?.owner != host { apply(t) }
         for id in delta.deletedTabRecordNames { drop(id) }
         for owner in delta.endedShares { for (id, m) in mirrored where m.share?.owner == owner { drop(id) } }

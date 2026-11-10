@@ -11,6 +11,7 @@ import KnifeKit
 final class SyncPublisher {
     let cloud: CloudSync
     private var enabled = false
+    static let launched = Date()
 
     /// The other Apple ID's zone this Mac joined (zone-wide share), if any — see CloudSync.hostZone.
     static var hostZone: SharedZone? {
@@ -18,7 +19,7 @@ final class SyncPublisher {
         set { UserDefaults.standard.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "knife.hostZone") }
     }
 
-    init() { cloud = CloudSync(role: "mac", hostZone: Self.hostZone) }
+    init() { cloud = CloudSync(role: "mac", hostZone: Self.hostZone); _ = Self.launched }
 
     func stop() {
         enabled = false
@@ -67,11 +68,10 @@ final class SyncPublisher {
                 try await cloud.deleteLegacyProjectsRecord()
                 UserDefaults.standard.set(true, forKey: "knife.legacyProjectsGone")
             }
-            // one-time: re-walk the whole zone so leaked Alert records get purged
-            if !UserDefaults.standard.bool(forKey: "knife.purgedAlerts") {
-                cloud.resetChangeToken()
-                UserDefaults.standard.set(true, forKey: "knife.purgedAlerts")
-            }
+            // re-walk the whole zone each launch: other Macs' project lists and the run-on
+            // tags (Manifest.remoteLists) live in memory only, and an unchanged record
+            // never comes back through an incremental fetch
+            cloud.resetChangeToken()
         } catch {
             NSLog("knife sync: setup failed (will retry): \(error)")
             return
@@ -199,9 +199,15 @@ final class SyncPublisher {
         guard !delta.inputs.isEmpty || !delta.opens.isEmpty || !delta.closes.isEmpty || !delta.seens.isEmpty
         else { return }
         var consumed: [CKRecord.ID] = []   // another Mac's records stay for it to consume
+        // A record for one of this Mac's tab ids is ours to delete even when the tab is gone;
+        // one written before this launch is for a previous run's tab (ids restart) — never apply it.
+        func target(_ tabId: Int, _ ts: Date, _ id: CKRecord.ID) -> TabModel? {
+            guard Manifest.owns(tabId) else { return nil }
+            consumed.append(id)
+            return ts < Self.launched ? nil : AppModel.shared.tab(tabId)
+        }
         for input in delta.inputs {
-            guard let tab = AppModel.shared.tab(input.tabId) else { continue }
-            consumed.append(input.recordID)
+            guard let tab = target(input.tabId, input.ts, input.recordID) else { continue }
             let text = input.data
             if text.count > 1, text.hasSuffix("\r") {
                 tab.view.typeLine(String(text.dropLast()))   // composer text: typed, not pasted
@@ -220,6 +226,8 @@ final class SyncPublisher {
             if path.hasPrefix(mine) { path = String(path.dropFirst(mine.count)); forwarded = true }
             else if path.hasPrefix("@") || !AppModel.shared.executor { continue }
             consumed.append(open.recordID)
+            // a request that sat a day (its Mac was off, or no Mac was taking requests) is dropped, not sprung on you
+            if open.ts < Date().addingTimeInterval(-86_400) { CloudSync.log("dropped stale request: \(path.prefix(60))"); continue }
             if path.hasPrefix(CloudSync.jobPrefix) {
                 AppModel.shared.dispatchJob(String(path.dropFirst(CloudSync.jobPrefix.count)), here: forwarded)
                 continue
@@ -236,16 +244,12 @@ final class SyncPublisher {
         }
         // phone asked to close a tab
         for close in delta.closes {
-            for wc in AppModel.shared.windows where wc.tabs.contains(where: { $0.id == close.tabId }) {
-                consumed.append(close.recordID)
-                wc.closeTab(close.tabId)
-                break
-            }
+            guard let tab = target(close.tabId, close.ts, close.recordID) else { continue }
+            AppModel.shared.window(of: tab)?.closeTab(tab.id)
         }
         // phone viewed a tab → its "waiting for you" flag is acknowledged
         for seen in delta.seens {
-            guard let tab = AppModel.shared.tab(seen.tabId) else { continue }
-            consumed.append(seen.recordID)
+            guard let tab = target(seen.tabId, seen.ts, seen.recordID) else { continue }
             if tab.attention { tab.attention = false; tabStateChanged(tab) }
         }
         try? await cloud.deleteRecords(consumed)

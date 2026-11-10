@@ -414,7 +414,7 @@ public final class CloudSync: @unchecked Sendable {
     /// Guest: accept an invitation; the host's zone then shows up in fetchSharedChanges.
     public func accept(_ metadata: CKShare.Metadata) async throws {
         _ = try await container.accept(metadata)
-        Self.log("accepted share from \(metadata.rootRecordID.zoneID.ownerName)")
+        Self.log("accepted share from \(metadata.share.recordID.zoneID.ownerName)")
     }
 
     /// Guest: leave a share (a participant deleting the CKShare removes only themselves).
@@ -614,7 +614,7 @@ public final class CloudSync: @unchecked Sendable {
         let (changed, gone, newDBToken) = try await databaseChanges(db: sharedDB, since: dbToken)
         var tokens = sharedZoneToken
         for z in gone { delta.endedShares.append(z.ownerName); tokens[z.ownerName] = nil }
-        for z in changed {
+        for z in changed where z != hostZone?.zoneID {   // the zone we run in is fetchChanges' job
             let since = tokens[z.ownerName].flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: CKServerChangeToken.self, from: $0) }
             var more = true, token = since
             while more {
