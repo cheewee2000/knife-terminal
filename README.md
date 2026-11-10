@@ -1,6 +1,6 @@
 # Knife Terminal
 
-`CWT_STE3XM1_2607` · accent `#B1A57E` · v1.4.3
+`CWT_STE3XM1_2607` · accent `#B1A57E` · v1.4.4
 
 CW&T's own terminal. Native Swift — SwiftUI + [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) on macOS, with an iOS companion app that mirrors the Mac's live sessions over CloudKit. (The original Electron app lives in `legacy/electron/`.)
 
@@ -23,7 +23,7 @@ Needs Xcode signed into the CW&T Studio developer account (team `L6DVQR8JB9`) �
 - **Default terminal**: Knife Terminal menu → "Make Default Terminal…" (or `set default` in the footer) registers Knife for `.command`/`.sh`/`.tool`/unix executables and `ssh://`, `telnet://`, `x-man-page://` links. Folders: Finder → Open With → Knife Terminal, or `open -a "Knife Terminal" <dir>`. To open a folder with `claude` running: `printf "open %s" "$dir" | nc -U ~/.knife-terminal.sock` (the Finder "Open with Claude" quick action does this).
 - **Claude Code alerts**: "Install Claude Code Alert Hooks…" (or `alerts` in the footer) adds hooks to `~/.claude/settings.json` that ping `~/.knife-terminal.sock`; the tab pulses while Claude works and glows with a chime when it's waiting for you. The phone push says why: the permission or question text, or the last paragraph of Claude's reply. A turn that ends on a usage limit (the `StopFailure` hook, added to existing installs on launch) reads `limit` to the job runner, which pauses the job instead of resuming its overseer. Any terminal bell in a background tab does the same. Same socket protocol as the Electron app — already-installed hooks keep working.
 - **Session restore**: tabs (and their working directories) are saved and reopened on next launch; project tabs relaunch `claude --resume <the tab's session id>` (from its hooks), so two tabs in one project each get their own conversation back; `claude -c` only when no hook has reported one. Reads the old Electron session file on first run.
-- Drag files/folders onto the terminal to paste their shell-quoted paths. URLs and file paths on screen are underlined in the accent color and open on a plain click — URLs in the browser, folders in Finder, files in Quick Look (⌥-click reveals in Finder) (⌘-click works anywhere, incl. the input row). Paths resolve absolute, `~`, and relative-to-the-shell's-cwd forms, and a `file.swift:12` reference opens VS Code at that line.
+- Drag files/folders onto the terminal to paste their shell-quoted paths. URLs and file paths on screen are underlined in the accent color and open on a plain click — URLs in the browser, folders in Finder, files in Quick Look (⌥-click reveals in Finder) (⌘-click works anywhere, incl. the input row). Paths resolve absolute, `~`, and relative forms (against the shell's cwd, else its nearest ancestor folder that has the path — so repo-relative paths link from a subfolder), and a `file.swift:12` reference opens VS Code at that line.
 
 ## iOS mirror
 - One sign-in = your Apple ID. The Mac publishes every tab (title, status, rendered text tail, last 50 chat messages) and its recent-projects list to your private CloudKit database; the phone shows tabs in a native text view — wraps to the screen, native selection/copy, no side-scrolling, tappable links.

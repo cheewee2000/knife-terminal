@@ -515,7 +515,11 @@ final class KnifeTermView: LocalProcessTerminalView {
             path = (path as NSString).expandingTildeInPath
         } else if !path.hasPrefix("/") {
             guard let cwd else { return nil }
-            path = cwd + "/" + path
+            // relative to the cwd, else to the nearest ancestor that has it — an agent sitting
+            // in apple/ that prints apple/macOS/Foo.swift (repo-relative) still gets a link
+            var dir = cwd
+            while dir.count > 1, !FileManager.default.fileExists(atPath: dir + "/" + path) { dir = (dir as NSString).deletingLastPathComponent }
+            path = dir + "/" + path
         }
         path = (path as NSString).standardizingPath
         guard FileManager.default.fileExists(atPath: path) else { return nil }
