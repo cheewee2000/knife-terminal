@@ -187,6 +187,7 @@ final class KnifeTermView: LocalProcessTerminalView {
     //   Shift+Enter        newline instead of submit (ESC CR, Claude Code's binding)
     //   ⌃Delete / ⌘Delete  delete the whole input line (^E ^U)
     //   Delete w/selection erase the highlighted text on the input row
+    //   typing / ⌘V w/selection  replace it
     private var keyMonitor: Any?
 
     private func installKeyMonitor() {
@@ -212,6 +213,12 @@ final class KnifeTermView: LocalProcessTerminalView {
         if event.keyCode == 51, mods.isEmpty, selection.active {
             deleteSelection()
             return nil
+        }
+        // Typing (or ⌘V) over a highlight replaces it, as in any text field: erase, then let the key through.
+        if selection.active {
+            let typed = mods.subtracting(.shift).isEmpty && (event.characters?.unicodeScalars.first).map {
+                $0.value >= 0x20 && $0.value != 0x7f && !(0xF700...0xF8FF).contains($0.value) } == true // not control or function keys
+            if typed || (event.keyCode == 9 && mods == [.command]) { deleteSelection() }
         }
         return event
     }
