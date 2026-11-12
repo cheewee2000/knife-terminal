@@ -60,8 +60,9 @@ enum TranscriptReader {
         if size < c.offset { c = Cached(parser: .init(codex: codex), offset: 0, partial: Data(), used: Date()) } // rewritten
         if size > c.offset {
             try? fh.seek(toOffset: c.offset)
-            var data = c.partial + ((try? fh.readToEnd()) ?? Data())
-            c.offset = size
+            let fresh = (try? fh.readToEnd()) ?? Data()
+            var data = c.partial + fresh
+            c.offset += UInt64(fresh.count)   // what was read, not the size measured before: the file may have grown in between
             // hold back a trailing line that isn't finished yet
             if let nl = data.lastIndex(of: 0x0A) {
                 c.partial = Data(data[data.index(after: nl)...])
@@ -97,6 +98,23 @@ enum TranscriptReader {
         return newest
     }
 
+    /// The cwd a Codex session was started in: its first line is session_meta
+    /// {"payload":{"cwd":…}}. That line carries the whole base prompt (about 22 KB in
+    /// Codex 0.4x), so a small read never reaches its newline.
+    static func codexCwd(of path: String) -> String? {
+        codexLock.lock(); defer { codexLock.unlock() }
+        if let known = codexCwds[path] { return known }
+        guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? fh.close() }
+        guard let head = try? fh.read(upToCount: 1 << 20), let nl = head.firstIndex(of: 0x0A),
+              let meta = (try? JSONSerialization.jsonObject(with: head[..<nl])) as? [String: Any],
+              let cwd = (meta["payload"] as? [String: Any])?["cwd"] as? String else { return nil }
+        codexCwds[path] = cwd   // the first line never changes
+        return cwd
+    }
+    private static var codexCwds: [String: String] = [:]
+    private static let codexLock = NSLock()
+
     private static func newestCodex(_ cwd: String, _ claimed: Set<String>) -> Found? {
         let fm = FileManager.default
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy/MM/dd"
@@ -107,14 +125,7 @@ enum TranscriptReader {
             for name in names where name.hasSuffix(".jsonl") {
                 let path = dir + "/" + name
                 guard !claimed.contains(path), let m = mtime(path), m.timeIntervalSinceNow > -maxAge,
-                      newest == nil || m > newest!.mtime,
-                      let fh = FileHandle(forReadingAtPath: path) else { continue }
-                defer { try? fh.close() }
-                // first line is session_meta {"payload":{"cwd":…}}
-                guard let head = try? fh.read(upToCount: 4096),
-                      let nl = head.firstIndex(of: 0x0A),
-                      let meta = (try? JSONSerialization.jsonObject(with: head[..<nl])) as? [String: Any],
-                      (meta["payload"] as? [String: Any])?["cwd"] as? String == cwd else { continue }
+                      newest == nil || m > newest!.mtime, codexCwd(of: path) == cwd else { continue }
                 newest = (path, m, true)
             }
         }
