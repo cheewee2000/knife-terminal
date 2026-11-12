@@ -111,7 +111,7 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         }
         view.onOutput = { [weak self] in
             guard let self else { return }
-            if self.ttyDev == 0 { self.ttyDev = Self.ttyOf(pid: self.shellPid) } // remembered for terminate(), when the shell may already be gone
+            if self.sessionPid == 0 { self.sessionPid = self.shellPid } // remembered for terminate(), when the shell may already be gone
             AppModel.shared.sync?.tabOutput(self)
         }
     }
@@ -121,36 +121,31 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         return ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
     }
 
-    /// Everything started in this tab shares its tty, even helpers that were
-    /// reparented to launchd. SwiftTerm only signals the shell, so a helper
+    /// Everything started in this tab is in the shell's session, even helpers that
+    /// were reparented to launchd. SwiftTerm only signals the shell, so a helper
     /// that never handles SIGHUP (a busy-looping MCP server) outlives the tab.
-    private var ttyDev: UInt32 = 0
-    static func ttyOf(pid: pid_t) -> UInt32 {
-        var info = proc_bsdinfo()
-        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard pid > 0, proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size,
-              info.e_tdev != UInt32.max else { return 0 } // NODEV: no controlling tty
-        return info.e_tdev
-    }
-    static func pids(onTty dev: UInt32) -> [pid_t] {
-        guard dev != 0 else { return [] }
-        var buf = [pid_t](repeating: 0, count: 4096)
-        let bytes = proc_listpids(UInt32(PROC_TTY_ONLY), dev, &buf, Int32(buf.count * MemoryLayout<pid_t>.size))
-        return buf.prefix(max(0, Int(bytes)) / MemoryLayout<pid_t>.size).filter { $0 > 0 }
+    /// Session, not tty: once the shell exits the kernel detaches the tty from
+    /// what it left behind, but the session id stays.
+    private var sessionPid: pid_t = 0
+    static func pids(inSession sid: pid_t) -> [pid_t] {
+        guard sid > 0 else { return [] }
+        var buf = [pid_t](repeating: 0, count: 8192)
+        let bytes = proc_listpids(UInt32(PROC_ALL_PIDS), 0, &buf, Int32(buf.count * MemoryLayout<pid_t>.size))
+        return buf.prefix(max(0, Int(bytes)) / MemoryLayout<pid_t>.size).filter { $0 > 0 && getsid($0) == sid }
     }
 
     func terminate() {
-        if ttyDev == 0 { ttyDev = Self.ttyOf(pid: shellPid) }
-        let onTty = Self.pids(onTty: ttyDev)
+        if sessionPid == 0 { sessionPid = shellPid }
+        let left = Self.pids(inSession: sessionPid)
         view.process?.terminate()
-        guard !onTty.isEmpty else { return }
+        guard !left.isEmpty else { return }
         // Give them 2s to exit on SIGHUP, then SIGKILL whatever is left. A
         // detached sh, so the sweep still runs when the app itself is quitting.
         // ponytail: kills by pid after 2s (pid reuse is theoretically possible), and
-        // takes nohup'd jobs with it; re-check the tty per pid if either ever bites.
+        // takes nohup'd jobs with it; re-check the session per pid if either ever bites.
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
-        p.arguments = ["-c", "sleep 2; kill -9 \(onTty.map(String.init).joined(separator: " ")) 2>/dev/null"]
+        p.arguments = ["-c", "sleep 2; kill -9 \(left.map(String.init).joined(separator: " ")) 2>/dev/null"]
         try? p.run()
     }
 
