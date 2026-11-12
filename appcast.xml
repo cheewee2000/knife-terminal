@@ -6,16 +6,16 @@
     <description>Updates for Knife Terminal</description>
     <language>en</language>
     <item>
-      <title>Knife Terminal 1.3.14</title>
-      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v1.3.14</link>
-      <sparkle:version>1.1.11</sparkle:version>
-      <sparkle:shortVersionString>1.3.14</sparkle:shortVersionString>
+      <title>Knife Terminal 1.4.30</title>
+      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v1.4.30</link>
+      <sparkle:version>1.1.12</sparkle:version>
+      <sparkle:shortVersionString>1.4.30</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p><ul><li><b>Question auto-pick finishes the job</b> — with Claude Code 2.1.308 it now also submits the "Submit answers" review screen, which no longer shows an Esc footer, instead of stopping there.</li></ul></p>]]></description>
+      <description><![CDATA[<p><ul><li><b>Run projects on another Mac</b> — tag a project to run on the laptop, a second Mac or the cloud; each Mac has an executor toggle, and a whole zone can be shared with a Mac on another Apple ID.</li><li><b>Faster with many tabs</b> — off-screen tabs skip link scans, link lookups are cached, status dots animate outside SwiftUI, and sync reads transcripts off the main thread.</li><li><b>Closing a tab cleans up</b> — every process left in the tab's session is ended, including for mini terminals.</li><li><b>Phone mirror</b> — emoji and wide characters survive, closed tabs no longer come back, updates are not stranded, and a request that fails to send says so.</li><li><b>Terminal input</b> — typing over a highlight replaces it, a click while scrolled back no longer sends arrow keys, and selection delete counts characters rather than cells.</li><li><b>Session restore</b> — a tab keeps its project while the folder is missing, follows a folder renamed under it, and job tabs are not restored.</li><li><b>Safer helpers</b> — adopt refuses the home directory, the hooks installer leaves a settings file it cannot parse alone, a clone folder is only reused for the repository it holds, and the control socket survives clients that leave early.</li><li><b>Chat view</b> — Codex transcripts are found again; prompts that start with "&lt;" and nested code fences render correctly.</li><li><b>Links</b> — relative paths link from a subfolder; recent projects holds 100.</li></ul></p>]]></description>
       <enclosure
-        url="https://github.com/cheewee2000/knife-terminal/releases/download/v1.3.14/Knife-Terminal-1.3.14.zip"
+        url="https://github.com/cheewee2000/knife-terminal/releases/download/v1.4.30/Knife-Terminal-1.4.30.zip"
         type="application/octet-stream"
-        sparkle:edSignature="xBJu0go1tNeLIjkPTnuw97lOniR9hhEvSaI3kFskAS2Qe7KQlsdx81QNIlkxR2HvzH1i4rN8e6Piv22hArZiDg==" length="5467347"/>
+        sparkle:edSignature="3295IygGHr0LWDbBt+gBDWzZu+NIX97zst89+RJDqsq8hfM8cl8opX+Wtn8JD8aKCOngFolGRooVVPKOZYkgAQ==" length="5521528"/>
     </item>
   </channel>
 </rss>
