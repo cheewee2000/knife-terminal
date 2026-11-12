@@ -27,10 +27,7 @@ final class MiniTermController: NSWindowController, NSWindowDelegate {
         }
         win.center()
 
-        var env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CLAUDE_CODE_") }
-        env["TERM"] = "xterm-256color"
-        env["COLORTERM"] = "truecolor"
-        if env["LANG"] == nil { env["LANG"] = "en_US.UTF-8" }
+        let env = TabModel.shellEnvironment()
         term.processDelegate = self
         term.startProcess(executable: TabModel.userShell(), args: ["-l"],
                           environment: env.map { "\($0.key)=\($0.value)" },
@@ -44,7 +41,7 @@ final class MiniTermController: NSWindowController, NSWindowDelegate {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func windowWillClose(_ notification: Notification) {
-        term.process?.terminate()
+        TabModel.terminate(term.process, session: term.process?.shellPid ?? 0)
         AppModel.shared.miniClosed(self)
     }
 }

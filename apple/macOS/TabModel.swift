@@ -72,17 +72,8 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         view.processDelegate = self
         AppModel.shared.theme.style(terminal: view)
 
-        // scrub the launcher's terminal identity (launched from Ghostty the app
-        // inherits TERM_PROGRAM=ghostty, GHOSTTY_*, and a TERMINFO with only
-        // xterm-ghostty) — shell integrations keyed on those would misfire
-        var env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CLAUDE_CODE_") && !$0.key.hasPrefix("GHOSTTY_") }
+        var env = Self.shellEnvironment()
         env["KNIFE_TAB"] = String(id)
-        env["TERM"] = "xterm-256color"
-        env["COLORTERM"] = "truecolor"
-        env["TERM_PROGRAM"] = "KnifeTerminal"
-        env["TERM_PROGRAM_VERSION"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        env["TERMINFO"] = nil
-        if env["LANG"] == nil { env["LANG"] = "en_US.UTF-8" }
         let envList = env.map { "\($0.key)=\($0.value)" }
 
         let shell = Self.userShell()
@@ -116,6 +107,21 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         }
     }
 
+    /// What a shell we start inherits, for tabs and mini terminals alike: the launcher's
+    /// terminal identity scrubbed (launched from Ghostty the app inherits
+    /// TERM_PROGRAM=ghostty, GHOSTTY_*, and a TERMINFO with only xterm-ghostty —
+    /// shell integrations keyed on those would misfire).
+    static func shellEnvironment() -> [String: String] {
+        var env = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("CLAUDE_CODE_") && !$0.key.hasPrefix("GHOSTTY_") }
+        env["TERM"] = "xterm-256color"
+        env["COLORTERM"] = "truecolor"
+        env["TERM_PROGRAM"] = "KnifeTerminal"
+        env["TERM_PROGRAM_VERSION"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        env["TERMINFO"] = nil
+        if env["LANG"] == nil { env["LANG"] = "en_US.UTF-8" }
+        return env
+    }
+
     nonisolated static func userShell() -> String {
         if let pw = getpwuid(getuid()), let sh = pw.pointee.pw_shell, let s = String(validatingUTF8: sh), !s.isEmpty { return s }
         return ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
@@ -136,8 +142,13 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
 
     func terminate() {
         if sessionPid == 0 { sessionPid = shellPid }
-        let left = Self.pids(inSession: sessionPid)
-        view.process?.terminate()
+        Self.terminate(view.process, session: sessionPid)
+    }
+
+    /// Hang up a shell and make sure nothing it started outlives it (tabs and mini terminals).
+    static func terminate(_ process: LocalProcess?, session sid: pid_t) {
+        let left = pids(inSession: sid)
+        process?.terminate()
         guard !left.isEmpty else { return }
         // Give them 2s to exit on SIGHUP, then SIGKILL whatever is left. A
         // detached sh, so the sweep still runs when the app itself is quitting.

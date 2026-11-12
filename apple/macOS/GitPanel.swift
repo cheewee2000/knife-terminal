@@ -9,6 +9,7 @@ struct GitPanel: View {
     @ObservedObject var theme = AppModel.shared.theme
     @State private var info: GitInfo?
     @State private var loading = false
+    @State private var reloads = 0 // generation: only the latest reload may publish
 
     var body: some View {
         ScrollView {
@@ -83,8 +84,12 @@ struct GitPanel: View {
     private func reload() async {
         guard let tab = controller.activeTab else { info = nil; return }
         loading = true
+        reloads += 1
+        let mine = reloads
         let pid = tab.shellPid, fallback = tab.lastReportedCwd
-        info = await Task.detached { GitInfo.load(cwd: (pid > 0 ? TabModel.cwdOf(pid: pid) : nil) ?? fallback) }.value
+        let loaded = await Task.detached { GitInfo.load(cwd: (pid > 0 ? TabModel.cwdOf(pid: pid) : nil) ?? fallback) }.value
+        guard mine == reloads else { return } // a newer reload (another tab) is on its way: don't put this tab's repo under it
+        info = loaded
         loading = false
     }
 }
