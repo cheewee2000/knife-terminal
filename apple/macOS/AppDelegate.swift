@@ -19,6 +19,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    /// Dock click with only mini terminals left: bring the main window back.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if AppModel.shared.windows.isEmpty { AppModel.shared.newWindow() }
+        return true
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             if url.isFileURL { AppModel.shared.dispatchOpen(url.path) }

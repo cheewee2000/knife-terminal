@@ -107,7 +107,9 @@ final class AppModel: ObservableObject {
         for t in wc.tabs { t.terminate(); tabClosed(t) }
         wc.tabs.removeAll()
         windows.removeAll { $0 === wc }
-        if windows.isEmpty { NSApp.terminate(nil) }
+        // a mini terminal still open keeps the app (and whatever it is running) alive; the app
+        // then quits when the last window closes (applicationShouldTerminateAfterLastWindowClosed)
+        if windows.isEmpty && minis.isEmpty { NSApp.terminate(nil) }
     }
 
     @discardableResult
@@ -462,7 +464,9 @@ final class AppModel: ObservableObject {
 
     func saveSession() {
         let saved = windows.compactMap { wc -> SavedWindow? in
-            let own = wc.tabs.filter { $0.opts.guest == nil } // guest tabs come back through the share, not the session file
+            // guest tabs come back through the share, not the session file; a job's own tab has
+            // nothing to resume and would return as an empty "job: …" shell on every launch
+            let own = wc.tabs.filter { $0.opts.guest == nil && !($0.opts.cwd == Manifest.dir + "/jobs" && $0.opts.restoreCmd == nil) }
             guard !own.isEmpty else { return nil }
             let b = wc.window?.frame ?? .zero
             let tabs = own.map { t in
