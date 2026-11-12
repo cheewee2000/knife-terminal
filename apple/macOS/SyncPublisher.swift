@@ -153,6 +153,7 @@ final class SyncPublisher {
         defer { inFlight = false }
         let ids = dirty; dirty.removeAll()
         var snaps: [TabSnapshot] = []
+        var sources: [TranscriptReader.Source] = []
         var order = 0
         for wc in AppModel.shared.windows {
             for tab in wc.tabs {
@@ -163,12 +164,15 @@ final class SyncPublisher {
                                          cwd: cwd, order: order,
                                          cols: tab.cols, rows: tab.rows,
                                          working: tab.working, attention: tab.attention,
-                                         styled: tab.view.styledScreen(),
-                                         chat: TranscriptReader.chatData(TranscriptReader.source(for: tab, cwd: cwd))))
+                                         styled: tab.view.styledScreen()))
+                sources.append(TranscriptReader.source(for: tab, cwd: cwd))
                 lastFlush[tab.id] = Date()
             }
         }
         guard !snaps.isEmpty else { return }
+        // transcripts are files (and, without a hook-reported path, directory scans): read them off the main thread
+        let chats = await Task.detached { sources.map(TranscriptReader.chatData) }.value
+        for i in snaps.indices { snaps[i].chat = chats[i] }
         do { try await cloud.saveTabs(snaps) }
         catch {
             for s in snaps { dirty.insert(s.tabId) } // retry on next change/poll
