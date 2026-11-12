@@ -91,8 +91,16 @@ enum Manifest {
         if FileManager.default.fileExists(atPath: path) { return (path, merged.first { $0.path == path }) }
         guard let ref = merged.first(where: { $0.path == path }), let remote = ref.remote else { return (nil, nil) }
         let local = merged.first { $0.remote == remote && FileManager.default.fileExists(atPath: $0.path) && self.remote(of: $0.path) == remote }?.path
-            ?? [dir + "/projects/" + cloneName(remote)].first { FileManager.default.fileExists(atPath: $0 + "/.git") }
+            // clones are named after the repo alone: only ours if it really is this remote
+            ?? [dir + "/projects/" + cloneName(remote)].first { self.remote(of: $0).map(repoKey) == repoKey(remote) }
         return (local, ref)
+    }
+
+    /// owner/repo, whatever the URL form (https, ssh, with or without .git)
+    static func repoKey(_ remote: String) -> String {
+        var r = remote.lowercased()
+        if r.hasSuffix(".git") { r.removeLast(4) }
+        return r.replacingOccurrences(of: ":", with: "/").split(separator: "/").suffix(2).joined(separator: "/")
     }
 
     static func cloneName(_ remote: String) -> String {

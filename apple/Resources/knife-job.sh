@@ -136,6 +136,7 @@ for p in json.load(open(sys.argv[1])):
 
 # remote → this machine's checkout (any manifest path that exists here and
 # points at the remote), cloning into $CLONES when there is none
+repo_key() { local r=${1%.git}; r=${r//://}; printf '%s/%s' "$(basename "$(dirname "$r")")" "$(basename "$r")" | tr A-Z a-z; }   # owner/repo, whatever the URL form
 resolve() {
   local p
   p=$(python3 -c '
@@ -147,7 +148,13 @@ for p in json.load(open(sys.argv[1])):
         if got == r: print(p["path"]); break' "$MANIFEST" "$1")
   if [ -z "$p" ]; then
     p="$CLONES/$(basename "${1%.git}")"
-    [ -d "$p/.git" ] || { say "cloning $1" >&2; git clone -q "$1" "$p" >&2 || return 1; }   # stdout is the path
+    if [ -d "$p/.git" ]; then
+      # clones are named after the repo alone: another owner's repo of the same name may be sitting here
+      [ "$(repo_key "$(git -C "$p" remote get-url origin 2>/dev/null)")" = "$(repo_key "$1")" ] ||
+        { say "$p is a clone of a different repository, not $1" >&2; return 1; }
+    else
+      say "cloning $1" >&2; git clone -q "$1" "$p" >&2 || return 1   # stdout is the path
+    fi
   fi
   echo "$p"
 }
