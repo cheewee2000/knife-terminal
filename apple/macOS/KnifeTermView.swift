@@ -320,7 +320,13 @@ final class KnifeTermView: LocalProcessTerminalView {
         for row in 0..<t.rows {
             guard let line = t.getLine(row: row) else { out.append(""); continue }
             var s = ""
-            for col in 0..<t.cols { let ch = line[col].getCharacter(); s.append(ch == "\u{0}" ? " " : ch) }
+            for col in 0..<t.cols {
+                let cd = line[col]
+                if cd.width == 0 { continue } // second cell of a wide character
+                // CharData.getCharacter() turns anything stored out of line (emoji, clusters) into a space
+                let ch = t.getCharacter(for: cd)
+                s.append(ch == "\u{0}" ? " " : ch)
+            }
             out.append(String(s.reversed().drop(while: { $0 == " " }).reversed()))
         }
         while out.last == "" { out.removeLast() }
@@ -340,6 +346,7 @@ final class KnifeTermView: LocalProcessTerminalView {
             }
             for col in 0..<t.cols {
                 let cd = line[col]
+                if cd.width == 0 { continue } // second cell of a wide character
                 let a = cd.attribute
                 var s = 0
                 if a.style.contains(.bold) { s |= StyledScreen.styleBold }
@@ -349,7 +356,7 @@ final class KnifeTermView: LocalProcessTerminalView {
                 if a.style.contains(.inverse) { s |= StyledScreen.styleInverse }
                 let k = (Self.colorCode(a.fg), Self.colorCode(a.bg), s == 0 ? nil : s)
                 if k != key { flush(); key = k }
-                let ch = cd.getCharacter()
+                let ch = t.getCharacter(for: cd)
                 text.append(ch == "\u{0}" ? " " : ch)
             }
             flush()
@@ -471,7 +478,7 @@ final class KnifeTermView: LocalProcessTerminalView {
                 guard let line = t.getLine(row: row) else { break }
                 rows.append(row)
                 for col in 0..<t.cols {
-                    var ch = line[col].getCharacter()
+                    var ch = t.getCharacter(for: line[col])
                     if ch == "\u{0}" { ch = " " }
                     text.append(ch)
                     for _ in 0..<String(ch).utf16.count { cellOfUnit.append(cell) }

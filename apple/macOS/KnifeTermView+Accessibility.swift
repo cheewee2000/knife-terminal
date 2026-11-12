@@ -8,7 +8,7 @@ import SwiftTerm
 extension KnifeTermView {
     private var screenLines: [String] {
         let t = getTerminal()
-        return (0..<t.rows).map { t.getLine(row: $0)?.translateToString(trimRight: true) ?? "" }
+        return (0..<t.rows).map { t.getLine(row: $0)?.translateToString(trimRight: true, characterProvider: { t.getCharacter(for: $0) }) ?? "" }
     }
     private var screenText: String { screenLines.joined(separator: "\n") }
     /// UTF-16 offset of the cursor within the screen text.
