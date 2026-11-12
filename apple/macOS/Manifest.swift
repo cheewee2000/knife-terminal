@@ -109,9 +109,27 @@ enum Manifest {
         guard let m = (try? FileManager.default.attributesOfItem(atPath: path + "/.git/config"))?[.modificationDate] as? Date
         else { return nil } // not a repo (or a worktree, whose .git is a file)
         if let c = remoteCache[path], c.mtime == m { return c.remote }
-        let r = run(["git", "-C", path, "remote", "get-url", "origin"])?.trimmingCharacters(in: .whitespacesAndNewlines)
-        remoteCache[path] = (m, (r?.isEmpty ?? true) ? nil : r)
-        return remoteCache[path]?.remote
+        // Read straight from the file: this runs on the main thread for every sidebar
+        // project, and `git remote get-url` through a login shell was one process each.
+        // ponytail: no url.insteadOf rewriting or include files; go back to git if a repo needs them
+        let r = (try? String(contentsOfFile: path + "/.git/config", encoding: .utf8)).flatMap(originURL(inConfig:))
+        remoteCache[path] = (m, r)
+        return r
+    }
+
+    static func originURL(inConfig text: String) -> String? {
+        var inOrigin = false
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") {
+                inOrigin = line.filter { !$0.isWhitespace } == "[remote\"origin\"]"
+            } else if inOrigin, let eq = line.firstIndex(of: "="),
+                      line[..<eq].trimmingCharacters(in: .whitespaces) == "url" {
+                let url = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+                return url.isEmpty ? nil : url
+            }
+        }
+        return nil
     }
 
     // ─── Descriptions: README first paragraph, else a model writes one; cached by remote ───
