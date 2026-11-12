@@ -286,6 +286,7 @@ final class AppModel: ObservableObject {
     ///   type <id> <text>           text + ⏎ (paste-style, like the phone)
     ///   key <id> <keys…>           enter esc tab shift-tab space backspace up/down/left/right ctrl-<a-z> or a character
     ///   read <id>                  the rendered screen, plain text
+    ///   links <id>                 what is underlined as a link: "row col url[:line]" per span
     ///   status <id>                working | attention | idle | gone
     ///   echo <id> <text>           print a line on the tab's screen (the overseer's log, no tty needed)
     private func handleTabCommand(_ cmd: String) -> String {
@@ -326,6 +327,7 @@ final class AppModel: ObservableObject {
             for (i, seq) in seqs.enumerated() { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15 * Double(i)) { view.send(txt: seq) } }
             return "ok"
         case "read": return tab.view.plainScreen()
+        case "links": return tab.view.linkSummary()
         case "echo": tab.view.feed(text: "\r\n" + arg); return "ok"
         case "status": return tab.limited ? "limit" : tab.working ? "working" : tab.attention ? "attention" : "idle"
         default: return "error: unknown command"

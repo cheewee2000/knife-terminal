@@ -444,6 +444,7 @@ final class KnifeTermView: LocalProcessTerminalView {
     // the cwd), and the same tokens are on screen scan after scan.
     // ponytail: whole cache dropped every 5s, so a file created just now links up to 5s late
     private var fileLinkCache: [String: (URL, String?, NSRange)?] = [:]
+    private var linkLineCache: [String: [(URL, String?, NSRange)]] = [:] // logical line text → its links
     private var fileLinkCacheAt = Date.distantPast
     private var fileLinkCacheCwd: String?
 
@@ -452,6 +453,7 @@ final class KnifeTermView: LocalProcessTerminalView {
         refreshCwdIfStale()
         if fileLinkCacheCwd != cachedCwd || Date().timeIntervalSince(fileLinkCacheAt) > 5 {
             fileLinkCache.removeAll(keepingCapacity: true)
+            linkLineCache.removeAll(keepingCapacity: true)
             fileLinkCacheAt = Date()
             fileLinkCacheCwd = cachedCwd
         }
@@ -493,31 +495,46 @@ final class KnifeTermView: LocalProcessTerminalView {
                 return spans
             }
 
-            var claimed: [NSRange] = []
-            for m in det.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
-                guard let url = m.url else { continue }
-                let spans = spansFor(m.range)
-                guard !spans.isEmpty else { continue }
-                claimed.append(m.range)
-                found.append(ScreenLink(url: url, lineRef: nil, spans: spans))
-            }
-            // File paths: any token that resolves to something on disk.
-            for m in Self.tokenRegex.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
-                guard !claimed.contains(where: { NSIntersectionRange($0, m.range).length > 0 }) else { continue }
-                let token = ns.substring(with: m.range)
-                let resolved: (URL, String?, NSRange)?
-                if let hit = fileLinkCache[token] { resolved = hit } else {
-                    resolved = Self.fileLink(token: token, at: NSRange(location: 0, length: m.range.length), cwd: cachedCwd)
-                    fileLinkCache.updateValue(resolved, forKey: token) // nil is cached too: most tokens are not paths
+            // Most lines are the same text scan after scan (only the spinner line
+            // moves), so the detector runs once per distinct line, not once per scan.
+            let hits: [(URL, String?, NSRange)]
+            if let cached = linkLineCache[text] { hits = cached } else {
+                var fresh: [(URL, String?, NSRange)] = []
+                for m in det.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
+                    if let url = m.url { fresh.append((url, nil, m.range)) }
                 }
-                guard let (url, lineRef, rel) = resolved else { continue }
-                let spans = spansFor(NSRange(location: m.range.location + rel.location, length: rel.length))
+                let claimed = fresh.map(\.2)
+                // File paths: any token that resolves to something on disk.
+                for m in Self.tokenRegex.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
+                    guard !claimed.contains(where: { NSIntersectionRange($0, m.range).length > 0 }) else { continue }
+                    let token = ns.substring(with: m.range)
+                    let resolved: (URL, String?, NSRange)?
+                    if let hit = fileLinkCache[token] { resolved = hit } else {
+                        resolved = Self.fileLink(token: token, at: NSRange(location: 0, length: m.range.length), cwd: cachedCwd)
+                        fileLinkCache.updateValue(resolved, forKey: token) // nil is cached too: most tokens are not paths
+                    }
+                    guard let (url, lineRef, rel) = resolved else { continue }
+                    fresh.append((url, lineRef, NSRange(location: m.range.location + rel.location, length: rel.length)))
+                }
+                linkLineCache[text] = fresh
+                hits = fresh
+            }
+            for (url, lineRef, range) in hits {
+                let spans = spansFor(range)
                 guard !spans.isEmpty else { continue }
                 found.append(ScreenLink(url: url, lineRef: lineRef, spans: spans))
             }
         }
         screenLinks = found
         refreshLinkOverlay()
+    }
+
+    /// The links a click would open right now, for the `tab links` socket verb.
+    func linkSummary() -> String {
+        rescanLinks()
+        return screenLinks.flatMap { l in
+            l.spans.map { "\($0.row) \($0.cols.lowerBound)-\($0.cols.upperBound) \(l.url.absoluteString)\(l.lineRef.map { ":" + $0 } ?? "")" }
+        }.joined(separator: "\n")
     }
 
     // ─── File paths: underlined like URLs, click shows them in Finder ───
