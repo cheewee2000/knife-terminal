@@ -15,7 +15,10 @@ gen:
 mac: gen
 	cd $(APPLE) && xcodebuild -project KnifeTerminal.xcodeproj -scheme KnifeMac \
 		-configuration Debug -derivedDataPath DerivedData -allowProvisioningUpdates \
-		-allowProvisioningDeviceRegistration -skipPackagePluginValidation build
+		-allowProvisioningDeviceRegistration -skipPackagePluginValidation \
+		SWIFT_OPTIMIZATION_LEVEL=-O SWIFT_COMPILATION_MODE=wholemodule GCC_OPTIMIZATION_LEVEL=s build
+# ^ optimized, but still the Debug configuration: its entitlements point at the
+#   Production CloudKit environment, which a locally signed Release build would not
 
 install-mac: mac
 	rm -rf "/Applications/Knife Terminal.app"

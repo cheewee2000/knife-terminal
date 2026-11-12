@@ -174,6 +174,11 @@ final class KnifeTermView: LocalProcessTerminalView {
         scheduleLinkScan()
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        scheduleLinkScan()
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         scheduleLinkScan()
@@ -425,7 +430,8 @@ final class KnifeTermView: LocalProcessTerminalView {
     static let urlDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 
     private func scheduleLinkScan() {
-        guard !linkScanPending else { return }
+        // a tab that isn't on screen has no links to show; it rescans when re-attached
+        guard window != nil, !linkScanPending else { return }
         linkScanPending = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             guard let self else { return }
