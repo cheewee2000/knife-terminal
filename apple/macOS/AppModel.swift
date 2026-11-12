@@ -204,6 +204,11 @@ final class AppModel: ObservableObject {
 
     /// Turn a folder into a project: git init + private GitHub remote, then claude.
     func adoptFolder(_ dir: String) {
+        // A tab whose folder is missing starts in the home directory instead, and
+        // `adopt .` there would git-init the home directory and push it to GitHub.
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dir, isDirectory: &isDir), isDir.boolValue,
+              (dir as NSString).standardizingPath != NSHomeDirectory() else { return }
         Projects.touch(dir)
         let wc = frontWindow() ?? newWindow(withTab: false)
         wc.addTab(TabOptions(cwd: dir, cmd: "bash \(shellQuote(jobScript)) adopt . && claude",

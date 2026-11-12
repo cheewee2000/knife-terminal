@@ -287,6 +287,7 @@ overseer() {
 # ─── adopt: make a folder a project (git repo + private GitHub remote) ───
 adopt() {
   cd "$1" || exit 1
+  [ "$(pwd -P)" = "$(cd "$HOME" && pwd -P)" ] && fail "refusing to turn the home directory into a project"
   [ -d .git ] || git init -q
   git rev-parse -q --verify HEAD >/dev/null || { git add -A; git commit -q -m "initial commit" || git commit -q --allow-empty -m "initial commit"; }
   git remote get-url origin >/dev/null 2>&1 || gh repo create "$(basename "$PWD")" --private --source=. --remote=origin --push || exit 1
