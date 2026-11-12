@@ -171,6 +171,9 @@ public struct ZoneDelta: Sendable {
     public var seens: [RemoteSeen] = []
     public var garbage: [CKRecord.ID] = []     // Alert records: push already fired, nobody reads them
     public var endedShares: [String] = []      // owners whose shared zone went away (share revoked / tab gone)
+    /// Fetched from scratch (no change token): this is everything in the zone, and it
+    /// carries no deletions, so whatever a cache holds beyond it no longer exists.
+    public var full = false
 }
 
 public final class CloudSync: @unchecked Sendable {
@@ -515,6 +518,7 @@ public final class CloudSync: @unchecked Sendable {
     public func fetchChanges() async throws -> ZoneDelta {
         let t0 = Date()
         var delta = ZoneDelta()
+        delta.full = changeToken == nil
         var more = true
         while more {
             do {
@@ -562,12 +566,14 @@ public final class CloudSync: @unchecked Sendable {
                 more = moreComing
             } catch where Self.isZoneNotFound(error) {
                 try await recoverMissingZone()
+                delta.full = true
                 return delta // zone is empty right after creation; nothing to fetch
             } catch where changeToken != nil && !Self.isTransient(error) {
                 // expired token, or one minted by another container environment:
                 // start over from scratch (a second failure throws below)
                 Self.log("fetch failed with token, resyncing from scratch: \(error)")
                 changeToken = nil
+                delta.full = true
             } catch {
                 Self.log("fetch failed: \(error)")
                 throw error

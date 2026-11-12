@@ -117,11 +117,14 @@ final class MirrorStore: ObservableObject {
             delta.deletedTabRecordNames += shared.deletedTabRecordNames
             delta.endedShares = shared.endedShares
         }
-        var byId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        // A from-scratch fetch lists every tab that exists and no deletions: merging it onto
+        // the cache kept tabs the Mac closed long ago. Shared tabs come from their own fetch.
+        var byId = Dictionary(uniqueKeysWithValues: tabs.filter { !delta.full || $0.share != nil }.map { ($0.id, $0) })
         for t in delta.tabs { byId[t.id] = t }
         for name in delta.deletedTabRecordNames { byId.removeValue(forKey: name) }
         for owner in delta.endedShares { byId = byId.filter { $0.value.share?.owner != owner } }
         tabs = byId.values.sorted { ($0.share != nil ? 1 : 0, $0.order) < ($1.share != nil ? 1 : 0, $1.order) }
+        if delta.full { projectLists = [:] }
         for (name, refs) in delta.projects { projectLists[name] = refs }
         for name in delta.deletedProjectRecordNames { projectLists.removeValue(forKey: name) }
         pendingOpens = pendingOpens.filter { path in !tabs.contains { $0.cwd == path } }
@@ -181,7 +184,8 @@ final class MirrorStore: ObservableObject {
         guard !t.isEmpty else { return }
         pendingJob = true
         Task {
-            try? await cloud.sendJob(t)
+            do { try await cloud.sendJob(t) }
+            catch { syncError = "request not sent: \(error.localizedDescription)"; pendingJob = false; return } // the text field is already cleared: say so
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             await refresh()
             pendingJob = false
@@ -217,7 +221,8 @@ final class MirrorStore: ObservableObject {
     func openProject(_ p: ProjectRef, agent: String = "claude") {
         pendingOpens.insert(p.path)
         Task {
-            try? await cloud.sendOpen(path: agent == "codex" ? "codex:" + p.path : p.path)
+            do { try await cloud.sendOpen(path: agent == "codex" ? "codex:" + p.path : p.path) }
+            catch { syncError = "open not sent: \(error.localizedDescription)"; pendingOpens.remove(p.path); return }
             try? await Task.sleep(nanoseconds: 4_000_000_000)
             await refresh()
             try? await Task.sleep(nanoseconds: 8_000_000_000)
