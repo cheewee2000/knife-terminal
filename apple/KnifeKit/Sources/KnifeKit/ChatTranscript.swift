@@ -205,7 +205,8 @@ public enum ChatTranscript {
                     return
                 }
                 out.append(ChatMessage(id: id, kind: .user, text: t))
-            } else if let t = Optional(text.trimmingCharacters(in: .whitespacesAndNewlines)), !t.isEmpty {
+            } else if p["role"] as? String == "assistant",   // not developer/system: those are instructions
+                      let t = Optional(text.trimmingCharacters(in: .whitespacesAndNewlines)), !t.isEmpty {
                 out.append(ChatMessage(id: id, kind: .assistant, text: t, model: turnModel))
             }
         case "function_call", "custom_tool_call", "local_shell_call":
@@ -251,7 +252,10 @@ public enum ChatTranscript {
             t = args.isEmpty ? name : name + " " + args
             return name.isEmpty ? nil : t
         }
-        if t.hasPrefix("<") { return nil }   // command output, system wrappers
+        // Command output and system wrappers: <task-notification>, <local-command-stdout>,
+        // <bash-input>, <system-reminder>, <environment_context>… all carry a - or _ in the
+        // tag name. A prompt that merely starts with "<" (<div>, <3, <T>) is the user's.
+        if t.prefixMatch(of: #/<[A-Za-z]+[-_][A-Za-z_-]*[\s>]/#) != nil { return nil }
         if t.hasPrefix("# Context from my IDE") { return nil }   // Codex IDE wrapper
         if t.hasPrefix("[Request interrupted") { return nil }
         return t

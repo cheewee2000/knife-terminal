@@ -22,6 +22,7 @@ public enum ChatMarkdown {
         var para: [String] = []
         var table: [[String]] = []
         var code: [String]?
+        var fence = 0 // backticks in the fence that opened `code`
 
         func flushPara() { if !para.isEmpty { out.append(.text(para.joined(separator: "\n"))); para = [] } }
         func flushTable() { if !table.isEmpty { out.append(.table(table)); table = [] } }
@@ -29,7 +30,9 @@ public enum ChatMarkdown {
         for raw in md.components(separatedBy: "\n") {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if code != nil {
-                if line.hasPrefix("```") { out.append(.code(code!)); code = nil } else { code!.append(raw) }
+                // closes only on a bare fence at least as long as the opener: ```` can hold ```,
+                // and a ```bash line inside a block is content, not its end
+                if line.count >= fence, line.allSatisfy({ $0 == "`" }) { out.append(.code(code!)); code = nil } else { code!.append(raw) }
                 continue
             }
             if line.hasPrefix("|") {
@@ -40,7 +43,7 @@ public enum ChatMarkdown {
                 continue
             }
             flushTable()
-            if line.hasPrefix("```") { flushPara(); code = []; continue }
+            if line.hasPrefix("```") { flushPara(); code = []; fence = line.prefix(while: { $0 == "`" }).count; continue }
             if line.isEmpty { flushPara(); continue }
             if let m = line.firstMatch(of: #/^(#{1,6})\s+(.+)$/#) {
                 flushPara(); out.append(.heading(level: m.1.count, text: String(m.2)))

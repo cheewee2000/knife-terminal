@@ -112,7 +112,9 @@ public struct ProjectRef: Codable, Sendable, Identifiable, Equatable {
     public static func webURL(forRemote remote: String) -> URL? {
         var r = remote.trimmingCharacters(in: .whitespacesAndNewlines)
         if r.hasSuffix(".git") { r.removeLast(4) }
-        if let m = r.firstMatch(of: #/^(?:ssh://)?[^@/]+@([^:/]+)[:/](?:\d+/)?(.+)$/#) { r = "https://\(m.1)/\(m.2)" }
+        // a port only exists in the ssh:// form; in git@host:123/repo the digits are the owner
+        if let m = r.firstMatch(of: #/^ssh://[^@/]+@([^:/]+)(?::\d+)?/(.+)$/#) { r = "https://\(m.1)/\(m.2)" }
+        else if let m = r.firstMatch(of: #/^[^@/]+@([^:/]+):(.+)$/#) { r = "https://\(m.1)/\(m.2)" }
         guard var c = URLComponents(string: r), c.scheme?.hasPrefix("http") == true, c.host != nil else { return nil }
         c.scheme = "https"; c.user = nil; c.password = nil
         return c.url
