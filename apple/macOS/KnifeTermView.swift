@@ -271,7 +271,7 @@ final class KnifeTermView: LocalProcessTerminalView {
                   event.modifierFlags.intersection([.command, .control, .shift]).isEmpty
             else { return event }
             let (col, row) = self.cellHit(p)
-            guard row != self.getTerminal().getCursorLocation().y else { return event }
+            guard self.scrolledBack || row != self.getTerminal().getCursorLocation().y else { return event }
             self.rescanLinks()
             if let link = self.linkAt(col: col, row: row) {
                 self.lastOpenedEventTimestamp = event.timestamp
@@ -667,7 +667,12 @@ final class KnifeTermView: LocalProcessTerminalView {
         return nil
     }
 
+    /// Scrolled into history: clicked rows are then viewport rows, which say nothing
+    /// about where the cursor (a row of the live screen) is.
+    private var scrolledBack: Bool { canScroll && scrollPosition < 1 }
+
     private func placeCursor(col: Int, row: Int) {
+        guard !scrolledBack else { return } // arrow keys from a click in history would walk the shell's history
         let cur = getTerminal().getCursorLocation() // screen-relative, like row/col above
         let dr = row - cur.y
         let dc = col - cur.x
