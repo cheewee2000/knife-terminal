@@ -242,10 +242,19 @@ final class KnifeTermView: LocalProcessTerminalView {
         let endCol = max(selection.start.col, selection.end.col)
         var seq = ""
         let dc = (endCol + 1) - cur.x
-        if dc != 0 { seq += String(repeating: dc < 0 ? "\u{1b}[D" : "\u{1b}[C", count: min(abs(dc), 400)) }
-        seq += String(repeating: "\u{7f}", count: min(endCol - startCol + 1, 400))
+        let steps = characters(onRow: row, from: min(cur.x, endCol + 1), to: max(cur.x, endCol + 1))
+        if dc != 0 { seq += String(repeating: dc < 0 ? "\u{1b}[D" : "\u{1b}[C", count: min(steps, 400)) }
+        seq += String(repeating: "\u{7f}", count: min(characters(onRow: row, from: startCol, to: endCol + 1), 400))
         send(txt: seq)
         onUserInput?()
+    }
+
+    /// Characters in columns [from, to) of a screen row. Arrow keys and Delete act on
+    /// characters, and a wide one (CJK, emoji) fills two cells: counting cells would
+    /// overshoot by one per wide character.
+    private func characters(onRow row: Int, from: Int, to: Int) -> Int {
+        guard let line = getTerminal().getLine(row: row) else { return max(0, to - from) }
+        return (max(0, from)..<min(to, getTerminal().cols)).filter { line[$0].width != 0 }.count
     }
 
     // Plain-click link opening runs on a local monitor, not the mouseUp
@@ -687,7 +696,10 @@ final class KnifeTermView: LocalProcessTerminalView {
         guard abs(dr) <= 5, dr != 0 || dc != 0 else { return }
         var seq = ""
         if dr != 0 { seq += String(repeating: dr < 0 ? "\u{1b}[A" : "\u{1b}[B", count: abs(dr)) }
-        if dc != 0 { seq += String(repeating: dc < 0 ? "\u{1b}[D" : "\u{1b}[C", count: min(abs(dc), 400)) }
+        if dc != 0 {
+            let steps = characters(onRow: row, from: min(col, cur.x), to: max(col, cur.x))
+            seq += String(repeating: dc < 0 ? "\u{1b}[D" : "\u{1b}[C", count: min(steps, 400))
+        }
         send(txt: seq)
     }
 
