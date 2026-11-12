@@ -12,7 +12,7 @@ settings:
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.9"
     MARKETING_VERSION: "1.4.31"
-    CURRENT_PROJECT_VERSION: "1.1.12"  # CFBundleVersion must increase each release — Sparkle compares it
+    CURRENT_PROJECT_VERSION: "1.1.13"  # CFBundleVersion must increase each release — Sparkle compares it
 
 packages:
   SwiftTerm:
