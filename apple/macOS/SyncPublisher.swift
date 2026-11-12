@@ -32,6 +32,7 @@ final class SyncPublisher {
     private var lastFlush: [Int: Date] = [:]
     private let minInterval: TimeInterval = 1.5
     private var inFlight = false
+    private var closedInFlight: Set<Int> = [] // tabs closed during the current flush
 
     func start() {
         // which CloudKit environment this binary talks to — a Development build can't see Production's schema or data
@@ -109,6 +110,7 @@ final class SyncPublisher {
     func tabClosed(_ id: Int) {
         guard enabled else { return }
         dirty.remove(id)
+        if inFlight { closedInFlight.insert(id) }
         Task { try? await cloud.deleteTabs([id]) } // failure logged by CloudSync
     }
 
@@ -150,7 +152,14 @@ final class SyncPublisher {
     private func flush() async {
         guard enabled, !inFlight, !dirty.isEmpty else { return }
         inFlight = true
-        defer { inFlight = false }
+        var failed = false
+        defer {
+            inFlight = false
+            closedInFlight.removeAll()
+            // whatever was marked dirty while this was in flight had its timer fire into the
+            // guard above and return; without this it waits for the tab's next output
+            if !dirty.isEmpty { scheduleFlush(after: failed ? 10 : minInterval) }
+        }
         let ids = dirty; dirty.removeAll()
         var snaps: [TabSnapshot] = []
         var sources: [TranscriptReader.Source] = []
@@ -175,8 +184,13 @@ final class SyncPublisher {
         for i in snaps.indices { snaps[i].chat = chats[i] }
         do { try await cloud.saveTabs(snaps) }
         catch {
-            for s in snaps { dirty.insert(s.tabId) } // retry on next change/poll
+            failed = true
+            for s in snaps where !closedInFlight.contains(s.tabId) { dirty.insert(s.tabId) } // retried by the defer above
         }
+        // a tab closed while its snapshot was on the way up: the save landed after
+        // tabClosed's delete and brought the record back, so delete it again
+        let ghosts = snaps.map(\.tabId).filter(closedInFlight.contains)
+        if !ghosts.isEmpty { try? await cloud.deleteTabs(ghosts) }
     }
 
     // ─── Consuming input from iOS ───
