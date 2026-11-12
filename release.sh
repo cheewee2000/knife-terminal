@@ -13,6 +13,13 @@ ZIP="$PWD/dist/Knife-Terminal-$V.zip"
 [ -n "$V" ] || { echo "no MARKETING_VERSION in apple/project.yml"; exit 1; }
 git diff --quiet || { echo "working tree dirty — commit the version bump first"; exit 1; }
 gh release view "v$V" >/dev/null 2>&1 && { echo "v$V already released"; exit 1; }
+# Sparkle offers an update only when the build number goes up; shipping the same one
+# strands everyone on the previous release (1.3.14 and 1.4.x both carried 1.1.11).
+LIVE=$(sed -n 's/.*<sparkle:version>\(.*\)<\/sparkle:version>.*/\1/p' appcast.xml | head -1)
+newer() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]; }   # $1 > $2
+newer "$B" "${LIVE:-0}" || { echo "CURRENT_PROJECT_VERSION $B is not above the released build $LIVE — bump it in apple/project.yml"; exit 1; }
+# the release tag is created on GitHub's copy of the branch: everything must be there first
+git fetch -q origin && [ -z "$(git log --oneline '@{u}..HEAD')" ] || { echo "unpushed commits — push before releasing"; exit 1; }
 
 echo "── building $V"
 mkdir -p dist
