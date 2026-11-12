@@ -466,7 +466,7 @@ final class KnifeTermView: LocalProcessTerminalView {
     // the cwd), and the same tokens are on screen scan after scan.
     // ponytail: whole cache dropped every 5s, so a file created just now links up to 5s late
     private var fileLinkCache: [String: (URL, String?, NSRange)?] = [:]
-    private var linkLineCache: [String: [(URL, String?, NSRange)]] = [:] // logical line text → its links
+    private var linkLineCache: [String: [(URL, String?, NSRange, NSRange?)]] = [:] // logical line + the row below → its links
     private var fileLinkCacheAt = Date.distantPast
     private var fileLinkCacheCwd: String?
 
@@ -481,6 +481,21 @@ final class KnifeTermView: LocalProcessTerminalView {
         }
         let t = getTerminal()
         var found: [ScreenLink] = []
+        var rowChars: [Int: (text: String, cols: [Int])] = [:] // one row's text, and the column of each utf16 unit
+        func chars(_ r: Int) -> (text: String, cols: [Int])? {
+            if let c = rowChars[r] { return c }
+            guard r < t.rows, let line = t.getLine(row: r) else { return nil }
+            var text = ""
+            var cols: [Int] = []
+            for col in 0..<t.cols {
+                var ch = t.getCharacter(for: line[col])
+                if ch == "\u{0}" { ch = " " }
+                text.append(ch)
+                for _ in 0..<String(ch).utf16.count { cols.append(col) }
+            }
+            rowChars[r] = (text, cols)
+            return (text, cols)
+        }
         var row = 0
         while row < t.rows {
             guard t.getLine(row: row) != nil else { row += 1; continue }
@@ -488,19 +503,15 @@ final class KnifeTermView: LocalProcessTerminalView {
             var text = ""
             var cellOfUnit: [Int] = [] // utf16 offset → cell ordinal in group
             var rows: [Int] = []
-            var cell = 0
             repeat {
-                guard let line = t.getLine(row: row) else { break }
+                guard let c = chars(row) else { break }
+                let base = rows.count * t.cols
                 rows.append(row)
-                for col in 0..<t.cols {
-                    var ch = t.getCharacter(for: line[col])
-                    if ch == "\u{0}" { ch = " " }
-                    text.append(ch)
-                    for _ in 0..<String(ch).utf16.count { cellOfUnit.append(cell) }
-                    cell += 1
-                }
+                text += c.text
+                cellOfUnit += c.cols.map { base + $0 }
                 row += 1
             } while row < t.rows && (t.getLine(row: row)?.isWrapped ?? false)
+            let below = chars(row) // where an agent's own word-wrap continues a path
 
             let ns = text as NSString
             func spansFor(_ range: NSRange) -> [(row: Int, cols: Range<Int>)] {
@@ -519,31 +530,28 @@ final class KnifeTermView: LocalProcessTerminalView {
 
             // Most lines are the same text scan after scan (only the spinner line
             // moves), so the detector runs once per distinct line, not once per scan.
-            let hits: [(URL, String?, NSRange)]
-            if let cached = linkLineCache[text] { hits = cached } else {
-                var fresh: [(URL, String?, NSRange)] = []
+            let hits: [(URL, String?, NSRange, NSRange?)]
+            let key = text + "\n" + (below?.text ?? "")
+            if let cached = linkLineCache[key] { hits = cached } else {
+                var fresh: [(URL, String?, NSRange, NSRange?)] = []
                 for m in det.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
-                    if let url = m.url { fresh.append((url, nil, m.range)) }
+                    if let url = m.url { fresh.append((url, nil, m.range, nil)) }
                 }
-                let claimed = fresh.map(\.2)
-                // File paths: any token that resolves to something on disk.
-                for m in Self.tokenRegex.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
-                    guard !claimed.contains(where: { NSIntersectionRange($0, m.range).length > 0 }) else { continue }
-                    let token = ns.substring(with: m.range)
-                    let resolved: (URL, String?, NSRange)?
-                    if let hit = fileLinkCache[token] { resolved = hit } else {
-                        resolved = Self.fileLink(token: token, at: NSRange(location: 0, length: m.range.length), cwd: cachedCwd)
-                        fileLinkCache.updateValue(resolved, forKey: token) // nil is cached too: most tokens are not paths
-                    }
-                    guard let (url, lineRef, rel) = resolved else { continue }
-                    fresh.append((url, lineRef, NSRange(location: m.range.location + rel.location, length: rel.length)))
+                fresh += Self.fileLinks(in: text, below: below?.text, skipping: fresh.map(\.2)) { candidate in
+                    if let hit = self.fileLinkCache[candidate] { return hit }
+                    let resolved = Self.fileLink(token: candidate, at: NSRange(location: 0, length: (candidate as NSString).length), cwd: self.cachedCwd)
+                    self.fileLinkCache.updateValue(resolved, forKey: candidate) // nil is cached too: most tokens are not paths
+                    return resolved
                 }
-                linkLineCache[text] = fresh
+                linkLineCache[key] = fresh
                 hits = fresh
             }
-            for (url, lineRef, range) in hits {
-                let spans = spansFor(range)
+            for (url, lineRef, range, rangeBelow) in hits {
+                var spans = spansFor(range)
                 guard !spans.isEmpty else { continue }
+                if let r = rangeBelow, let b = below, r.length > 0, NSMaxRange(r) <= b.cols.count {
+                    spans.append((row: row, cols: b.cols[r.location]..<b.cols[NSMaxRange(r) - 1] + 1))
+                }
                 found.append(ScreenLink(url: url, lineRef: lineRef, spans: spans))
             }
         }
@@ -562,6 +570,59 @@ final class KnifeTermView: LocalProcessTerminalView {
     // ─── File paths: underlined like URLs, click shows them in Finder ───
 
     static let tokenRegex = try! NSRegularExpression(pattern: #"\S+"#)
+
+    /// Every file path in `text`: a range in `text`, plus — for a path that continues on the
+    /// row below — a range in `below`. A token that starts an absolute path is extended over
+    /// the tokens after it and the longest run that exists on disk wins, so a path with
+    /// spaces ("/Applications/Knife Terminal.app") links as one. `below` is the next screen
+    /// row: an agent word-wraps its own output, which breaks such a path at one of its spaces.
+    // ponytail: absolute paths only, 12 tokens, one wrapped row; a relative path with spaces
+    // or a path wrapped twice links in pieces or not at all
+    static func fileLinks(in text: String, below: String? = nil, skipping claimed: [NSRange] = [],
+                          resolve: (String) -> (URL, String?, NSRange)?) -> [(URL, String?, NSRange, NSRange?)] {
+        let ns = text as NSString
+        let tokens = tokenRegex.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)).map(\.range)
+            .filter { r in !claimed.contains { NSIntersectionRange($0, r).length > 0 } }
+        let belowNS = (below ?? "") as NSString
+        let belowTokens = tokenRegex.matches(in: below ?? "", options: [], range: NSRange(location: 0, length: belowNS.length)).prefix(12).map(\.range)
+        var out: [(URL, String?, NSRange, NSRange?)] = []
+        var i = 0
+        while i < tokens.count {
+            let start = tokens[i].location
+            let token = ns.substring(with: tokens[i])
+            var hit: (URL, String?, NSRange, NSRange?)?
+            var used = i
+            if let f = token.drop(while: { "('\"`<[{".contains($0) }).first, f == "/" || f == "~" {
+                let last = min(i + 12, tokens.count - 1)
+                if last == tokens.count - 1, let head = belowTokens.first?.location { // the path may run on below
+                    let tail = ns.substring(with: NSRange(location: start, length: NSMaxRange(tokens[last]) - start))
+                    let cut = (tail as NSString).length + 1
+                    for m in belowTokens.reversed() {
+                        let more = belowNS.substring(with: NSRange(location: head, length: NSMaxRange(m) - head))
+                        guard let (url, lineRef, rel) = resolve(tail + " " + more), rel.location < cut - 1, NSMaxRange(rel) > cut else { continue }
+                        hit = (url, lineRef, NSRange(location: start + rel.location, length: cut - 1 - rel.location),
+                               NSRange(location: head, length: NSMaxRange(rel) - cut))
+                        used = last
+                        break
+                    }
+                }
+                var j = last
+                while hit == nil, j > i {
+                    if let (url, lineRef, rel) = resolve(ns.substring(with: NSRange(location: start, length: NSMaxRange(tokens[j]) - start))) {
+                        hit = (url, lineRef, NSRange(location: start + rel.location, length: rel.length), nil)
+                        used = j
+                    }
+                    j -= 1
+                }
+            }
+            if hit == nil, let (url, lineRef, rel) = resolve(token) {
+                hit = (url, lineRef, NSRange(location: start + rel.location, length: rel.length), nil)
+            }
+            if let hit { out.append(hit) }
+            i = used + 1
+        }
+        return out
+    }
 
     /// "(apple/macOS/Foo.swift:12)" → file URL for apple/macOS/Foo.swift, the
     /// "12" line reference, and the range of just the path part; nil when

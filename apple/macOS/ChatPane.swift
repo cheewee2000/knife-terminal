@@ -466,8 +466,8 @@ struct ChatPane: View {
         for m in KnifeTermView.urlDetector?.matches(in: text, range: all) ?? [] {
             if let url = m.url { link(m.range, url) }
         }
-        for m in KnifeTermView.tokenRegex.matches(in: text, range: all) {
-            guard let (url, lineRef, r) = KnifeTermView.fileLink(token: (text as NSString).substring(with: m.range), at: m.range, cwd: cwd) else { continue }
+        let found = KnifeTermView.fileLinks(in: text) { KnifeTermView.fileLink(token: $0, at: NSRange(location: 0, length: ($0 as NSString).length), cwd: cwd) }
+        for (url, lineRef, r, _) in found {
             link(r, lineRef.flatMap { URL(string: url.absoluteString + "#" + $0) } ?? url)
         }
     }
