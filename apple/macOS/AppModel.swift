@@ -467,7 +467,11 @@ final class AppModel: ObservableObject {
             let b = wc.window?.frame ?? .zero
             let tabs = own.map { t in
                 // `claude -c` would reopen the folder's latest session — two tabs in one project would both get it
-                SavedTab(title: t.title, cwd: t.currentCwd, cmd: t.sessionId.map { "claude --resume \($0)" } ?? t.opts.restoreCmd,
+                // A tab whose folder was missing when it opened (volume not mounted, Dropbox not
+                // synced yet) is sitting in the home directory: keep the folder it belongs to,
+                // or the next save forgets the project for good.
+                let missing = t.opts.cwd.map { !FileManager.default.fileExists(atPath: $0) } ?? false
+                return SavedTab(title: t.title, cwd: missing ? t.opts.cwd : t.currentCwd, cmd: t.sessionId.map { "claude --resume \($0)" } ?? t.opts.restoreCmd,
                          active: t.id == wc.activeId)
             }
             return SavedWindow(bounds: .init(x: b.origin.x, y: b.origin.y, width: b.width, height: b.height), tabs: tabs)
@@ -477,7 +481,7 @@ final class AppModel: ObservableObject {
         do {
             try FileManager.default.createDirectory(at: sessionURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let enc = JSONEncoder(); enc.outputFormatting = [.prettyPrinted]
-            try enc.encode(session).write(to: sessionURL)
+            try enc.encode(session).write(to: sessionURL, options: .atomic) // a kill mid-write must not leave half a file
         } catch {}
     }
 
