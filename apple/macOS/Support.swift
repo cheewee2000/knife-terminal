@@ -135,7 +135,7 @@ enum HooksInstaller {
     static func upgrade() {
         guard let s = try? String(contentsOfFile: settingsPath, encoding: .utf8), s.contains("knife-terminal.sock"),
               !installed(at: settingsPath, events: events) else { return }
-        _ = write(to: settingsPath, events: events)
+        _ = write(to: settingsPath, events: events, quiet: true) // at launch: a file we can't parse is skipped silently
     }
 
     @MainActor
@@ -150,13 +150,20 @@ enum HooksInstaller {
         return write(to: settingsPath, events: events) && write(to: codexPath, events: codexEvents)
     }
 
-    @MainActor
-    private static func write(to settingsPath: String, events: [String]) -> Bool {
+    /// The settings file's contents with our hooks added, or nil when the file holds
+    /// something we can't read as the JSON we expect. Nil means don't write: starting
+    /// over from an empty config would replace the user's whole settings file
+    /// (permissions, env, other hooks) with just our hooks.
+    static func merged(_ existing: Data?, events: [String], hookCmd: String) -> [String: Any]? {
         var cfg: [String: Any] = [:]
-        if let data = FileManager.default.contents(atPath: settingsPath),
-           let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] { cfg = j }
+        if let existing, !(String(data: existing, encoding: .utf8) ?? "x").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard let j = try? JSONSerialization.jsonObject(with: existing) as? [String: Any] else { return nil }
+            cfg = j
+        }
+        if cfg["hooks"] != nil, !(cfg["hooks"] is [String: Any]) { return nil }
         var hooks = cfg["hooks"] as? [String: Any] ?? [:]
         for ev in events {
+            if hooks[ev] != nil, !(hooks[ev] is [Any]) { return nil }
             var arr = hooks[ev] as? [Any] ?? []
             let d = (try? JSONSerialization.data(withJSONObject: arr)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
             if !d.contains("knife-terminal.sock") {
@@ -165,6 +172,19 @@ enum HooksInstaller {
             hooks[ev] = arr
         }
         cfg["hooks"] = hooks
+        return cfg
+    }
+
+    @MainActor
+    private static func write(to settingsPath: String, events: [String], quiet: Bool = false) -> Bool {
+        guard let cfg = merged(FileManager.default.contents(atPath: settingsPath), events: events, hookCmd: hookCmd) else {
+            if !quiet {
+                let err = NSAlert(); err.messageText = "Hooks not installed"
+                err.informativeText = "\(settingsPath) is not valid JSON (or its hooks are not in the usual shape), so Knife left it alone. Fix the file and try again."
+                err.runModal()
+            }
+            return false
+        }
         do {
             try FileManager.default.createDirectory(atPath: (settingsPath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
             let out = try JSONSerialization.data(withJSONObject: cfg, options: [.prettyPrinted, .sortedKeys])
