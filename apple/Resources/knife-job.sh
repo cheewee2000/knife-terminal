@@ -41,7 +41,10 @@ sys.stdout.write(out.decode(errors="replace"))' "$SOCK"; }
 # the overseer's Bash is sandboxed (no /dev/tty), but the socket is reachable
 note() { if [ -n "${KNIFE_TAB:-}" ]; then printf 'tab echo %s \033[2m%s\033[0m' "$KNIFE_TAB" "$*" | sock >/dev/null; else echo "$*" >&2; fi; }
 tab() {
-  local verb=${1:-}; shift 2>/dev/null; set -- "${1:-}" "${2:-}"
+  # $1 = the tab id (or, for open/shell, the directory), $2 = everything after it: several
+  # keys, or a question the overseer did not quote, are one argument to the app
+  local verb=${1:-}; shift 2>/dev/null; local first=${1:-}; shift 2>/dev/null; set -- "$first" "$*"
+  case "$verb" in open|shell) set -- "$1${2:+ $2}" "" ;; esac   # a directory with spaces, unquoted
   case "$verb" in
     open|shell) local id; id=$(printf 'tab %s %s' "$verb" "$1" | sock); note "▶ $verb $1 → tab $id"; echo "$id"
                 [ -n "${KNIFE_JOB:-}" ] && echo "$id" >> "$KNIFE_JOB.tabs"   # the runner watches these
@@ -238,8 +241,8 @@ Never run anything but knife-tab. Never close or kill the tab."
 # is the overseer's next turn instead, and after DONE the tab stays open as a
 # chat with it. Uses $JOB, $name; $1 = the opening prompt.
 drive() {
-  : > "$JOB.tabs"
-  local report sid="" rounds=0 busy id st line w reported="" chat=""
+  : > "$JOB.tabs"; rm -f "$JOB.sid"
+  local report rounds=0 busy id st line w reported="" chat=""
   [ -t 0 ] && chat=1   # a keyboard to chat from (not a pipe/self-check); closing the tab HUPs us, so no EOF handling
   report=$(overseer "$1"); printf '%s\n' "$report" | tee -a "$JOB.out"
   while :; do
@@ -260,7 +263,7 @@ drive() {
     done
     if [ -n "$line" ]; then
       [ -n "$w" ] && { kill "$w" 2>/dev/null; wait "$w" 2>/dev/null; }
-      report=$(overseer "The owner says: $line" "$sid")
+      report=$(overseer "The owner says: $line" "$(cat "$JOB.sid" 2>/dev/null)")
     else
       wait "$w" 2>/dev/null; st=$(cat "$JOB.wait"); rounds=$((rounds+1))
       if [ "$st" = limit ]; then   # the overseer runs on the same account — resuming it now fails too
@@ -269,18 +272,19 @@ drive() {
         [ -n "$chat" ] || return 0
         report=""; continue
       fi
-      report=$(overseer "Tab $busy is now $st. knife-tab read it and continue from step 3." "$sid")
+      report=$(overseer "Tab $busy is now $st. knife-tab read it and continue from step 3." "$(cat "$JOB.sid" 2>/dev/null)")
     fi
     printf '%s\n' "$report" | tee -a "$JOB.out"
   done
 }
 
-# one overseer turn: $1 prompt, $2 session to resume (empty = new) → prints its reply, sets $sid
+# one overseer turn: $1 prompt, $2 session to resume (empty = new) → prints its reply, saves the session id in $JOB.sid
 overseer() {
   local out
   out=$(cd "$KNIFE/jobs" && PATH="$KNIFE/bin:$PATH" KNIFE_JOB="$JOB" claude -p "$1" ${2:+--resume "$2"} --model sonnet \
         --output-format json --allowedTools "Bash(knife-tab:*)" </dev/null)
   sid=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("session_id",""))' <<<"$out" 2>/dev/null)
+  [ -n "$sid" ] && echo "$sid" > "$JOB.sid"   # drive calls us in $(…), a subshell: a variable would not reach it
   python3 -c 'import json,sys; print(json.load(sys.stdin).get("result",""))' <<<"$out" 2>/dev/null || printf '%s\n' "$out"
 }
 
