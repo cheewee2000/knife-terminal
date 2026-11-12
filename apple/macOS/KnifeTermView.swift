@@ -306,11 +306,17 @@ final class KnifeTermView: LocalProcessTerminalView {
         if t.hasSuffix("\\") { t += " " }   // a backslash before Enter makes it a newline
         let chars = Array(t)
         let chunks = stride(from: 0, to: chars.count, by: 256).map { String(chars[$0..<min($0 + 256, chars.count)]) }
+        // Lines queue behind one another: two started together (phone inputs arriving in
+        // one batch) would otherwise both type first and then both press Enter.
+        let start = max(0, typeFreeAt.timeIntervalSinceNow)
         for (i, c) in chunks.enumerated() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.015 * Double(i)) { [weak self] in self?.send(txt: c) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + start + 0.015 * Double(i)) { [weak self] in self?.send(txt: c) }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.015 * Double(chunks.count) + 0.25) { [weak self] in self?.send(txt: "\r") }
+        let enter = start + 0.015 * Double(chunks.count) + 0.25
+        DispatchQueue.main.asyncAfter(deadline: .now() + enter) { [weak self] in self?.send(txt: "\r") }
+        typeFreeAt = Date().addingTimeInterval(enter + 0.05)
     }
+    private var typeFreeAt = Date.distantPast // when the last typeLine's Enter will have gone out
 
     /// The visible screen as styled runs (colors, bold, …) for the iOS mirror.
     /// The screen as plain text, trailing blanks trimmed (the overseer reads this).
