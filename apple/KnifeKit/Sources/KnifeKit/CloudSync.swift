@@ -330,8 +330,16 @@ public final class CloudSync: @unchecked Sendable {
             return r
         }
         try await modify(save: records, delete: nil)
+        updatePublished { for s in snaps { $0.insert("tab-\(s.tabId)") } }
+    }
+
+    /// saveTabs and deleteTabs run on whatever thread their task landed on, sometimes at once
+    /// (a tab closing during a flush): an unguarded read-modify-write lost one of the updates.
+    private let publishedLock = NSLock()
+    private func updatePublished(_ change: (inout Set<String>) -> Void) {
+        publishedLock.lock(); defer { publishedLock.unlock() }
         var published = Set(defaults.stringArray(forKey: publishedKey) ?? [])
-        for s in snaps { published.insert("tab-\(s.tabId)") }
+        change(&published)
         defaults.set(Array(published), forKey: publishedKey)
     }
 
@@ -339,9 +347,7 @@ public final class CloudSync: @unchecked Sendable {
         guard !tabIds.isEmpty else { return }
         let ids = tabIds.map { recordID(forTab: $0) }
         try await modify(save: nil, delete: ids)
-        var published = Set(defaults.stringArray(forKey: publishedKey) ?? [])
-        for t in tabIds { published.remove("tab-\(t)") }
-        defaults.set(Array(published), forKey: publishedKey)
+        updatePublished { for t in tabIds { $0.remove("tab-\(t)") } }
     }
 
     private var publishedKey: String { "knife.publishedTabs" }
