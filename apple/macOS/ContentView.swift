@@ -464,20 +464,13 @@ struct TabRow: View {
     let activate: () -> Void
     let close: () -> Void
     @State private var hovering = false
-    @State private var pulse = false
 
     private let accent = Color(red: 0xB1 / 255.0, green: 0xA5 / 255.0, blue: 0x7E / 255.0)
     private let signalOrange = Color(red: 0xE3 / 255.0, green: 0x5A / 255.0, blue: 0x1E / 255.0)
 
     var body: some View {
         HStack(spacing: 6) {
-            Circle()
-                .fill(tab.attention ? signalOrange : (tab.working ? accent : .clear))
-                .frame(width: 6, height: 6)
-                .opacity(isPulsing && pulse ? 0.25 : 1.0)
-                .animation(isPulsing ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .default, value: pulse)
-                .onAppear { pulse = isPulsing }
-                .onChange(of: isPulsing) { _, now in pulse = now }
+            PulseDot(color: tab.attention ? signalOrange : (tab.working ? accent : .clear), size: 6, pulsing: isPulsing)
             if theme.user.emoticons {
                 Text(tab.emoji).font(.system(size: 12))
             }
