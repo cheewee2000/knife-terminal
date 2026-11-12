@@ -24,6 +24,12 @@ final class UnixSocketServer {
         fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return }
         _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+        // A client that has already gone (nc -w 1, a timed-out knife-tab) must not kill the app
+        // when its reply is written. Set on the listener, which accepted sockets inherit: on the
+        // accepted socket itself setsockopt fails with EINVAL once the peer has closed. Not
+        // signal(SIGPIPE, SIG_IGN): the shells we fork would inherit an ignored SIGPIPE.
+        var on: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         var addr = makeAddr()
         let len = socklen_t(MemoryLayout<sockaddr_un>.size)
         let bound = withUnsafePointer(to: &addr) {
@@ -78,7 +84,12 @@ final class UnixSocketServer {
         // a "tab open" forks a shell while this connection is live — without CLOEXEC the
         // child inherits it and the client never sees EOF after the reply
         _ = fcntl(client, F_SETFD, FD_CLOEXEC)
-        queue.async { [weak self] in
+        // a client that connects and says nothing is dropped instead of waited on forever
+        var patience = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &patience, socklen_t(MemoryLayout<timeval>.size))
+        // Read off the serial queue so a slow client holds up nobody else; messages are still
+        // handled one at a time, in the order they finish arriving.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             var buf = Data()
             var chunk = [UInt8](repeating: 0, count: 4096)
             while true {
@@ -87,11 +98,14 @@ final class UnixSocketServer {
                 buf.append(contentsOf: chunk[0..<n])
                 if buf.count > 512 * 1024 { break }
             }
-            if let s = String(data: buf, encoding: .utf8), !s.isEmpty, let reply = self?.onMessage(s) {
-                // client half-closed its write side (python shutdown(SHUT_WR)) and is waiting for this
-                _ = reply.utf8CString.withUnsafeBufferPointer { write(client, $0.baseAddress, $0.count - 1) }
+            guard let self else { close(client); return }
+            self.queue.async {
+                if let s = String(data: buf, encoding: .utf8), !s.isEmpty, let reply = self.onMessage(s) {
+                    // client half-closed its write side (python shutdown(SHUT_WR)) and is waiting for this
+                    _ = reply.utf8CString.withUnsafeBufferPointer { write(client, $0.baseAddress, $0.count - 1) }
+                }
+                close(client)
             }
-            close(client)
         }
     }
 
