@@ -16,6 +16,9 @@ struct SessionDetailView: View {
     @State private var showUsage = false
     @FocusState private var composing: Bool
     @State private var photos: [PhotosPickerItem] = []
+    /// Picked, not yet sent: thumbnails above the input; they go out with the next send.
+    @State private var attached: [(id: UUID, thumb: UIImage, b64: String)] = []
+    private var canSend: Bool { !draft.isEmpty || !attached.isEmpty }
 
     private var tab: MirroredTab? { store.tabs.first { $0.id == tabRecordName } }
     private var messages: [ChatMessage] { tab.flatMap { ChatTranscript.decode($0.chat) } ?? [] }
@@ -155,6 +158,7 @@ struct SessionDetailView: View {
                     if focused { proxy.scrollTo("chat-bottom", anchor: .bottom) }
                 }
             }
+            attachmentStrip
             composer(tab)
         }
     }
@@ -258,10 +262,10 @@ struct SessionDetailView: View {
             Button { submit(tab) } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.system(size: 30))
-                    .foregroundStyle(draft.isEmpty ? Color.secondary.opacity(0.5) : knifeAccent)
+                    .foregroundStyle(canSend ? knifeAccent : Color.secondary.opacity(0.5))
             }
             .buttonStyle(.plain)
-            .disabled(draft.isEmpty)
+            .disabled(!canSend)
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .background(.bar)
@@ -276,7 +280,7 @@ struct SessionDetailView: View {
         ZStack(alignment: .bottom) {
             MirrorTextView(styled: tab.styled, dark: scheme == .dark)
                 .ignoresSafeArea(.keyboard)
-            terminalInputBar(tab)
+            VStack(spacing: 0) { attachmentStrip; terminalInputBar(tab) }
         }
     }
 
@@ -314,14 +318,13 @@ struct SessionDetailView: View {
             }
             Button { submit(tab) } label: { Text("send").font(mono(11, bold: true)) }
                 .buttonStyle(.plain)
-                .disabled(draft.isEmpty)
+                .disabled(!canSend)
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .background(.bar)
     }
 
-    /// Photos go one Input each, in order, ahead of whatever is typed next; the Mac pastes
-    /// each as a file path so Claude attaches it. Type the message, then send as usual.
+    /// Picked photos wait as thumbnails above the input until the next send.
     private func photoButton(_ tab: MirroredTab, size: CGFloat) -> some View {
         PhotosPicker(selection: $photos, matching: .images) {
             Image(systemName: "photo").font(.system(size: size)).foregroundStyle(knifeAccent)
@@ -333,10 +336,34 @@ struct SessionDetailView: View {
             Task {
                 for item in items {
                     guard let data = try? await item.loadTransferable(type: Data.self),
-                          let b64 = Self.jpegBase64(data) else { continue }
-                    store.send(CloudSync.imagePrefix + b64, to: tab)
+                          let b64 = Self.jpegBase64(data),
+                          let jpg = Data(base64Encoded: b64), let img = UIImage(data: jpg) else { continue }
+                    attached.append((UUID(), img.preparingThumbnail(of: CGSize(width: 160, height: 160)) ?? img, b64))
                 }
             }
+        }
+    }
+
+    @ViewBuilder private var attachmentStrip: some View {
+        if !attached.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(attached, id: \.id) { a in
+                        Image(uiImage: a.thumb).resizable().scaledToFill()
+                            .frame(width: 56, height: 56).clipped()
+                            .overlay(alignment: .topTrailing) {
+                                Button { attached.removeAll { $0.id == a.id } } label: {
+                                    Image(systemName: "xmark.circle.fill").font(.system(size: 16))
+                                        .foregroundStyle(.white, .black.opacity(0.6))
+                                }
+                                .buttonStyle(.plain).padding(2)
+                            }
+                    }
+                }
+                .padding(.horizontal, 12).padding(.top, 8)
+            }
+            .frame(maxWidth: .infinity)
+            .background(.bar)
         }
     }
 
@@ -354,7 +381,12 @@ struct SessionDetailView: View {
     }
 
     private func submit(_ tab: MirroredTab) {
-        store.send(draft + "\r", to: tab)
+        // each photo lands on the Mac as a pasted path; in a Claude tab a newline (Ctrl+J)
+        // then keeps the message on its own line instead of running into the path
+        for a in attached { store.send(CloudSync.imagePrefix + a.b64, to: tab) }
+        let sep = !attached.isEmpty && !draft.isEmpty && !tab.chat.isEmpty ? "\n" : ""
+        attached = []
+        store.send(sep + draft + "\r", to: tab)
         let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         if !showTerminal, !t.isEmpty { echoes.removeAll { $0.sent.timeIntervalSinceNow < -30 }; echoes.append((t, Date())) }
         draft = ""

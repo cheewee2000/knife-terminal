@@ -237,7 +237,7 @@ final class SyncPublisher {
                 }
                 continue
             }
-            if text.count > 1, text.hasSuffix("\r") {
+            if text.count > 1 && text.hasSuffix("\r") || text == "\r" && tab.view.typing {
                 tab.view.typeLine(String(text.dropLast()))   // composer text: typed, not pasted
             } else {
                 tab.view.send(txt: text)

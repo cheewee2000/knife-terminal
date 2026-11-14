@@ -326,6 +326,7 @@ final class KnifeTermView: LocalProcessTerminalView {
         typeFreeAt = Date().addingTimeInterval(enter + 0.05)
     }
     private var typeFreeAt = Date.distantPast // when the last typeLine's Enter will have gone out
+    var typing: Bool { typeFreeAt > Date() }   // a typeLine/paste is still going out: a bare Enter queues behind it
 
     /// Paste text as one bracketed paste (no Enter), queued behind any typeLine in flight.
     func paste(_ text: String) {
