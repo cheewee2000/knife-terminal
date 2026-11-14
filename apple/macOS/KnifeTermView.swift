@@ -327,6 +327,14 @@ final class KnifeTermView: LocalProcessTerminalView {
     }
     private var typeFreeAt = Date.distantPast // when the last typeLine's Enter will have gone out
 
+    /// Paste text as one bracketed paste (no Enter), queued behind any typeLine in flight.
+    func paste(_ text: String) {
+        let s = getTerminal().bracketedPasteMode ? "\u{1b}[200~\(text)\u{1b}[201~" : text
+        let start = max(0, typeFreeAt.timeIntervalSinceNow)
+        DispatchQueue.main.asyncAfter(deadline: .now() + start) { [weak self] in self?.send(txt: s) }
+        typeFreeAt = Date().addingTimeInterval(start + 0.3)
+    }
+
     /// The visible screen as styled runs (colors, bold, …) for the iOS mirror.
     /// The screen as plain text, trailing blanks trimmed (the overseer reads this).
     func plainScreen() -> String {

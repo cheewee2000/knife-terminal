@@ -227,6 +227,16 @@ final class SyncPublisher {
         for input in delta.inputs {
             guard let tab = target(input.tabId, input.ts, input.recordID) else { continue }
             let text = input.data
+            if text.hasPrefix(CloudSync.imagePrefix) { // phone photo → temp file, path pasted (Claude attaches it)
+                let dir = FileManager.default.temporaryDirectory.appendingPathComponent("knife-photos")
+                let url = dir.appendingPathComponent("\(UUID().uuidString.prefix(8)).jpg")
+                if let data = Data(base64Encoded: String(text.dropFirst(CloudSync.imagePrefix.count))),
+                   (try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)) != nil,
+                   (try? data.write(to: url)) != nil {
+                    tab.view.paste(url.path + " ")
+                }
+                continue
+            }
             if text.count > 1, text.hasSuffix("\r") {
                 tab.view.typeLine(String(text.dropLast()))   // composer text: typed, not pasted
             } else {

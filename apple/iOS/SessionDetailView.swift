@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import KnifeKit
+import PhotosUI
 
 private func mono(_ size: CGFloat, bold: Bool = false) -> Font {
     Font.custom(bold ? "Space Mono Bold" : "Space Mono", size: size)
@@ -14,6 +15,7 @@ struct SessionDetailView: View {
     @State private var showTerminal = false
     @State private var showUsage = false
     @FocusState private var composing: Bool
+    @State private var photos: [PhotosPickerItem] = []
 
     private var tab: MirroredTab? { store.tabs.first { $0.id == tabRecordName } }
     private var messages: [ChatMessage] { tab.flatMap { ChatTranscript.decode($0.chat) } ?? [] }
@@ -241,6 +243,7 @@ struct SessionDetailView: View {
 
     private func composer(_ tab: MirroredTab) -> some View {
         HStack(alignment: .bottom, spacing: 8) {
+            photoButton(tab, size: 22)
             TextField("Message", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(mono(13))
@@ -294,6 +297,7 @@ struct SessionDetailView: View {
                 }
                 .buttonStyle(.plain)
             }
+            photoButton(tab, size: 15)
             TextField("type here, ⏎ sends", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(mono(13))
@@ -314,6 +318,39 @@ struct SessionDetailView: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .background(.bar)
+    }
+
+    /// Photos go one Input each, in order, ahead of whatever is typed next; the Mac pastes
+    /// each as a file path so Claude attaches it. Type the message, then send as usual.
+    private func photoButton(_ tab: MirroredTab, size: CGFloat) -> some View {
+        PhotosPicker(selection: $photos, matching: .images) {
+            Image(systemName: "photo").font(.system(size: size)).foregroundStyle(knifeAccent)
+                .padding(.bottom, size > 20 ? 6 : 0)
+        }
+        .onChange(of: photos) { _, items in
+            guard !items.isEmpty else { return }
+            photos = []
+            Task {
+                for item in items {
+                    guard let data = try? await item.loadTransferable(type: Data.self),
+                          let b64 = Self.jpegBase64(data) else { continue }
+                    store.send(CloudSync.imagePrefix + b64, to: tab)
+                }
+            }
+        }
+    }
+
+    /// Downscaled JPEG small enough for one CloudKit record (1 MB cap, base64 inflates 4/3).
+    static func jpegBase64(_ data: Data) -> String? {
+        guard let img = UIImage(data: data) else { return nil }
+        for side in [2048.0, 1536, 1024, 768] {
+            let scale = min(1, side / max(img.size.width, img.size.height))
+            let size = CGSize(width: img.size.width * scale, height: img.size.height * scale)
+            let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+            let small = UIGraphicsImageRenderer(size: size, format: fmt).image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }
+            if let jpg = small.jpegData(compressionQuality: 0.7), jpg.count < 650_000 { return jpg.base64EncodedString() }
+        }
+        return nil
     }
 
     private func submit(_ tab: MirroredTab) {

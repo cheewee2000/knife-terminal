@@ -490,6 +490,9 @@ public final class CloudSync: @unchecked Sendable {
     /// an Open record as "job:<text>" — a new record type would need a
     /// Production schema deploy, and the executor already consumes Opens.
     public static let jobPrefix = "job:"
+    /// An Input whose data is this + base64 JPEG is a photo from the phone: the Mac saves it and
+    /// pastes the path. Rides in Input.data (records cap at 1 MB) — no Production schema deploy.
+    public static let imagePrefix = "\u{1}knife-image:"
     public func sendJob(_ text: String) async throws {
         try await sendOpen(path: Self.jobPrefix + text)
     }
