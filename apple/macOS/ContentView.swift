@@ -75,14 +75,25 @@ struct ContentView: View {
                                 .onHover { inside in inside ? NSCursor.resizeLeftRight.push() : NSCursor.pop() }
                         )
                 }
-                Group {
-                    if chatView, let tab = controller.activeTab {
-                        ChatPane(controller: controller, tab: tab)
-                            .id(tab.id) // fresh state per tab: echoes, opened runs, find never carry over
-                    } else {
-                        TerminalPane(controller: controller)
-                            .padding(.leading, 6) // keep TUI list bullets off the separator line
+                VStack(spacing: 0) {
+                    // its own row above the terminal, so terminal text can never run under the agent picker
+                    if let tab = controller.activeTab, tab.opts.guest == nil {
+                        HStack {
+                            Spacer(minLength: 0)
+                            AgentPicker(controller: controller, tab: tab).id(tab.id)
+                        }
+                        .padding(.top, 6).padding(.bottom, 4).padding(.trailing, 14)
                     }
+                    Group {
+                        if chatView, let tab = controller.activeTab {
+                            ChatPane(controller: controller, tab: tab)
+                                .id(tab.id) // fresh state per tab: echoes, opened runs, find never carry over
+                        } else {
+                            TerminalPane(controller: controller)
+                                .padding(.leading, 6) // keep TUI list bullets off the separator line
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 if gitPanel {
@@ -159,6 +170,7 @@ struct SidebarView: View {
                             .onDrop(of: [.text], delegate: TabReorderDrop(
                                 targetId: tab.id, dragging: $draggingTabId, controller: controller))
                             .contextMenu {
+                                if let dir = tab.currentCwd ?? tab.opts.cwd { agentMenu(dir) }
                                 if tab.opts.guest == nil {
                                     Button("Invite to Session…") { Collab.shared.invite(tab) }
                                 } else {
@@ -175,6 +187,19 @@ struct SidebarView: View {
                         .padding(.horizontal, 10).padding(.vertical, 4)
                     }
                     .buttonStyle(.plain)
+
+                    // pick the agent for a new tab: one CLI, or several debating until they agree
+                    Menu {
+                        agentMenuItems(controller.activeTab?.currentCwd ?? controller.activeTab?.opts.cwd ?? NSHomeDirectory())
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("+").font(mono(12))
+                            Text("new agent ▾").font(mono(11))
+                        }
+                        .foregroundStyle(theme.muted)
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                    }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
 
                     Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
                         .padding(.vertical, 6)
@@ -247,6 +272,7 @@ struct SidebarView: View {
     /// for another Mac's project, the manifest's).
     @ViewBuilder
     private func projectMenu(_ p: Project, local: Bool) -> some View {
+        if local { agentMenu(p.path) }
         if local {
             Button("Open Folder in Finder") { NSWorkspace.shared.open(URL(fileURLWithPath: p.path)) }
         }
@@ -264,6 +290,29 @@ struct SidebarView: View {
                 Button("cloud — the Claude app, not Knife") { Manifest.setRunOn(remote: remote, tag: "cloud") }
             }
         }
+    }
+
+    /// New tab in `dir` with one agent, or several debating until they agree.
+    @ViewBuilder
+    private func agentMenu(_ dir: String) -> some View {
+        Menu("Open Agent Here") { agentMenuItems(dir) }
+    }
+
+    @ViewBuilder
+    private func agentMenuItems(_ dir: String) -> some View {
+        ForEach(Agent.allCases, id: \.self) { a in
+            Button(a.label) { AppModel.shared.openAgents([a], in: dir) }
+        }
+        Divider()
+        ForEach(TeamMode.allCases, id: \.self) { m in
+            Menu(m.label) {
+                Button("Claude + Codex + Gemini") { AppModel.shared.openAgents([.claude, .codex, .gemini], in: dir, mode: m) }
+                Button("All Four") { AppModel.shared.openAgents(Agent.allCases, in: dir, mode: m) }
+                Button("Choose Agents…") { AppModel.shared.chooseAgentsAndOpen(in: dir, mode: m) }
+            }
+        }
+        Divider()
+        Button("Sign-in & Plans…") { AgentAccountsWindow.shared.show() }
     }
 
     private func reload() {
@@ -532,5 +581,40 @@ struct ContextPanel: View {
         }
         .padding(12)
         .frame(minWidth: 300, alignment: .leading)
+    }
+}
+
+/// Top-right of the terminal: which agent(s) this tab runs. Click an agent to add it, click again to
+/// drop it; one agent is its own CLI, two or more debate, none is a plain shell.
+struct AgentPicker: View {
+    @ObservedObject var controller: KnifeWindowController
+    @ObservedObject var tab: TabModel
+    @ObservedObject var theme = AppModel.shared.theme
+
+    private var summary: String {
+        tab.agents.isEmpty ? "shell" : tab.agents.map(\.rawValue).joined(separator: " + ") + (tab.agents.count > 1 ? " · " + tab.mode.rawValue : "")
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(Agent.allCases, id: \.self) { a in
+                Button(action: { AppModel.shared.toggleAgent(a, in: tab) }) {
+                    if tab.agents.contains(a) { Label(a.label, systemImage: "checkmark") } else { Text(a.label) }
+                }
+            }
+            Divider()
+            ForEach(TeamMode.allCases, id: \.self) { m in
+                Button(action: { AppModel.shared.setMode(m, in: tab) }) {
+                    if tab.mode == m { Label("\(m.label) — \(m.blurb)", systemImage: "checkmark") } else { Text("\(m.label) — \(m.blurb)") }
+                }
+            }
+            Divider()
+            Button("Sign-in & Plans…") { AgentAccountsWindow.shared.show() }
+        } label: {
+            Text(summary + " ▾").font(mono(11)).foregroundStyle(theme.muted)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Color.primary.opacity(0.08)).clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
     }
 }
