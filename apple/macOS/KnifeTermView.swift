@@ -63,8 +63,37 @@ final class KnifeTermView: LocalProcessTerminalView {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    // ─── Keep scrollback across an agent switch ───
+    // A freshly started agent opens with erase-screen / erase-scrollback (ESC[2J, ESC[3J), which wipes
+    // what the previous agent left in the tab. While `keepScrollback` is on, ESC[3J is dropped and
+    // ESC[2J scrolls the visible rows into scrollback (newlines, then home) instead of destroying them.
+    var keepScrollback = false
+    private var pendingErase: [UInt8] = []
+
+    private func keepHistory(_ slice: ArraySlice<UInt8>) -> ArraySlice<UInt8> {
+        guard keepScrollback || !pendingErase.isEmpty else { return slice }
+        let data = pendingErase + slice; pendingErase = []
+        let seqs: [[UInt8]] = [Array("\u{1b}[2J".utf8), Array("\u{1b}[3J".utf8)]
+        var out: [UInt8] = []; out.reserveCapacity(data.count)
+        var i = 0
+        while i < data.count {
+            if data[i] == 0x1b {
+                if let s = seqs.first(where: { data.count - i >= $0.count && Array(data[i..<(i + $0.count)]) == $0 }) {
+                    if s[2] == UInt8(ascii: "2"), !getTerminal().isCurrentBufferAlternate {
+                        out += [UInt8](repeating: 0x0a, count: getTerminal().rows) + Array("\u{1b}[H".utf8)
+                    }
+                    i += s.count; continue
+                }
+                let tail = Array(data[i...]) // a sequence split across chunks
+                if tail.count < 4, seqs.contains(where: { Array($0.prefix(tail.count)) == tail }) { pendingErase = tail; break }
+            }
+            out.append(data[i]); i += 1
+        }
+        return out[...]
+    }
+
     override func dataReceived(slice: ArraySlice<UInt8>) {
-        let data = filterForUserStyle(slice)
+        let data = filterForUserStyle(keepHistory(slice))
         ring.append(data)
         super.dataReceived(slice: data)
         DispatchQueue.main.async { [weak self] in

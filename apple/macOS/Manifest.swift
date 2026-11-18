@@ -80,7 +80,7 @@ enum Manifest {
         let localRemotes = Set(local.compactMap { remote(of: $0.path) })
         let elsewhere = merged.filter { ref in
             guard let r = ref.remote, !localRemotes.contains(r) else { return false }
-            return !FileManager.default.fileExists(atPath: ref.path)
+            return Projects.isProtected(ref.path) ? false : !FileManager.default.fileExists(atPath: ref.path)
         }.map { Project(path: $0.path, name: $0.name, t: $0.lastTouched?.timeIntervalSince1970 ?? 0) }
         return (local, elsewhere)
     }
@@ -114,7 +114,7 @@ enum Manifest {
     private static var remoteCache: [String: (mtime: Date, remote: String?)] = [:]
 
     static func remote(of path: String) -> String? {
-        guard let m = (try? FileManager.default.attributesOfItem(atPath: path + "/.git/config"))?[.modificationDate] as? Date
+        guard !Projects.isProtected(path), let m = (try? FileManager.default.attributesOfItem(atPath: path + "/.git/config"))?[.modificationDate] as? Date
         else { return nil } // not a repo (or a worktree, whose .git is a file)
         if let c = remoteCache[path], c.mtime == m { return c.remote }
         // Read straight from the file: this runs on the main thread for every sidebar

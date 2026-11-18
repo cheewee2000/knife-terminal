@@ -16,7 +16,7 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     let id: Int
     let view: KnifeTermView
     @Published var emoji: String
-    let opts: TabOptions
+    var opts: TabOptions // cmd/restoreCmd follow the tab when its agents change
     @Published var title: String
     @Published var working = false
     @Published var attention = false
@@ -24,6 +24,10 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
     var sessionId: String?     // claude's session, from its hooks — restore resumes exactly this one
     var transcriptPath: String? // the agent's live transcript, from its hooks — the chat view reads exactly this one
     var lastReply: String?     // claude's last message at Stop, for the push
+    @Published var agents: [Agent] = [] // what this tab runs: one CLI, a debate's list, or none (plain shell)
+    @Published var mode: TeamMode = .auto // with two or more agents: decide per prompt, always debate, or always work together
+    var used: Set<Agent> = []           // agents this tab has run, so switching back resumes instead of starting over
+    let stamp = Int(Date().timeIntervalSince1970) // names this tab's debate history
     var cols = 80
     var rows = 25
     var lastReportedCwd: String? // OSC 7, when the shell emits it
@@ -69,10 +73,16 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         self.title = opts.shownTitle ?? opts.title ?? (opts.cwd.map { ($0 as NSString).lastPathComponent } ?? "shell \(id)")
         self.view = KnifeTermView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         super.init()
+        agents = Agent.detect(opts.restoreCmd ?? opts.cmd)
+        used = Set(agents)
+        let launch = opts.cmd.map { Agent.launcherBody($0) ?? $0 }
+        if launch?.contains("KNIFE_MODE=together") == true { mode = .together }
         view.processDelegate = self
         AppModel.shared.theme.style(terminal: view)
 
         var env = Self.shellEnvironment()
+        AgentAuth.apply(to: &env) // per-agent sign-in choice: plan login vs API key (Agent Accounts)
+        AgentAuth.wrapShell(&env, shell: Self.userShell()) // …and again after the shell's own startup files
         env["KNIFE_TAB"] = String(id)
         let envList = env.map { "\($0.key)=\($0.value)" }
 
@@ -138,6 +148,72 @@ final class TabModel: NSObject, ObservableObject, Identifiable {
         var buf = [pid_t](repeating: 0, count: 8192)
         let bytes = proc_listpids(UInt32(PROC_ALL_PIDS), 0, &buf, Int32(buf.count * MemoryLayout<pid_t>.size))
         return buf.prefix(max(0, Int(bytes)) / MemoryLayout<pid_t>.size).filter { $0 > 0 && getsid($0) == sid }
+    }
+
+    /// True when the shell itself is in the foreground (no agent running in front of it).
+    var atPrompt: Bool {
+        guard let fd = view.process?.childfd, fd >= 0, shellPid > 0 else { return true }
+        return tcgetpgrp(fd) == shellPid
+    }
+
+    /// Change what this tab runs *in place*: the running agent is stopped, `command` is typed into the same
+    /// shell, and the terminal — scrollback, cwd, claude's session — is left exactly as it is.
+    func switchAgents(to set: [Agent], command: String?, restore: String?) {
+        // Claude's TUI lives on the terminal's alternate screen, which vanishes when it exits — so what was
+        // on it is replayed from its transcript into the normal screen, where it stays in scrollback.
+        let leavingClaude = agents == [.claude]
+        let src = TranscriptReader.source(for: self, cwd: currentCwd ?? opts.cwd)
+        agents = set; used.formUnion(set)
+        opts.cmd = command; opts.restoreCmd = restore
+        view.keepScrollback = true // the incoming agent's startup clear must not wipe the tab
+        DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in self?.view.keepScrollback = false }
+        Task {
+            let replay = leavingClaude ? await Task.detached { Self.replay(of: src) }.value : nil
+            stopForeground { [weak self] in
+                guard let self else { return }
+                if let replay { self.view.getTerminal().feed(text: replay); self.view.send(txt: "\r") } // fresh prompt below it
+                DispatchQueue.main.asyncAfter(deadline: .now() + (replay == nil ? 0 : 0.4)) { [weak self] in
+                    if let command { self?.view.send(txt: command + "\r") }
+                    AppModel.shared.saveSessionSoon()
+                }
+            }
+        }
+    }
+
+    /// The tail of the Claude conversation as terminal text (orange gutter, like the multi-agent view).
+    nonisolated static func replay(of src: TranscriptReader.Source) -> String? {
+        guard let msgs = TranscriptReader.chat(src)?.msgs else { return nil }
+        let recent = msgs.filter { $0.kind != .tool && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.suffix(14)
+        guard !recent.isEmpty else { return nil }
+        let orange = "\u{1b}[38;5;208m", dim = "\u{1b}[2m", bold = "\u{1b}[1m", off = "\u{1b}[0m"
+        var out = "\r\n\(dim)── earlier in this tab: the Claude conversation (last \(recent.count) messages) ──\(off)\r\n"
+        for m in recent {
+            var t = m.text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\r\n", with: "\n")
+            if t.count > 1500 { t = String(t.prefix(1500)) + " …" }
+            let body = t.replacingOccurrences(of: "\n", with: "\r\n")
+            out += m.kind == .user ? "\(orange)\(bold)›\(off) \(bold)\(body)\(off)\r\n\r\n" : "\(orange)▌\(off) \(body)\r\n\r\n"
+        }
+        return out + "\(dim)── end of the Claude conversation ──\(off)\r\n"
+    }
+
+    /// SIGTERM the foreground process group (the agent, or the debate loop and its agents), wait for the
+    /// shell prompt, undo any terminal modes the agent left on, then call `done`.
+    private func stopForeground(_ done: @escaping () -> Void) {
+        guard !atPrompt, let fd = view.process?.childfd else { return done() }
+        let pg = tcgetpgrp(fd)
+        if pg > 0 { kill(-pg, SIGTERM) }
+        var tries = 0
+        func poll() {
+            tries += 1
+            if atPrompt || tries > 25 {
+                if !atPrompt, pg > 0 { kill(-pg, SIGKILL) }
+                // mouse / focus reporting and a hidden cursor — what an agent can leave on. Nothing that moves the
+                // cursor or clears (no margin reset, no screen switch): the scrollback must survive.
+                view.getTerminal().feed(text: "\u{1b}[?1000l\u{1b}[?1002l\u{1b}[?1003l\u{1b}[?1006l\u{1b}[?1004l\u{1b}[?25h")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: done) // let the shell draw its prompt first
+            } else { DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: poll) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: poll)
     }
 
     func terminate() {
