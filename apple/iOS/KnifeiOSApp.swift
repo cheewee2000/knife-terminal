@@ -83,8 +83,15 @@ struct RootView: View {
             }
         }
         .task { await store.startup() }
-        .onChange(of: phase) { _, p in
-            if p == .active { Task { await store.refresh() } }
+        // Pushes are best-effort (iOS throttles silent ones and drops them in Low Power Mode),
+        // so while the app is on screen it also asks: a fetch with a change token is one small request.
+        .task(id: phase) {
+            guard phase == .active else { return }
+            CloudSync.log("foreground") // the log is the only way to see what the phone did
+            while !Task.isCancelled {
+                await store.refresh()
+                try? await Task.sleep(for: .seconds(4))
+            }
         }
     }
 }

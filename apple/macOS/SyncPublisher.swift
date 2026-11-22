@@ -69,10 +69,12 @@ final class SyncPublisher {
                 try await cloud.deleteLegacyProjectsRecord()
                 UserDefaults.standard.set(true, forKey: "knife.legacyProjectsGone")
             }
-            // re-walk the whole zone each launch: other Macs' project lists and the run-on
-            // tags (Manifest.remoteLists) live in memory only, and an unchanged record
-            // never comes back through an incremental fetch
-            cloud.resetChangeToken()
+            // Other Macs' project lists and the run-on tags (Manifest.remoteLists) live in
+            // memory only, and an unchanged record never comes back through an incremental
+            // fetch: read them by name. (1.4.0 re-walked the whole zone for this, which took
+            // half an hour by 1.4.33 — and nothing from the phone was consumed meanwhile.)
+            // A Mac that first published while this one was off arrives as a normal change.
+            Manifest.remoteLists = try await cloud.fetchProjects(machines: Manifest.knownMachines() + [ProjectRef.whereMachine])
         } catch {
             NSLog("knife sync: setup failed (will retry): \(error)")
             return
@@ -84,6 +86,10 @@ final class SyncPublisher {
         // publish whatever is already open
         for wc in AppModel.shared.windows { for t in wc.tabs { dirty.insert(t.id) } }
         scheduleFlush(after: 0.5)
+        // the other Macs' sessions as they are now — the incremental fetch below only brings
+        // the ones that change from here on
+        do { Collab.shared.mirror(try await cloud.queryLive(since: nil).delta) }
+        catch { CloudSync.log("other Macs' sessions not loaded: \(error)") }
         await consumeInputs()
         await publishProjectsIfChanged()
     }
@@ -205,8 +211,13 @@ final class SyncPublisher {
         consuming = true
         defer { consuming = false }
         await Collab.shared.pull() // sessions shared with us: needs only the account, not our zone
-        guard enabled else { return }
-        guard let delta = try? await cloud.fetchChanges() else { return } // failure already logged by CloudSync
+        while await consumePage() {}
+    }
+
+    /// One page of zone changes; true when the server has more.
+    private func consumePage() async -> Bool {
+        guard enabled else { return false }
+        guard let delta = try? await cloud.fetchChanges() else { return false } // failure already logged by CloudSync
         // other machines' manifest slices → merged file for the job runner
         if !delta.projects.isEmpty || !delta.deletedProjectRecordNames.isEmpty {
             for (name, refs) in delta.projects { Manifest.remoteLists[name] = refs }
@@ -214,8 +225,9 @@ final class SyncPublisher {
             Manifest.write(local: Manifest.localRefs())
         }
         if !delta.garbage.isEmpty { Task { try? await cloud.deleteRecords(delta.garbage) } }
+        Collab.shared.mirror(delta) // our other Macs' sessions are tabs here too
         guard !delta.inputs.isEmpty || !delta.opens.isEmpty || !delta.closes.isEmpty || !delta.seens.isEmpty
-        else { return }
+        else { return delta.more }
         var consumed: [CKRecord.ID] = []   // another Mac's records stay for it to consume
         // A record for one of this Mac's tab ids is ours to delete even when the tab is gone;
         // one written before this launch is for a previous run's tab (ids restart) — never apply it.
@@ -238,7 +250,9 @@ final class SyncPublisher {
                 continue
             }
             if text.count > 1 && text.hasSuffix("\r") || text == "\r" && tab.view.typing {
-                tab.view.typeLine(String(text.dropLast()))   // composer text: typed, not pasted
+                let line = String(text.dropLast())
+                if line.wholeMatch(of: #/\/(model|effort) \S+/#) != nil { tab.agentCommand(line) } // the phone's model · effort menu
+                else { tab.view.typeLine(line) }   // composer text: typed, not pasted
             } else {
                 tab.view.send(txt: text)
             }
@@ -283,5 +297,6 @@ final class SyncPublisher {
         try? await cloud.deleteRecords(consumed)
         // phone typed → screen will change; make sure it mirrors back fast
         for input in delta.inputs where AppModel.shared.tab(input.tabId) != nil { markDirty(input.tabId, urgent: true) }
+        return delta.more
     }
 }

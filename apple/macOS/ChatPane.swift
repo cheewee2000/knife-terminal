@@ -522,41 +522,13 @@ struct ChatPane: View {
 
     private func closeFind() { finding = false; query = ""; findFocused = false }
 
-    /// Click the model · effort to change either, staying in chat: Claude Code takes
-    /// `/model <alias>` and `/effort <level>` typed into the tab (which agent it is comes from
-    /// the transcript, not the model name). Codex's /model is an interactive picker with no
-    /// arguments, so that one opens in the terminal. The label catches up on the next reply.
+    /// Click the model · effort to change either, staying in chat.
     private func modelMenu(_ label: String) -> some View {
-        // label is "<model> · <effort>"; ✓ marks what's in use
-        let parts = label.components(separatedBy: " · ")
-        let (model, effort) = (parts[0], parts.count > 1 ? parts[1] : "")
-        let aliases = ["fable", "opus", "sonnet", "haiku"]
-        return Menu {
-            if !codex {
-                Section("model") {
-                    if !aliases.contains(where: model.contains) {
-                        Button("✓ " + model) {}.disabled(true) // not an alias: shown, can't be re-picked by name
-                    }
-                    ForEach(aliases, id: \.self) { m in
-                        Button((model.contains(m) ? "✓ " : "   ") + m) { tab.view.typeLine("/model " + m) }
-                    }
-                }
-                Section("effort") {
-                    ForEach(["low", "medium", "high", "xhigh", "max", "auto"], id: \.self) { e in
-                        Button((effort == e ? "✓ " : "   ") + e) { tab.view.typeLine("/effort " + e) }
-                    }
-                }
-            } else {
-                Button("model + effort picker (terminal)") {
-                    tab.view.typeLine("/model")
-                    UserDefaults.standard.set(false, forKey: "chatView")
-                }
-            }
-        } label: {
+        Menu { ModelChoices(tab: tab, label: label, codex: codex) } label: {
             Text(label + " ▾").font(mono(10)).foregroundStyle(ansi(5))
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-        .help("change model or effort")
+        .help("change model or effort  ⌃⌘1–4 · ⌥⌘1–5")
     }
 
     private func usage(_ bar: UsageBar) -> some View {
@@ -660,4 +632,39 @@ private struct Composer: View {
     }
 
     private func complete(_ c: String) { draft = "/" + c + " "; pick = 0 }
+}
+
+/// What goes in a model · effort dropdown (the chat view's label, the footer's button): Claude
+/// Code takes `/model <alias>` and `/effort <level>` typed into the tab (which agent it is comes
+/// from the transcript, not the model name). Codex's /model is an interactive picker with no
+/// arguments, so that one opens in the terminal. The label catches up on the next reply.
+struct ModelChoices: View {
+    let tab: TabModel
+    let label: String // "<model> · <effort>"; ✓ marks what's in use
+    let codex: Bool
+
+    var body: some View {
+        let parts = label.components(separatedBy: " · ")
+        let (model, effort) = (parts[0], parts.count > 1 ? parts[1] : "")
+        if !codex {
+            Section("model") {
+                if !model.isEmpty, !ChatTranscript.models.contains(where: model.contains) {
+                    Button("✓ " + model) {}.disabled(true) // not an alias: shown, can't be re-picked by name
+                }
+                ForEach(ChatTranscript.models, id: \.self) { m in
+                    Button((model.contains(m) ? "✓ " : "   ") + m) { tab.agentCommand("/model " + m) }
+                }
+            }
+            Section("effort") {
+                ForEach(ChatTranscript.efforts, id: \.self) { e in
+                    Button((effort == e ? "✓ " : "   ") + e) { tab.agentCommand("/effort " + e) }
+                }
+            }
+        } else {
+            Button("model + effort picker (terminal)") {
+                tab.view.typeLine("/model")
+                UserDefaults.standard.set(false, forKey: "chatView")
+            }
+        }
+    }
 }

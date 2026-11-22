@@ -11,13 +11,13 @@ settings:
     DEVELOPMENT_TEAM: L6DVQR8JB9
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.9"
-    MARKETING_VERSION: "1.4.33"
+    MARKETING_VERSION: "1.4.43"
     CURRENT_PROJECT_VERSION: "1.1.13"  # CFBundleVersion must increase each release — Sparkle compares it
 
 packages:
   SwiftTerm:
     url: https://github.com/migueldeicaza/SwiftTerm
-    from: 1.2.0
+    minorVersion: 1.20.0
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
     from: 2.6.0
@@ -122,6 +122,9 @@ targets:
         UIBackgroundModes: [remote-notification]
         ITSAppUsesNonExemptEncryption: false
         CKSharingSupported: true
+        NSCameraUsageDescription: Take a photo to send into a session.
+        NSMicrophoneUsageDescription: Hold the message box to dictate instead of typing.
+        NSSpeechRecognitionUsageDescription: Your speech is turned into text in the message box.
     settings:
       base:
         PRODUCT_NAME: Knife

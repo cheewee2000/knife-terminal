@@ -110,18 +110,47 @@ final class Collab: NSObject, NSCloudSharingServiceDelegate {
         for owner in delta.endedShares { for (id, m) in mirrored where m.share?.owner == owner { drop(id) } }
     }
 
+    // ─── Our own other Macs ───
+    // Every Mac on the account publishes its sessions into one zone (that is what the phone
+    // lists). Each of them is a tab on every other Mac too, drawn and typed into exactly like
+    // a session someone shared: closing it here closes it there, as the phone's swipe does.
+
+    private var closing: Set<String> = []   // asked their Mac to close: don't reopen while it does
+
+    func mirror(_ delta: ZoneDelta) {
+        for id in delta.deletedTabRecordNames { drop(id); closing.remove(id) }
+        guard AppModel.shared.frontWindow() != nil else { return } // only a mini terminal is left: don't pop a window open
+        for t in delta.tabs where !Manifest.owns(t.tabId) && !closing.contains(t.id) { apply(t) }
+    }
+
+    func dropMirrors() {
+        for (id, m) in mirrored where m.share == nil { drop(id) }
+        closing = []
+    }
+
+    /// The tab was looked at here: clear "waiting for you" on the Mac that runs it.
+    func seen(_ tab: TabModel) {
+        guard let id = tab.opts.guest, let m = mirrored[id], m.share == nil, m.attention, let cloud else { return }
+        mirrored[id]?.attention = false
+        Task { try? await cloud.sendSeen(tabId: m.tabId) }
+    }
+
     private func apply(_ m: MirroredTab) {
         mirrored[m.id] = m
         let tab = guests[m.id] ?? open(m)
         if tab.title != m.title { tab.title = m.title }
         if tab.emoji != m.emoji { tab.emoji = m.emoji }
         if tab.working != m.working || tab.attention != m.attention { tab.working = m.working; tab.attention = m.attention }
+        if m.attention, NSApp.isActive, let wc = AppModel.shared.window(of: tab), wc.window?.isKeyWindow ?? false, wc.activeTab === tab {
+            tab.seen() // already on screen
+        }
         if let screen = StyledScreen.decode(m.styled) { tab.view.feed(text: screen.ansi()) }
     }
 
     private func open(_ m: MirroredTab) -> TabModel {
         let wc = AppModel.shared.frontWindow() ?? AppModel.shared.newWindow(withTab: false)
-        let tab = wc.addTab(TabOptions(title: m.title, guest: m.id), activateIt: false)
+        let machine = m.share == nil ? TabIds.machine(of: m.tabId, among: Manifest.machines) ?? "another Mac" : nil
+        let tab = wc.addTab(TabOptions(title: m.title, guest: m.id, machine: machine), activateIt: false)
         guests[m.id] = tab
         tab.view.remoteSend = { [weak self] data in self?.send(data, to: m.id) }
         return tab
@@ -134,11 +163,14 @@ final class Collab: NSObject, NSCloudSharingServiceDelegate {
         AppModel.shared.window(of: tab)?.closeTab(tab.id)
     }
 
-    /// We closed a guest tab → leave the share.
-    func tabClosed(_ tab: TabModel) {
+    /// We closed a guest tab → leave the share. One of our own Macs' sessions: close it there
+    /// — unless it only went down with its window or a quit; then it comes back with its next change.
+    func tabClosed(_ tab: TabModel, byUser: Bool) {
         guard let id = tab.opts.guest, guests[id] === tab else { return }
         guests[id] = nil
-        if let zone = mirrored.removeValue(forKey: id)?.share, let cloud { Task { try? await cloud.leave(zone) } }
+        guard let m = mirrored.removeValue(forKey: id), let cloud else { return }
+        if let zone = m.share { Task { try? await cloud.leave(zone) } }
+        else if byUser { closing.insert(id); Task { try? await cloud.sendClose(tabId: m.tabId) } }
     }
 
     /// The host's transcript tail, for the chat view of a guest tab.

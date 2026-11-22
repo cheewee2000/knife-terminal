@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidBecomeActive(_ notification: Notification) {
         AppModel.shared.checkSocket()
         if let wc = AppModel.shared.frontWindow(), let t = wc.activeTab, t.attention {
-            t.attention = false
+            t.seen()
         }
     }
 
@@ -126,6 +126,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         view.addItem(withTitle: "Toggle Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f").keyEquivalentModifierMask = [.command, .control]
         main.addItem(withTitle: "View", action: nil, keyEquivalent: "").submenu = view
 
+        // this tab's agent: ⌃⌘1–4 the model, ⌥⌘1–5 the effort (⌥⌘0 auto) — same choices as the footer's dropdown
+        let session = NSMenu(title: "Session")
+        for (i, m) in ChatTranscript.models.enumerated() {
+            let item = session.addItem(withTitle: "Model: " + m, action: #selector(agentCommand(_:)), keyEquivalent: "\(i + 1)")
+            item.keyEquivalentModifierMask = [.command, .control]; item.target = self; item.representedObject = "/model " + m
+        }
+        session.addItem(.separator())
+        for (i, e) in ChatTranscript.efforts.enumerated() {
+            let item = session.addItem(withTitle: "Effort: " + e, action: #selector(agentCommand(_:)), keyEquivalent: e == "auto" ? "0" : "\(i + 1)")
+            item.keyEquivalentModifierMask = [.command, .option]; item.target = self; item.representedObject = "/effort " + e
+        }
+        main.addItem(withTitle: "Session", action: nil, keyEquivalent: "").submenu = session
+
         let window = NSMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.miniaturize(_:)), keyEquivalent: "m")
         window.addItem(withTitle: "Zoom", action: #selector(NSWindow.zoom(_:)), keyEquivalent: "")
@@ -184,6 +197,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let wc = front else { return }
         let i = sender.tag - 1
         if i < wc.tabs.count { wc.activate(wc.tabs[i].id) }
+    }
+    @objc private func agentCommand(_ sender: NSMenuItem) {
+        guard let tab = front?.activeTab, tab.agent?.codex == false,
+              let line = sender.representedObject as? String else { NSSound.beep(); return } // a shell, or Codex: nothing to type
+        tab.agentCommand(line)
     }
     @objc private func nextTab() { front?.cycle(1) }
     @objc private func prevTab() { front?.cycle(-1) }

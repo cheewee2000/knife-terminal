@@ -24,6 +24,12 @@
 	<true/>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo to send into a session.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Hold the message box to dictate instead of typing.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Your speech is turned into text in the message box.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>SpaceMono-Regular.ttf</string>

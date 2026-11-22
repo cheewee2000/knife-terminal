@@ -159,10 +159,11 @@ struct SidebarView: View {
                             .onDrop(of: [.text], delegate: TabReorderDrop(
                                 targetId: tab.id, dragging: $draggingTabId, controller: controller))
                             .contextMenu {
+                                if let dir = tab.currentCwd ?? tab.opts.cwd { agentMenu(dir) }
                                 if tab.opts.guest == nil {
                                     Button("Invite to Session…") { Collab.shared.invite(tab) }
                                 } else {
-                                    Button("Leave Session") { controller.closeTab(tab.id) }
+                                    Button(tab.opts.machine.map { "Close on \($0)" } ?? "Leave Session") { controller.closeTab(tab.id) }
                                 }
                             }
                     }
@@ -175,6 +176,19 @@ struct SidebarView: View {
                         .padding(.horizontal, 10).padding(.vertical, 4)
                     }
                     .buttonStyle(.plain)
+
+                    // pick the agent for a new tab: one CLI, or several debating until they agree
+                    Menu {
+                        agentMenuItems(controller.activeTab?.currentCwd ?? controller.activeTab?.opts.cwd ?? NSHomeDirectory())
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("+").font(mono(12))
+                            Text("new agent ▾").font(mono(11))
+                        }
+                        .foregroundStyle(theme.muted)
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                    }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
 
                     Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
                         .padding(.vertical, 6)
@@ -247,6 +261,7 @@ struct SidebarView: View {
     /// for another Mac's project, the manifest's).
     @ViewBuilder
     private func projectMenu(_ p: Project, local: Bool) -> some View {
+        if local { agentMenu(p.path) }
         if local {
             Button("Open Folder in Finder") { NSWorkspace.shared.open(URL(fileURLWithPath: p.path)) }
         }
@@ -264,6 +279,29 @@ struct SidebarView: View {
                 Button("cloud — the Claude app, not Knife") { Manifest.setRunOn(remote: remote, tag: "cloud") }
             }
         }
+    }
+
+    /// New tab in `dir` with one agent, or several debating until they agree.
+    @ViewBuilder
+    private func agentMenu(_ dir: String) -> some View {
+        Menu("Open Agent Here") { agentMenuItems(dir) }
+    }
+
+    @ViewBuilder
+    private func agentMenuItems(_ dir: String) -> some View {
+        ForEach(Agent.allCases, id: \.self) { a in
+            Button(a.label) { AppModel.shared.openAgents([a], in: dir) }
+        }
+        Divider()
+        ForEach(TeamMode.allCases, id: \.self) { m in
+            Menu(m.label) {
+                Button("Claude + Codex + Gemini") { AppModel.shared.openAgents([.claude, .codex, .gemini], in: dir, mode: m) }
+                Button("All Four") { AppModel.shared.openAgents(Agent.allCases, in: dir, mode: m) }
+                Button("Choose Agents…") { AppModel.shared.chooseAgentsAndOpen(in: dir, mode: m) }
+            }
+        }
+        Divider()
+        Button("Sign-in & Plans…") { AgentAccountsWindow.shared.show() }
     }
 
     private func reload() {
@@ -385,6 +423,12 @@ struct FooterBar: View {
                 sep
                 autoPickMenu
                 Spacer(minLength: 8)
+                if let tab = controller.activeTab, tab.opts.guest == nil { // which agent(s) the tab runs, then its model
+                    AgentPicker(tab: tab, paper: Color(nsColor: theme.nsColor(theme.current.background))).id(tab.id)
+                }
+                if let tab = controller.activeTab {
+                    ModelFoot(tab: tab, paper: Color(nsColor: theme.nsColor(theme.current.background)))
+                }
                 Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")")
                     .font(mono(9)).foregroundStyle(theme.faint).fixedSize()
             }
@@ -424,6 +468,43 @@ struct FooterBar: View {
         Button(action: action) { Text(label) }
             .buttonStyle(FootButtonStyle(on: on, paper: Color(nsColor: theme.nsColor(theme.current.background))))
             .help(help)
+    }
+}
+
+/// The active tab's model · effort as a dropdown — per session, since each tab has its own.
+/// Empty in a tab with no agent. It also keeps `tab.agent` current, which the Session menu's
+/// shortcuts read.
+private struct ModelFoot: View {
+    @ObservedObject var tab: TabModel
+    let paper: Color
+
+    var body: some View {
+        HStack(spacing: 0) { // always there, so the task runs before there is anything to show
+            if let a = tab.agent {
+                Menu { ModelChoices(tab: tab, label: a.label ?? "", codex: a.codex) } label: {
+                    Text((a.label ?? "model") + " ▾")
+                }
+                .menuStyle(.button).menuIndicator(.hidden).fixedSize()
+                .buttonStyle(FootButtonStyle(paper: paper))
+                .help("this session's model · effort  ⌃⌘1–4 model · ⌥⌘1–5 effort, ⌥⌘0 auto")
+            }
+        }
+        .task(id: tab.id) {
+            while !Task.isCancelled {
+                var chat: (msgs: [ChatMessage], codex: Bool)?
+                if let g = tab.opts.guest {
+                    let msgs = Collab.shared.chat(g)
+                    if !msgs.isEmpty { chat = (msgs, false) }
+                } else {
+                    let src = TranscriptReader.source(for: tab, cwd: tab.currentCwd)
+                    chat = await Task.detached { TranscriptReader.chat(src) }.value
+                }
+                guard !Task.isCancelled else { return }
+                let now = chat.map { (label: $0.msgs.last { $0.model != nil }?.model, codex: $0.codex) }
+                if tab.agent?.label != now?.label || tab.agent?.codex != now?.codex { tab.agent = now }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
     }
 }
 
@@ -477,7 +558,7 @@ struct TabRow: View {
             Text(tab.title).font(mono(11, bold: active)).lineLimit(1)
                 .foregroundStyle(active ? theme.tabActive : theme.tabInactive)
             Spacer(minLength: 0)
-            if tab.opts.guest != nil { Text("shared").font(mono(9)).foregroundStyle(.secondary) }
+            if tab.opts.guest != nil { Text(tab.opts.machine ?? "shared").font(mono(9)).foregroundStyle(.secondary) }
             if hovering {
                 Button(action: close) {
                     Text("×").font(mono(11)).foregroundStyle(theme.muted)
@@ -532,5 +613,39 @@ struct ContextPanel: View {
         }
         .padding(12)
         .frame(minWidth: 300, alignment: .leading)
+    }
+}
+
+/// In the footer: which agent(s) this tab runs. Click an agent to add it, click again to
+/// drop it; one agent is its own CLI, two or more debate, none is a plain shell.
+struct AgentPicker: View {
+    @ObservedObject var tab: TabModel
+    let paper: Color
+
+    private var summary: String {
+        tab.agents.isEmpty ? "shell" : tab.agents.map(\.rawValue).joined(separator: " + ") + (tab.agents.count > 1 ? " · " + tab.mode.rawValue : "")
+    }
+
+    var body: some View {
+        Menu {
+            ForEach(Agent.allCases, id: \.self) { a in
+                Button(action: { AppModel.shared.toggleAgent(a, in: tab) }) {
+                    if tab.agents.contains(a) { Label(a.label, systemImage: "checkmark") } else { Text(a.label) }
+                }
+            }
+            Divider()
+            ForEach(TeamMode.allCases, id: \.self) { m in
+                Button(action: { AppModel.shared.setMode(m, in: tab) }) {
+                    if tab.mode == m { Label("\(m.label) — \(m.blurb)", systemImage: "checkmark") } else { Text("\(m.label) — \(m.blurb)") }
+                }
+            }
+            Divider()
+            Button("Sign-in & Plans…") { AgentAccountsWindow.shared.show() }
+        } label: {
+            Text(summary + " ▾")
+        }
+        .menuStyle(.button).menuIndicator(.hidden).fixedSize()
+        .buttonStyle(FootButtonStyle(paper: paper))
+        .help("the agent(s) this tab runs — one is its own CLI, two or more work as a team")
     }
 }

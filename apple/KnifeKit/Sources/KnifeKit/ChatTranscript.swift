@@ -261,6 +261,10 @@ public enum ChatTranscript {
         return t
     }
 
+    /// Claude Code's `/model` aliases and `/effort` levels, as every model · effort menu lists them.
+    public static let models = ["fable", "opus", "sonnet", "haiku"]
+    public static let efforts = ["low", "medium", "high", "xhigh", "max", "auto"]
+
     /// "/model opus" or "/effort high" changes the label now, not at the next reply:
     /// "opus-5 · high" + "/model sonnet" → "sonnet · high". nil for anything else.
     static func switched(_ text: String, from label: String?) -> String? {

@@ -21,10 +21,7 @@ enum Manifest {
     /// Tab ids start here so two Macs publishing to the same zone never collide
     /// (Tab records are "tab-<id>" and Input/Seen/Close records carry the id):
     /// a stable hash of the machine name × 10000. Ids are opaque everywhere else.
-    static let tabIdBase: Int = {
-        let h = machine.utf8.reduce(5381) { ($0 &* 33 &+ Int($1)) & 0x7fff_ffff }
-        return (h % 900 + 100) * 10_000 + 1
-    }()
+    static let tabIdBase = TabIds.base(machine: machine)
 
     static func owns(_ tabId: Int) -> Bool { (tabIdBase..<tabIdBase + 10_000).contains(tabId) }
 
@@ -36,6 +33,14 @@ enum Manifest {
     static var machines: [String] {
         let others = remoteLists.keys.map { String($0.dropFirst("projects-".count)) }.filter { $0 != ProjectRef.whereMachine }
         return Array(Set(others + [machine])).sorted()
+    }
+
+    /// The Macs the last run knew about (machines.json, written by write()): their manifest
+    /// records are read by name at launch.
+    static func knownMachines() -> [String] {
+        let d = try? Data(contentsOf: URL(fileURLWithPath: dir + "/machines.json"))
+        let all = d.flatMap { try? JSONDecoder().decode([String: [String]].self, from: $0) }?["all"] ?? []
+        return all.filter { $0 != machine }
     }
 
     static var tags: [String: String] { ProjectRef.tags([remoteLists["projects-" + ProjectRef.whereMachine] ?? []]) }

@@ -59,6 +59,7 @@ final class AppModel: ObservableObject {
     /// After joining or leaving another Mac's zone: a fresh publisher against the new zone.
     func restartSync() {
         sync?.stop()
+        Collab.shared.dropMirrors() // they belong to the zone we are leaving
         let publisher = SyncPublisher()
         sync = publisher
         publisher.start()
@@ -86,7 +87,8 @@ final class AppModel: ObservableObject {
         sync?.tabOpened(tab)
     }
 
-    func tabClosed(_ tab: TabModel) {
+    /// `byUser`: this tab was closed on purpose, not swept up by its window closing or a quit.
+    func tabClosed(_ tab: TabModel, byUser: Bool = true) {
         owner.removeValue(forKey: tab.id)
         tabById.removeValue(forKey: tab.id)
         agents.removeValue(forKey: tab.id)
@@ -94,7 +96,7 @@ final class AppModel: ObservableObject {
         pendingStop[tab.id]?.cancel(); pendingStop.removeValue(forKey: tab.id)
         saveSessionSoon()
         sync?.tabClosed(tab.id)
-        Collab.shared.tabClosed(tab)
+        Collab.shared.tabClosed(tab, byUser: byUser)
     }
 
     func processExited(tabId: Int) {
@@ -104,7 +106,7 @@ final class AppModel: ObservableObject {
 
     func windowClosing(_ wc: KnifeWindowController) {
         saveSession() // capture before the tabs die
-        for t in wc.tabs { t.terminate(); tabClosed(t) }
+        for t in wc.tabs { t.terminate(); tabClosed(t, byUser: false) }
         wc.tabs.removeAll()
         windows.removeAll { $0 === wc }
         // a mini terminal still open keeps the app (and whatever it is running) alive; the app
@@ -204,6 +206,99 @@ final class AppModel: ObservableObject {
                              title: name, restoreCmd: cmd == "claude" ? "claude -c" : "codex resume --last"))
     }
 
+    // ─── Agents: one CLI per tab, or several debating the same task (knife-debate.sh) ───
+
+    private var debateScript: String { Bundle.main.path(forResource: "knife-debate", ofType: "sh") ?? "" }
+
+    /// The tab a set of agents runs in `dir`: one agent is its own interactive CLI; two or more is a prompt loop that
+    /// sends every prompt to all of them (they debate it, then the lead applies it); none is a plain shell.
+    private func agentOptions(_ agents: [Agent], in dir: String, mode: TeamMode = .auto) -> TabOptions {
+        let name = (dir as NSString).lastPathComponent
+        if agents.isEmpty { return TabOptions(cwd: dir, title: name) }
+        if agents.count == 1, let a = agents.first {
+            return TabOptions(cwd: dir, cmd: a.command, title: "\(name) · \(a.rawValue)", restoreCmd: a.restoreCommand)
+        }
+        let list = agents.map(\.rawValue).joined(separator: ",")
+        let env = mode == .auto ? "" : "KNIFE_MODE=\(mode.rawValue) "
+        let cmd = "\(env)bash \(shellQuote(debateScript)) \(shellQuote(list))"
+        return TabOptions(cwd: dir, cmd: cmd, title: "\(name) · \(list)", restoreCmd: cmd)
+    }
+
+    func openAgents(_ agents: [Agent], in dir: String, mode: TeamMode = .auto) {
+        guard !agents.isEmpty else { return }
+        Projects.touch(dir)
+        (frontWindow() ?? newWindow(withTab: false)).addTab(agentOptions(agents, in: dir, mode: mode))
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// The tab's agent menu: toggle `agent` in this tab's set. The tab itself is never replaced — the running
+    /// agent is stopped and the new one starts in the same terminal, so scrollback and history stay.
+    func toggleAgent(_ agent: Agent, in tab: TabModel) {
+        var set = tab.agents
+        if let i = set.firstIndex(of: agent) { set.remove(at: i) } else { set.append(agent) }
+        if tab.working {
+            let a = NSAlert(); a.messageText = "This tab is busy"
+            a.informativeText = "Changing the agent stops what it is doing. The conversation and everything on screen stay in this tab."
+            a.addButton(withTitle: "Change"); a.addButton(withTitle: "Cancel")
+            guard a.runModal() == .alertFirstButtonReturn else { return }
+        }
+        restart(tab, with: set)
+    }
+
+    /// Debate ⇄ work together for this tab. With two or more agents the loop restarts in place in the new mode;
+    /// with fewer it is remembered for when another agent is added.
+    func setMode(_ mode: TeamMode, in tab: TabModel) {
+        guard tab.mode != mode else { return }
+        tab.mode = mode
+        if tab.agents.count > 1 { restart(tab, with: tab.agents) }
+    }
+
+    private func restart(_ tab: TabModel, with agents: [Agent]) {
+        let (cmd, restore) = agentCommand(agents, for: tab)
+        tab.switchAgents(to: agents, command: cmd, restore: restore)
+    }
+
+    /// What a set of agents runs in an existing tab: one agent resumes its earlier session if this tab had one;
+    /// several share the tab's debate history and are pointed at Claude's transcript; none is the plain shell.
+    private func agentCommand(_ agents: [Agent], for tab: TabModel) -> (cmd: String?, restore: String?) {
+        if agents.isEmpty { return (nil, nil) }
+        if agents.count == 1, let a = agents.first {
+            if a == .claude, let sid = tab.sessionId, sid.isSessionId {
+                return ("claude --resume \(sid)", "claude -c")
+            }
+            return (tab.used.contains(a) ? a.restoreCommand : a.command, a.restoreCommand)
+        }
+        // a short command typed into the shell: the environment and long paths live in a launcher file
+        let list = agents.map(\.rawValue).joined(separator: ",")
+        var body = "#!/bin/bash\nexport KNIFE_MODE=\(tab.mode.rawValue)\nexport KNIFE_DEBATE_DIR=\(shellQuote(Manifest.dir + "/debates/tab-\(tab.id)-\(tab.stamp)"))\n"
+        if let t = tab.transcriptPath { body += "export KNIFE_PRIOR=\(shellQuote(t))\n" }
+        body += "exec bash \(shellQuote(debateScript)) \(shellQuote(list))\n"
+        let dir = Manifest.dir + "/launch", file = dir + "/tab-\(tab.id)-\(tab.stamp).sh"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try? body.write(toFile: file, atomically: true, encoding: .utf8)
+        let cmd = "bash \(shellQuote(file))"
+        return (cmd, cmd)
+    }
+
+    /// "Choose Agents…": tick the agents (two or more) and pick debate or work together.
+    func chooseAgentsAndOpen(in dir: String, mode: TeamMode = .auto) {
+        let box = NSStackView(); box.orientation = .vertical; box.alignment = .leading; box.spacing = 4
+        let checks = Agent.allCases.map { a -> NSButton in
+            let b = NSButton(checkboxWithTitle: a.label, target: nil, action: nil)
+            b.state = a == .claude || a == .codex ? .on : .off; box.addArrangedSubview(b); return b
+        }
+        let pop = NSPopUpButton(frame: .zero, pullsDown: false)
+        pop.addItems(withTitles: TeamMode.allCases.map { "\($0.label) — \($0.blurb)" }); pop.selectItem(at: TeamMode.allCases.firstIndex(of: mode) ?? 0)
+        box.addArrangedSubview(pop)
+        let alert = NSAlert(); alert.messageText = "Agents in \((dir as NSString).lastPathComponent)"
+        alert.informativeText = "Pick two or more agents, and how they work."; alert.accessoryView = box
+        alert.addButton(withTitle: "Next"); alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let picked = zip(Agent.allCases, checks).filter { $0.1.state == .on }.map(\.0)
+        guard picked.count > 1 else { NSSound.beep(); return }
+        openAgents(picked, in: dir, mode: TeamMode.allCases[max(0, pop.indexOfSelectedItem)])
+    }
+
     /// Turn a folder into a project: git init + private GitHub remote, then claude.
     func adoptFolder(_ dir: String) {
         // A tab whose folder is missing starts in the home directory instead, and
@@ -276,8 +371,8 @@ final class AppModel: ObservableObject {
             else if let p = hook["transcript_path"] as? String, !p.isEmpty { tab.transcriptPath = p }
         }
         if type == "SessionStart" { return nil } // hooked only to learn the new transcript (/clear, resume)
-        if let tab = tabById[id], tab.opts.restoreCmd?.hasPrefix("claude") == true,   // not codex, not a plain shell
-           let sid = hook["session_id"] as? String, sid.range(of: "^[A-Za-z0-9-]+$", options: .regularExpression) != nil {
+        if let tab = tabById[id], tab.agents == [.claude],   // only while claude is what the tab runs
+           let sid = hook["session_id"] as? String, sid.isSessionId {
             tab.sessionId = sid
         }
         if let tab = tabById[id] { // a question is up from its PreToolUse until any non-notification event
@@ -479,7 +574,7 @@ final class AppModel: ObservableObject {
                 let live = t.currentCwd
                 let missing = (live == nil || live == NSHomeDirectory())
                     && (t.opts.cwd.map { !FileManager.default.fileExists(atPath: $0) } ?? false)
-                return SavedTab(title: t.title, cwd: missing ? t.opts.cwd : live, cmd: t.sessionId.map { "claude --resume \($0)" } ?? t.opts.restoreCmd,
+                return SavedTab(title: t.title, cwd: missing ? t.opts.cwd : live, cmd: (t.agents == [.claude] ? t.sessionId.map { "claude --resume \($0)" } : nil) ?? t.opts.restoreCmd, // claude's own session only while claude is what the tab runs
                          active: t.id == wc.activeId)
             }
             return SavedWindow(bounds: .init(x: b.origin.x, y: b.origin.y, width: b.width, height: b.height), tabs: tabs)

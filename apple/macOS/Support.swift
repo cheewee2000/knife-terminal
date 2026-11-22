@@ -340,3 +340,59 @@ enum ContextFiles {
         return (cwd, files)
     }
 }
+
+/// The coding-agent CLIs a tab can run: alone, or together in a debate.
+enum Agent: String, CaseIterable {
+    case claude, codex, gemini, agy
+    var label: String { ["claude": "Claude", "codex": "Codex", "gemini": "Gemini", "agy": "Antigravity (agy)"][rawValue] ?? rawValue }
+    var command: String { rawValue }
+    var restoreCommand: String {
+        switch self {
+        case .claude: return "claude -c"
+        case .codex: return "codex resume --last"
+        case .gemini: return "gemini --resume latest"
+        case .agy: return "agy -c"
+        }
+    }
+}
+
+extension Agent {
+    /// The contents of a `bash '…/launch/tab-N-stamp.sh'` launcher command, so its agents and mode can be read back.
+    static func launcherBody(_ cmd: String) -> String? {
+        guard let m = cmd.range(of: "'[^']*/launch/tab-[^']*\\.sh'", options: .regularExpression) else { return nil }
+        return try? String(contentsOfFile: String(cmd[m].dropFirst().dropLast()), encoding: .utf8)
+    }
+    /// The agents a tab's launch command runs: "claude -c" → [claude]; the debate script's first argument → its list.
+    static func detect(_ cmd: String?) -> [Agent] {
+        guard var cmd else { return [] }
+        cmd = launcherBody(cmd) ?? cmd
+        if cmd.contains("knife-debate"),
+           let m = cmd.range(of: "knife-debate\\.sh'?\\s+'?([a-z,]+)", options: .regularExpression) {
+            let list = cmd[m].split(whereSeparator: { $0 == " " || $0 == "'" }).last.map(String.init) ?? ""
+            return list.split(separator: ",").compactMap { Agent(rawValue: String($0)) }
+        }
+        guard let first = cmd.split(separator: " ").first, let a = Agent(rawValue: String(first)) else { return [] }
+        return [a]
+    }
+}
+
+extension String {
+    /// A claude session id as it appears in hooks and `--resume`: safe to put on a command line.
+    var isSessionId: Bool { range(of: "^[A-Za-z0-9-]+$", options: .regularExpression) != nil }
+}
+
+/// What several agents in one tab do with each prompt: Auto decides per prompt (usually one agent is enough),
+/// or they always argue to one answer, or always split the work and build it.
+enum TeamMode: String, CaseIterable {
+    case auto, debate, together
+    var label: String { ["auto": "Auto", "debate": "Debate", "together": "Work together"][rawValue] ?? rawValue }
+    var blurb: String {
+        switch self {
+        case .auto: return "decides per prompt: one agent, a debate, or working together"
+        case .debate: return "always: propose, cross-check, agree on one answer"
+        case .together: return "always: split the work, build it in turn, review it"
+        }
+    }
+}
+
+// ─── What a tab is running, for session restore ───

@@ -43,7 +43,7 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
         activeId = id
         if let cwd = activeTab?.opts.cwd { Projects.touch(cwd) } // switching to a tab = using its project
         if NSApp.isActive, window?.isKeyWindow ?? false, let t = activeTab, t.attention {
-            t.attention = false
+            t.seen()
         }
         AppModel.shared.saveSessionSoon()
     }
@@ -86,7 +86,7 @@ final class KnifeWindowController: NSWindowController, NSWindowDelegate, Observa
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
-        if let t = activeTab, t.attention { t.attention = false }
+        if let t = activeTab, t.attention { t.seen() }
         AppModel.shared.mostRecentWindow = self
     }
 

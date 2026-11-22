@@ -82,41 +82,92 @@ final class MirrorStore: ObservableObject {
     /// One fetch at a time. Pushes arrive every ~1.5s while the Mac is busy;
     /// each used to start its own zone fetch and the overlapping full fetches
     /// on a fresh install never finished. A push during a fetch queues one more.
-    private var refreshing = false, refreshQueued = false
+    private var refreshing = false, refreshQueued = false, catchingUp = false
+    private var refreshBegan = Date.distantPast, generation = 0, step = ""
     func refresh() async {
+        // A push can wake the app before any view exists. Fetching into the unloaded store
+        // then saved "only what changed since the token" over the cache, and the next open
+        // showed a list missing every session that had been idle — or an empty one.
+        if !started { return await startup() }
         guard !DemoData.enabled else { return }
-        if refreshing { refreshQueued = true; return }
+        if refreshing {
+            guard refreshBegan.timeIntervalSinceNow < -45 else { refreshQueued = true; return }
+            // A CloudKit call that never returns (seen on the phone: locked mid-fetch, then
+            // reopened) held `refreshing` forever, and the list froze until the app was killed.
+            // ponytail: the abandoned call may still land late and re-apply an older delta and
+            // token; the next fetch re-delivers the current records, so it heals itself
+            CloudSync.log("refresh stuck \(Int(-refreshBegan.timeIntervalSinceNow))s at \(step), starting over")
+            generation += 1
+        }
+        let gen = generation
         refreshing = true
-        defer { refreshing = false }
-        repeat { refreshQueued = false; await refreshOnce() } while refreshQueued
+        defer { if gen == generation { refreshing = false } }
+        repeat { refreshQueued = false; refreshBegan = Date(); await refreshOnce() } while gen == generation && refreshQueued && !catchingUp
+        guard gen == generation else { return }
+        // a long catch-up goes on a few seconds at a time on its own, not on the caller's time
+        // (a pull-to-refresh spinner, a push's completion handler) — and the poll asking again
+        // while it runs must not keep this caller looping until it ends
+        if catchingUp { Task { await refresh() } }
     }
 
+    /// @Published announces every assignment, changed or not, and this runs every few
+    /// seconds: only a real change should redraw the screen.
+    private func set<T: Equatable>(_ key: ReferenceWritableKeyPath<MirrorStore, T>, _ value: T) {
+        if self[keyPath: key] != value { self[keyPath: key] = value }
+    }
+
+    private var liveQueried = Date.distantPast
     private func refreshOnce() async {
         // offline, accountStatus can't be determined — still show the cache
+        step = "accountStatus"
         let status = try? await cloud.container.accountStatus()
-        iCloudAvailable = status != .noAccount && status != .restricted
+        set(\.iCloudAvailable, status != .noAccount && status != .restricted)
         guard iCloudAvailable else {
-            syncError = "not signed into iCloud"
+            set(\.syncError, "not signed into iCloud")
             return
         }
+        step = "subscriptions"
         await ensureSubscriptions()
+        step = "flushInputs"
         await flushPendingInputs()
+        step = "fetchChanges"
         var delta: ZoneDelta
         do { delta = try await cloud.fetchChanges() }
         catch {
-            offline = (error as? CKError).map { [.networkUnavailable, .networkFailure].contains($0.code) } ?? true
-            syncError = offline ? "offline" : "\(error.localizedDescription)"
+            set(\.offline, (error as? CKError).map { [.networkUnavailable, .networkFailure].contains($0.code) } ?? true)
+            set(\.syncError, offline ? "offline" : "\(error.localizedDescription)")
+            catchingUp = false // the poll picks it up again
             return
         }
-        offline = false
-        syncError = nil
+        set(\.offline, false)
+        set(\.syncError, delta.more ? "catching up…" : nil)
+        catchingUp = delta.more
         if !delta.garbage.isEmpty { Task { try? await cloud.deleteRecords(delta.garbage) } }
+        // Catching up walks the zone's whole history before it reaches the live tabs: show them
+        // from a query meanwhile (everything on the first page, then what changed, every 8s).
+        if delta.full || delta.more && liveQueried.timeIntervalSinceNow < -8 {
+            liveQueried = Date()
+            step = "queryLive"
+            do {
+                let (live, names) = try await cloud.queryLive(since: delta.full ? nil : tabs.filter { $0.share == nil }.map(\.updatedAt).max())
+                delta.tabs += live.tabs
+                delta.projects.merge(live.projects) { _, new in new }
+                // the query is the present; the catch-up's pages are the past
+                delta.deletedTabRecordNames = delta.deletedTabRecordNames.filter { !names.contains($0) }
+                    + tabs.filter { $0.share == nil && !names.contains($0.id) }.map(\.id)
+            } catch { CloudSync.log("live query failed: \(error)") }
+        }
+        step = "fetchShared"
         // sessions other people invited us to (collaborative mode) ride along in the same list
-        if let shared = try? await cloud.fetchSharedChanges() {
+        if !delta.more, let shared = try? await cloud.fetchSharedChanges() {
             delta.tabs += shared.tabs
             delta.deletedTabRecordNames += shared.deletedTabRecordNames
             delta.endedShares = shared.endedShares
         }
+        if lastSync.map({ $0.timeIntervalSinceNow < -30 }) ?? true { lastSync = Date() } // shown to the minute
+        // the poll finds nothing new most of the time: don't republish the list or rewrite the cache
+        guard delta.full || !delta.tabs.isEmpty || !delta.deletedTabRecordNames.isEmpty || !delta.endedShares.isEmpty
+                || !delta.projects.isEmpty || !delta.deletedProjectRecordNames.isEmpty else { return }
         // A from-scratch fetch lists every tab that exists and no deletions: merging it onto
         // the cache kept tabs the Mac closed long ago. Shared tabs come from their own fetch.
         var byId = Dictionary(uniqueKeysWithValues: tabs.filter { !delta.full || $0.share != nil }.map { ($0.id, $0) })
@@ -128,8 +179,8 @@ final class MirrorStore: ObservableObject {
         for (name, refs) in delta.projects { projectLists[name] = refs }
         for name in delta.deletedProjectRecordNames { projectLists.removeValue(forKey: name) }
         pendingOpens = pendingOpens.filter { path in !tabs.contains { $0.cwd == path } }
-        lastSync = Date()
         saveCache()
+        step = "badge"
         let badge = tabs.filter { $0.attention }.count
         try? await UNUserNotificationCenter.current().setBadgeCount(badge)
     }
@@ -139,8 +190,19 @@ final class MirrorStore: ObservableObject {
     // ponytail: unpersisted queue, write it into the cache file if lost drafts become a complaint
     func send(_ text: String, to tab: MirroredTab) {
         pendingInputs.append((tab, text))
-        Task { await flushPendingInputs() }
+        hurry?.cancel()
+        hurry = Task {
+            await flushPendingInputs()
+            // The answer is a Mac fetch, a typed line and a republish away, and the push for it
+            // is throttled: ask every second for a while instead of waiting out the 4s poll.
+            for _ in 0..<6 {
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { return }
+                await refresh()
+            }
+        }
     }
+    private var hurry: Task<Void, Never>?
 
     private var flushing = false
     private func flushPendingInputs() async {
@@ -169,6 +231,7 @@ final class MirrorStore: ObservableObject {
     /// the Tab record makes it stick (or the next refresh brings it back if not).
     func closeTab(_ tab: MirroredTab) {
         tabs.removeAll { $0.id == tab.id }
+        UserDefaults.standard.removeObject(forKey: "draft." + tab.id) // its unsent text goes with it
         if let zone = tab.share { Task { try? await cloud.leave(zone) }; saveCache(); return } // a shared tab: leave, don't close the host's
         Task {
             try? await cloud.sendClose(tabId: tab.tabId)

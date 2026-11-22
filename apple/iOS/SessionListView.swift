@@ -11,7 +11,10 @@ let knifeOrange = Color(red: 0xE3 / 255.0, green: 0x5A / 255.0, blue: 0x1E / 255
 struct SessionListView: View {
     @EnvironmentObject var store: MirrorStore
     @State private var query = ""
-    @State private var path: [String] = []
+    @State private var selected: String?   // the open session; drives the push (stack) or the detail column (split)
+    @State private var landscape = false
+    @State private var columns = NavigationSplitViewVisibility.all
+    @Environment(\.horizontalSizeClass) private var hSize
     @State private var request = ""
 
     private var q: String { query.trimmingCharacters(in: .whitespaces).lowercased() }
@@ -35,13 +38,16 @@ struct SessionListView: View {
     }
 
     var body: some View {
-        NavigationStack(path: $path) {
-            List {
+        // One view for both layouts: a split view collapses to a plain stack when the width is
+        // compact, so the size class it sees is regular only on a wide screen held sideways
+        // (iPhone Duo unfolded, Pro Max, iPad) — upright it stays the single column it always was.
+        NavigationSplitView(columnVisibility: $columns) {
+            List(selection: $selected) {
                 Section {
                     HStack(alignment: .bottom, spacing: 8) {
-                        TextField("dictate or type a request…", text: $request, axis: .vertical)
-                            .font(mono(13)).lineLimit(1...6)
-                            .onSubmit { store.postJob(request); request = "" }
+                        ComposeField(text: $request, placeholder: "dictate or type a request…", maxLines: 6, prose: true) {
+                            store.postJob(request); request = ""
+                        }
                         if store.pendingJob {
                             ProgressView().controlSize(.small)
                         } else {
@@ -67,7 +73,7 @@ struct SessionListView: View {
                     } else {
                         ForEach(filteredTabs) { tab in
                             NavigationLink(value: tab.id) {
-                                SessionRow(tab: tab)
+                                SessionRow(tab: tab, machine: store.machines.count > 1 ? TabIds.machine(of: tab.tabId, among: store.machines) : nil)
                             }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
@@ -108,11 +114,6 @@ struct SessionListView: View {
             }
             .listStyle(.plain)
             .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "search sessions + projects")
-            .navigationDestination(for: String.self) { id in
-                if let tab = store.tabs.first(where: { $0.id == id }) {
-                    SessionDetailView(tabRecordName: tab.id)
-                }
-            }
             .navigationTitle("Knife Terminal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -121,15 +122,65 @@ struct SessionListView: View {
                         Task { await store.refresh() }
                     } label: { Text("sync").font(mono(11)) }
                 }
+                .inVerticalBar()
             }
             .refreshable { await store.refresh() }
+        } detail: {
+            // not wrapped in a lookup: a tab that leaves the list while open used to leave a blank
+            // screen here; the detail view says "session closed on the Mac" itself
+            if let selected {
+                SessionDetailView(tabRecordName: selected).id(selected) // fresh draft + scroll per session
+            } else {
+                Text("pick a session").font(mono(12)).foregroundStyle(.secondary)
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+        .environment(\.horizontalSizeClass, hSize == .regular && landscape ? .regular : .compact)
+        // the whole window, so the keyboard coming up cannot make an upright screen look sideways
+        .background {
+            Color.clear.ignoresSafeArea()
+                .onGeometryChange(for: Bool.self) { $0.size.width > $0.size.height } action: { landscape = $0 }
         }
         .onAppear {
             if DemoData.enabled, DemoData.openFirstTab, let first = DemoData.tabs.first {
-                path = [first.id]
+                selected = first.id
             }
         }
     }
+}
+
+extension ToolbarContent {
+    /// iPhone Duo cover screen (iOS 27.1+): the system keeps a vertical bar down the trailing edge,
+    /// under the camera and clock. Items marked this way sit there with the back button and leave
+    /// the top bar to the title; everywhere else they stay in the top bar.
+    @ToolbarContentBuilder func inVerticalBar() -> some ToolbarContent {
+        if #available(iOS 27.1, *) { axisBehavior(.verticalPreferred) } else { self }
+    }
+}
+
+/// Tells SwiftUI whether the system has a vertical bar here — UIKit knows (a trait), SwiftUI has
+/// no environment value for it. Changes when the phone folds or unfolds.
+struct VerticalBarProbe: UIViewRepresentable {
+    @Binding var present: Bool
+
+    final class Probe: UIView {
+        var report: (Bool) -> Void = { _ in }
+        override func didMoveToWindow() { super.didMoveToWindow(); check() }
+        func check() {
+            guard #available(iOS 27.1, *) else { return }
+            let now = traitCollection.verticalBarEdge != .unspecified
+            DispatchQueue.main.async { self.report(now) } // not during a view update
+        }
+    }
+
+    func makeUIView(context: Context) -> Probe {
+        let v = Probe()
+        if #available(iOS 27.1, *) {
+            v.registerForTraitChanges(UITraitCollection.systemTraitsAffectingVerticalBarEdge) { (v: Probe, _) in v.check() }
+        }
+        return v
+    }
+    func updateUIView(_ v: Probe, context: Context) { v.report = { if present != $0 { present = $0 } } }
 }
 
 struct ProjectRow: View {
@@ -173,6 +224,7 @@ struct ProjectRow: View {
 
 struct SessionRow: View {
     let tab: MirroredTab
+    var machine: String? = nil   // which Mac runs it, when there is more than one
     @State private var pulse = false
 
     var body: some View {
@@ -192,6 +244,7 @@ struct SessionRow: View {
                     if tab.attention { Text("waiting for you").font(mono(10)).foregroundStyle(knifeOrange) }
                     else if tab.working { Text("working").font(mono(10)).foregroundStyle(.secondary) }
                     Text(relative(tab.updatedAt)).font(mono(10)).foregroundStyle(.tertiary)
+                    if let machine, tab.share == nil { Text(machine).font(mono(10)).foregroundStyle(.tertiary) }
                 }
             }
         }
