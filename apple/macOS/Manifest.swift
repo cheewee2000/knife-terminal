@@ -153,9 +153,14 @@ enum Manifest {
     }()
     private static var generating = false
     private static var queue: [(path: String, remote: String)] = []
+    /// Remotes whose generation failed this launch. Never retried until relaunch:
+    /// the sidebar asks on every render, so retrying turns one failure into a
+    /// spawn loop (a `claude -p` per second, ~10 API connections each).
+    private static var failed: Set<String> = []
 
     static func description(for path: String, remote: String) -> String? {
         if let d = descriptions[remote] { return d }
+        if failed.contains(remote) { return nil }
         if let d = readmeParagraph(path) { descriptions[remote] = d; saveDescriptions(); return d }
         if !queue.contains(where: { $0.remote == remote }) { queue.append((path, remote)); generateNext() }
         return nil
@@ -187,7 +192,9 @@ enum Manifest {
         queue.removeFirst()
         Task.detached {
             let prompt = "In one specific sentence (max 25 words), say what the software project in \(next.path) does — look at its README, manifest, and top-level source. Reply with the sentence only."
-            let out = run(["claude", "-p", "--model", "haiku", "--output-format", "text", "--add-dir", next.path, prompt],
+            // The prompt goes before --add-dir: that flag is variadic and would
+            // swallow a trailing prompt as a second directory (exit 1, no output).
+            let out = run(["claude", "-p", prompt, "--model", "haiku", "--output-format", "text", "--add-dir", next.path],
                           cwd: dir + "/router", timeout: 180)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             await MainActor.run {
@@ -195,6 +202,8 @@ enum Manifest {
                     descriptions[next.remote] = out
                     saveDescriptions()
                     Task { await AppModel.shared.sync?.publishProjectsIfChanged() }
+                } else {
+                    failed.insert(next.remote)
                 }
                 generating = false
                 generateNext()
