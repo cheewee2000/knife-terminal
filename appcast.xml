@@ -6,16 +6,16 @@
     <description>Updates for Knife Terminal</description>
     <language>en</language>
     <item>
-      <title>Knife Terminal 1.4.31</title>
-      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v1.4.31</link>
-      <sparkle:version>1.1.13</sparkle:version>
-      <sparkle:shortVersionString>1.4.31</sparkle:shortVersionString>
+      <title>Knife Terminal 1.4.44</title>
+      <link>https://github.com/cheewee2000/knife-terminal/releases/tag/v1.4.44</link>
+      <sparkle:version>1.1.14</sparkle:version>
+      <sparkle:shortVersionString>1.4.44</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-      <description><![CDATA[<p><ul><li><b>Links</b> — file paths with spaces in them are now clickable, including paths under a Dropbox folder and paths that word-wrap onto the next row; the chat view links them too.</li></ul></p>]]></description>
+      <description><![CDATA[<p><ul><li><b>Fix</b> — project descriptions in the sidebar no longer relaunch Claude in a loop. On a connection-limited network such as hotel Wi-Fi, that loop could get the Mac throttled.</li><li><b>Photos from the phone</b> — pick photos in the iPhone app and send them into any tab; in a Claude tab they attach as images.</li><li><b>Multi-agent tabs</b> — run several coding agents in one tab. They can debate a prompt down to one answer or split the work between them.</li><li><b>Agent sign-in per tab</b> — choose the shell default, a plan sign-in, or an API key kept in the Keychain.</li></ul></p>]]></description>
       <enclosure
-        url="https://github.com/cheewee2000/knife-terminal/releases/download/v1.4.31/Knife-Terminal-1.4.31.zip"
+        url="https://github.com/cheewee2000/knife-terminal/releases/download/v1.4.44/Knife-Terminal-1.4.44.zip"
         type="application/octet-stream"
-        sparkle:edSignature="6G75F9zOX/8P2VPgDwYSud5XZslgD8xIdIjALtw5i5bifmZM3PK0+UM1HQXw8uVST3u+xeSdqFt/sRk0sYyGAw==" length="5535582"/>
+        sparkle:edSignature="pWkKprHYs2+6/UsusQDekxYFcJ5Et12MMj7+rp9DgCbE+F33ohrljtddLQpoBUe891k6uOYeLrUrgQSHD/yjCw==" length="5736901"/>
     </item>
   </channel>
 </rss>
